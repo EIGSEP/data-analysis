@@ -1,5 +1,7 @@
 .venv/
 .ipynb_checkpoints/
+build/
 data/
 ripple_plots/
+**egg-info/
 **.npz
