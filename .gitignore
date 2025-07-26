@@ -5,3 +5,4 @@ data/
 ripple_plots/
 **egg-info/
 **.npz
+**__pycache__/
