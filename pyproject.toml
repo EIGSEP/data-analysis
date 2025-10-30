@@ -22,8 +22,6 @@ dependencies = [
     "numpy",
     "scipy",
     "matplotlib",
-    "eigsep_corr @ git+https://github.com/EIGSEP/eigsep_corr.git@main",
-    "eigsep_observing @ git+https://github.com/EIGSEP/eigsep_observing.git@main",
 ]
 
 [project.optional-dependencies]

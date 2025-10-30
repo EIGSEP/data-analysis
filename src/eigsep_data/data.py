@@ -4,7 +4,7 @@ import warnings
 
 import numpy as np
 
-from eigsep_observing import io
+from . import io
 
 @dataclass
 class EigsepData:
