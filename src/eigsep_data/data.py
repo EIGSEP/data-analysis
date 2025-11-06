@@ -5,7 +5,7 @@ import warnings
 
 import numpy as np
 
-from eigsep_observing import io
+from . import io
 
 
 def _parse_time_from_name(fname: str) -> datetime:
