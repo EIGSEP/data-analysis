@@ -52,6 +52,3 @@ def lin2dB(data):
 
 def modeR(data):
     return np.log10(np.abs(modeR))
-
-def mlin(x):
-    return np.mean(lin2dB(x))
