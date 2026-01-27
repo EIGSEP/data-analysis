@@ -6,7 +6,7 @@ array-level logic.
 
 import hera_filters
 import numpy as np
-from scipy.ndimage import binary_dilation, median_filter
+from scipy.ndimage import binary_dilation, convolve, median_filter
 
 
 # from hera_qm
@@ -58,6 +58,66 @@ def median_flagger(data, nsig=8, kernel_half_width=5, return_z=False):
         return flags, z_score
     else:
         return flags
+
+
+# adapted from hera_qm (channel_diff_flagger)
+def mean_flagger(data, noise, nsig=6, kernel_widths=[3, 4, 5], flags=None):
+    """
+    Identify RFI in data using channel differencing kernels. Returns a
+    boolean array of flags with values of True indicating channels
+    flagged for RFI
+
+    Parameters:
+    ----------
+    data: np.ndarray
+        2D data array of the shape (time, frequency)
+    noise: np.ndarray
+        2D array for containing an estimate of the noise standard
+        deviation. Must be the same shape as the data
+    nsig: float, default=6
+        The number of sigma in the metric above which to flag pixels.
+    kernel_widths: list, default=[3, 4, 5]
+        Half-width of the convolution kernels used to produce model.
+        True kernel width is (2 * kernel_width + 1)
+    flags: np.ndarray, default=None
+        2D array of boolean flags to be interpretted as mask for data.
+        Must be the same shape as data.
+
+    Returns:
+    -------
+    flags: np.ndarray
+        Array of boolean flags that has the same shape as the data,
+        where values of True indicate flagged channels
+    """
+    if flags is None:
+        wgts = np.ones_like(data)
+    elif flags is not None and flags.dtype != bool:
+        raise TypeError("Input flag array must be type bool")
+    else:
+        wgts = np.array(np.logical_not(flags), dtype=np.float64)
+
+    # Iterate through kernel widths
+    for kw in kernel_widths:
+        # Build convolution kernel
+        width = 2 * kw + 1
+        kernel = np.ones((1, width))
+        kernel[0, width // 2] = 0
+
+        # Convolve kernel with data and weights
+        _data = convolve(data * wgts, kernel)
+        _wgts = convolve(wgts, kernel)
+
+        # Calculate smooth model
+        model = robust_divide(_data, _wgts)
+
+        # Estimate noise level in absence of RFI
+        sigma = np.abs(model) * (noise / data)
+        res = data - model
+
+        # Identify outlier channels
+        wgts = np.where(res > sigma * nsig, 0.0, 1.0)
+
+    return np.isclose(wgts, 0)
 
 
 # adapted from hera_qm
