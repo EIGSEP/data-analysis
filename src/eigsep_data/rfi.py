@@ -1,0 +1,212 @@
+"""
+Methods for flagging RFI in autocorrelation data. Many of these methods
+are adapted from hera_qm/xrfi.py, but without a lot of the
+array-level logic.
+"""
+
+import hera_filters
+import numpy as np
+from scipy.ndimage import binary_dilation, median_filter
+
+
+# from hera_qm
+def robust_divide(num, den):
+    """
+    Prevent division by zero.
+    This function will compute division between two array-like objects
+    by setting values to infinity when the denominator is small for the
+    given data type. This avoids floating point exception warnings that
+    may hide genuine problems in the data.
+
+    Parameters
+    ----------
+    num : array
+        The numerator.
+    den : array
+        The denominator.
+
+    Returns
+    -------
+    out : array
+        The result of dividing num / den. Elements where b is small
+        (or zero) are set to infinity.
+
+    """
+    thresh = np.finfo(den.dtype).eps
+    out = np.true_divide(num, den, where=(np.abs(den) > thresh))
+    out = np.where(np.abs(den) > thresh, out, np.inf)
+    return out
+
+
+def median_flagger(data, nsig=8, kernel_half_width=5, return_z=False):
+    width = 2 * kernel_half_width + 1
+    kernel = np.ones((1, width))  # no need to set center to 0 for median
+
+    # median calculation
+    model = median_filter(data, footprint=kernel, mode="mirror")
+    residuals = data - model
+
+    # estimate noise from data
+    mad = np.median(np.abs(residuals))  # median abs deviation
+    sigma = 1.4826 * mad
+
+    z_score = robust_divide(residuals, sigma)
+
+    flags = np.where(np.isnan(z_score), True, np.abs(z_score) > nsig)
+
+    if return_z:
+        return flags, z_score
+    else:
+        return flags
+
+
+# adapted from hera_qm
+def dpss_flagger(
+    data,
+    noise,
+    freqs,
+    filter_centers,
+    filter_half_widths,
+    flags=None,
+    nsig=6,
+    mode="dpss_solve",
+    eigenval_cutoff=[1e-9],
+    suppression_factors=[1e-9],
+    cache=None,
+    return_models=False,
+):
+    """
+    Identify RFI in visibilities by filtering data with discrete
+    prolate spheroidal sequences. Returns a boolean array of flags with
+    values of True indicating channels flagged for RFI
+
+    Parameters:
+    ----------
+    data: np.ndarray
+        2D data array of the shape (time, frequency)
+    noise: np.ndarray
+        2D array for containing an estimate of the noise standard
+        deviation of the data.
+        Must be the same shape as the data.
+    freqs: np.ndarray
+        1D array of frequencies present in the data in units of Hz
+    filter_centers: array-like
+        list of floats of centers of delay filter windows in nanosec
+    filter_half_widths: array-like
+        list of floats of half-widths of delay filter windows in nanosec
+    flags: np.ndarray
+        2D array of boolean flags to be interpretted as mask for data.
+        Must be the same shape as data.
+    nsig: float, default=6
+        The number of sigma in the metric above which to flag pixels.
+    mode: str, default='dpss_solve'
+        Method used to solve for DPSS model components. Options are
+        'dpss_matrix', 'dpss_solve', and 'dpss_leastsq'.
+    eigenval_cutoff: array-like, default=[1e-9]
+        List of sinc_matrix eigenvalue cutoffs to use for included
+        DPSS modes.
+    suppression_factors: array-like, default=[1e-9]
+        Specifies the fractional residuals of model to leave in the
+        data. For example, 1e-6 means that the filter
+        will leave in 1e-6 of data fitted by the model.
+    cache: dictionary, default=None
+        Dictionary for caching fitting matrices. By default this value
+        is None to prevent the size of the cached matrices from getting
+        too large. By passing in a cache dictionary, this function could
+        be much faster, but the memory requirement will also increase.
+
+    Returns:
+    -------
+    flags: np.ndarray
+        Array of boolean flags that has the same shape as the data,
+        where values of True indicate flagged channels
+    model : np.ndarray
+        data model
+    sigma : np.ndarray
+        noise model
+    """
+    if len(suppression_factors) == 1 and len(filter_centers) > 1:
+        suppression_factors = len(filter_centers) * suppression_factors
+
+    if len(eigenval_cutoff) == 1 and len(filter_centers) > 1:
+        eigenval_cutoff = len(filter_centers) * eigenval_cutoff
+
+    if flags is None:
+        wgts = np.ones_like(data)
+    elif flags is not None and flags.dtype != bool:
+        raise TypeError("Input flag array must be type bool")
+    else:
+        wgts = np.array(np.logical_not(flags), dtype=np.float64)
+
+    # Compute model and residuals
+    model, _, _ = hera_filters.dspec.fourier_filter(
+        freqs,
+        data,
+        wgts,
+        filter_centers,
+        filter_half_widths,
+        mode=mode,
+        suppression_factors=suppression_factors,
+        eigenval_cutoff=eigenval_cutoff,
+        cache=cache,
+    )
+    res = data - model
+
+    # Use smooth model to noise standard deviation without RFI
+    sigma = np.abs(model) * (noise / data)
+
+    # Determine weights
+    weights = np.where(res > sigma * nsig, True, False)
+    if not return_models:
+        return weights
+    return weights, model, sigma
+
+
+def grow_flags(flags, axes=None):
+    """
+    Grow RFI flags by 1 pixel along `axis`.
+
+    Parameters
+    ----------
+    flags : ndarray of bool
+        2D array of RFI flags.
+    axis : int, tuple or None
+        Which axis to grow the flags in. None means both time and
+        frequency.
+
+    Returns
+    -------
+    new_flags : ndarray of bool
+
+    """
+    new_flags = binary_dilation(flags, axes=axes)
+    return new_flags
+
+
+def broadcast_flags(flags, time_thresh=0.5, freq_thresh=0.5):
+    """
+    Flag an entire integration or entire channel if the flag occupancy
+    is greater than the given threshold.
+
+    Parameters
+    ----------
+    flags : ndarray of bool
+        2D array of RFI flags
+    time_thresh : float
+        Threshold in time axis (axis 0)
+    freq_threshold : float
+        Threhshold in frequency axis (axis 1)
+
+    Returns
+    -------
+    new_flags : ndarray of bool
+
+    """
+    new_flags = flags.copy()
+
+    ch_means = flags.mean(axis=0)  # avg flag in each channel
+    int_means = flags.mean(axis=1)  # avg flag in each integration
+
+    new_flags[:, ch_means > freq_thresh] = True
+    new_flags[int_means > time_thresh, :] = True
+    return new_flags
