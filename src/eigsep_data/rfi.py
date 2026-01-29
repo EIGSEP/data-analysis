@@ -30,7 +30,7 @@ def robust_divide(num, den):
     Returns
     -------
     out : array
-        The result of dividing num / den. Elements where b is small
+        The result of dividing num / den. Elements where den is small
         (or zero) are set to infinity.
 
     """
