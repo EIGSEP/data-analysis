@@ -372,8 +372,8 @@ def dpss_flagger(
     # Use smooth model to noise standard deviation without RFI
     sigma = np.abs(model) * (noise / data)
 
-    # Determine weights
-    weights = np.where(res > sigma * nsig, True, False)
+    # Determine weights (flag both positive and negative outliers)
+    weights = np.where(np.abs(res) > sigma * nsig, True, False)
     if not return_models:
         return weights
     return weights, model, sigma
