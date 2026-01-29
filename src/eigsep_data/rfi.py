@@ -271,8 +271,8 @@ def mean_flagger(data, noise, nsig=6, kernel_widths=[3, 4, 5], flags=None):
         sigma = np.abs(model) * (noise / data)
         res = data - model
 
-        # Identify outlier channels
-        wgts = np.where(res > sigma * nsig, 0.0, 1.0)
+        # Identify outlier channels (both positive and negative deviations)
+        wgts = np.where(np.abs(res) > sigma * nsig, 0.0, 1.0)
 
     return np.isclose(wgts, 0)
 
