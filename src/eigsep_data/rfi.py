@@ -42,14 +42,14 @@ def robust_divide(num, den):
 
 def grow_flags(flags, axes=None):
     """
-    Grow RFI flags by 1 pixel along `axis`.
+    Grow RFI flags by 1 pixel along `axes`.
 
     Parameters
     ----------
     flags : ndarray of bool
         2D array of RFI flags.
-    axis : int, tuple or None
-        Which axis to grow the flags in. None means both time and
+    axes : int, tuple or None
+        Which axis or axes to grow the flags in. None means both time and
         frequency.
 
     Returns
