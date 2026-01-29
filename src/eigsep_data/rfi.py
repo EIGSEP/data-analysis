@@ -164,6 +164,38 @@ def median_absolute_deviation(data, axis=None, kernel_len=None):
 
 
 def median_flagger(data, nsig=8, kernel_half_width=5, return_z=False):
+    """
+    Flag data samples using a 1D median filter model and a sigma threshold.
+
+    A rolling median filter is applied along the second axis of the data
+    using a window of width ``2 * kernel_half_width + 1``. Samples whose
+    residuals from this median model exceed ``nsig`` times an estimate of
+    the noise level (from the median absolute deviation) are flagged as RFI.
+
+    Parameters
+    ----------
+    data : ndarray
+        Input data array. Typically 2D with shape ``(ntime, nfreq)``.
+    nsig : float, optional
+        Sigma threshold used to define outliers in units of the estimated
+        standard deviation. Default is 8.
+    kernel_half_width : int, optional
+        Half-width of the rolling median window along the second axis.
+        The full window size is ``2 * kernel_half_width + 1``. Default is 5.
+    return_z : bool, optional
+        If True, also return the z-score array used for thresholding.
+        Default is False.
+
+    Returns
+    -------
+    flags : ndarray of bool
+        Boolean array of the same shape as ``data`` indicating flagged
+        samples (True for flagged).
+    z_score : ndarray, optional
+        Array of z-scores with the same shape as ``data``. Only returned
+        if ``return_z`` is True.
+
+    """
     width = 2 * kernel_half_width + 1
     kernel = np.ones((1, width))  # no need to set center to 0 for median
 
