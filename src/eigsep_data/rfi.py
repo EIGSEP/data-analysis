@@ -312,7 +312,7 @@ def dpss_flagger(
     filter_half_widths: array-like
         list of floats of half-widths of delay filter windows in nanosec
     flags: np.ndarray
-        2D array of boolean flags to be interpretted as mask for data.
+        2D array of boolean flags to be interpreted as mask for data.
         Must be the same shape as data.
     nsig: float, default=6
         The number of sigma in the metric above which to flag pixels.
