@@ -8,6 +8,8 @@ import hera_filters
 import numpy as np
 from scipy.ndimage import binary_dilation, convolve, median_filter
 
+# --------- general methods ---------
+
 
 # from hera_qm
 def robust_divide(num, den):
@@ -36,6 +38,129 @@ def robust_divide(num, den):
     out = np.true_divide(num, den, where=(np.abs(den) > thresh))
     out = np.where(np.abs(den) > thresh, out, np.inf)
     return out
+
+
+def grow_flags(flags, axes=None):
+    """
+    Grow RFI flags by 1 pixel along `axis`.
+
+    Parameters
+    ----------
+    flags : ndarray of bool
+        2D array of RFI flags.
+    axis : int, tuple or None
+        Which axis to grow the flags in. None means both time and
+        frequency.
+
+    Returns
+    -------
+    new_flags : ndarray of bool
+
+    """
+    new_flags = binary_dilation(flags, axes=axes)
+    return new_flags
+
+
+def broadcast_flags(flags, time_thresh=0.5, freq_thresh=0.5):
+    """
+    Flag an entire integration or entire channel if the flag occupancy
+    is greater than the given threshold.
+
+    Parameters
+    ----------
+    flags : ndarray of bool
+        2D array of RFI flags
+    time_thresh : float
+        Threshold in time axis (axis 0)
+    freq_threshold : float
+        Threhshold in frequency axis (axis 1)
+
+    Returns
+    -------
+    new_flags : ndarray of bool
+
+    """
+    new_flags = flags.copy()
+
+    ch_means = flags.mean(axis=0)  # avg flag in each channel
+    int_means = flags.mean(axis=1)  # avg flag in each integration
+
+    new_flags[:, ch_means > freq_thresh] = True
+    new_flags[int_means > time_thresh, :] = True
+    return new_flags
+
+
+# ------ noise estimation methods ------
+
+
+def radiometer_noise(data, dt, df, auto_corr=True):
+    """
+    Estimate the radiometer noise level in the data.
+
+    Parameters
+    ----------
+    data : ndarray
+        2D array of data (or data model) to estimate noise from.
+    dt : float
+        Integration time in seconds.
+    df : float
+        Channel width in Hz.
+    auto_corr : bool
+        Whether the data is from autocorrelations or from
+        cross-correlations.
+
+    Returns
+    -------
+    noise : ndarray
+        2D array of estimated noise standard deviation.
+
+    """
+    noise = np.abs(data) / np.sqrt(dt * df)
+    if not auto_corr:
+        noise /= np.sqrt(2)
+    return noise
+
+
+def median_absolute_deviation(data, axis=None, kernel_len=None):
+    """
+    Compute the median absolute deviation (MAD) of the data.
+
+    Parameters
+    ----------
+    data : ndarray
+        Input 2D data array.
+    axis : {0. 1} or None
+        Axis along which to compute the MAD. If None, compute over
+        the raveled array.
+    kernel_len : int or None
+        If given, compute the MAD in a rolling window of this length
+        along the specified axis.
+
+    Returns
+    -------
+    sigma : ndarray
+        The MAD of the data, scaled to be an estimate of the standard
+        deviation.
+
+    """
+    if kernel_len is not None:
+        if axis is None:
+            raise ValueError("Must specify axis when using kernel_len")
+        shape = [1] * data.ndim
+        shape[axis] = kernel_len
+        med = median_filter(data, size=tuple(shape), mode="mirror")
+        res = np.abs(data - med)
+        mad = median_filter(res, size=tuple(shape), mode="mirror")
+    else:
+        med = np.median(data, axis=axis, keepdims=True)
+        res = np.abs(data - med)
+        mad = np.median(res, axis=axis, keepdims=True)
+
+    sigma = 1.4826 * mad
+    return sigma
+
+
+# ------ flagging methods ------
 
 
 def median_flagger(data, nsig=8, kernel_half_width=5, return_z=False):
@@ -222,51 +347,35 @@ def dpss_flagger(
     return weights, model, sigma
 
 
-def grow_flags(flags, axes=None):
+def dpss2d(data, At, Af, flags=None):
     """
-    Grow RFI flags by 1 pixel along `axis`.
+    Fit a 2D DPSS model to the data.
 
     Parameters
     ----------
+    data : ndarray
+        2D array of data to fit. Shape (time, frequency).
+    At : ndarray
+        Design matrix for time axis.
+    Af : ndarray
+        Design matrix for frequency axis.
     flags : ndarray of bool
-        2D array of RFI flags.
-    axis : int, tuple or None
-        Which axis to grow the flags in. None means both time and
-        frequency.
+        2D array of flags. Shape (time, frequency).
 
     Returns
     -------
-    new_flags : ndarray of bool
+    model : ndarray
+        2D array of the fitted DPSS model. Shape (time, frequency).
+
+    Notes
+    -----
+    Can use hera_filters.dspec.dpss_operators to generate At and Af.
 
     """
-    new_flags = binary_dilation(flags, axes=axes)
-    return new_flags
+    if flags is None:
+        flags = np.zeros_like(data, dtype=bool)
 
-
-def broadcast_flags(flags, time_thresh=0.5, freq_thresh=0.5):
-    """
-    Flag an entire integration or entire channel if the flag occupancy
-    is greater than the given threshold.
-
-    Parameters
-    ----------
-    flags : ndarray of bool
-        2D array of RFI flags
-    time_thresh : float
-        Threshold in time axis (axis 0)
-    freq_threshold : float
-        Threhshold in frequency axis (axis 1)
-
-    Returns
-    -------
-    new_flags : ndarray of bool
-
-    """
-    new_flags = flags.copy()
-
-    ch_means = flags.mean(axis=0)  # avg flag in each channel
-    int_means = flags.mean(axis=1)  # avg flag in each integration
-
-    new_flags[:, ch_means > freq_thresh] = True
-    new_flags[int_means > time_thresh, :] = True
-    return new_flags
+    wgts = np.logical_not(flags).astype(float)
+    fit, _ = hera_filters.dspec.sparse_linear_fit_2D(data, wgts, At, Af)
+    dmdl = At @ fit @ Af.T
+    return dmdl
