@@ -331,16 +331,19 @@ def dpss_flagger(
         is None to prevent the size of the cached matrices from getting
         too large. By passing in a cache dictionary, this function could
         be much faster, but the memory requirement will also increase.
+    return_models: bool, default=False
+        If True, also return the fitted data model and noise (sigma)
+        arrays in addition to the flags.
 
     Returns:
     -------
     flags: np.ndarray
         Array of boolean flags that has the same shape as the data,
         where values of True indicate flagged channels
-    model : np.ndarray
-        data model
-    sigma : np.ndarray
-        noise model
+    model : np.ndarray, optional
+        Data model. Returned only if ``return_models`` is True.
+    sigma : np.ndarray, optional
+        Noise model. Returned only if ``return_models`` is True.
     """
     if len(suppression_factors) == 1 and len(filter_centers) > 1:
         suppression_factors = len(filter_centers) * suppression_factors
