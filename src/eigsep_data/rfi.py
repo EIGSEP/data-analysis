@@ -248,7 +248,7 @@ def mean_flagger(data, noise, nsig=6, kernel_widths=[3, 4, 5], flags=None):
     """
     if flags is None:
         wgts = np.ones_like(data)
-    elif flags is not None and flags.dtype != bool:
+    elif flags.dtype != bool:
         raise TypeError("Input flag array must be type bool")
     else:
         wgts = np.array(np.logical_not(flags), dtype=np.float64)
