@@ -237,7 +237,7 @@ def mean_flagger(data, noise, nsig=6, kernel_widths=[3, 4, 5], flags=None):
         Half-width of the convolution kernels used to produce model.
         True kernel width is (2 * kernel_width + 1)
     flags: np.ndarray, default=None
-        2D array of boolean flags to be interpretted as mask for data.
+        2D array of boolean flags to be interpreted as mask for data.
         Must be the same shape as data.
 
     Returns:
