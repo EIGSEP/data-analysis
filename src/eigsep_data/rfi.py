@@ -129,7 +129,7 @@ def median_absolute_deviation(data, axis=None, kernel_len=None):
     ----------
     data : ndarray
         Input 2D data array.
-    axis : {0. 1} or None
+    axis : {0, 1} or None
         Axis along which to compute the MAD. If None, compute over
         the raveled array.
     kernel_len : int or None
