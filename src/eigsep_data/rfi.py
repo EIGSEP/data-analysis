@@ -72,8 +72,8 @@ def broadcast_flags(flags, time_thresh=0.5, freq_thresh=0.5):
         2D array of RFI flags
     time_thresh : float
         Threshold in time axis (axis 0)
-    freq_threshold : float
-        Threhshold in frequency axis (axis 1)
+    freq_thresh : float
+        Threshold in frequency axis (axis 1)
 
     Returns
     -------
