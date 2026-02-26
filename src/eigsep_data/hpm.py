@@ -22,7 +22,7 @@ def vec2pix(scheme, nside, c1, c2, c3):
     px_out = px_flat.reshape(c1.shape)
     return px_out
 
-@jax.jit
+@partial(jax.jit, static_argnums=(0,))
 def interpolate_map(nside, map_data, c1, c2, c3=None):
     """Jax accelerated map interpolation using healjax vec2ang
     and get_interp_weights."""
@@ -39,7 +39,7 @@ def rotate_interpolate_and_sum(nside, map_data, sky, crds, rot_ms):
     and jnp vector math.'''
     def body(_, rot_m):
         tx, ty, tz = rot_m @ crds  # (3,3) @ (3,N)
-        wgt = _interpolate_map(nside, map_data, tx, ty, tz)
+        wgt = interpolate_map(nside, map_data, tx, ty, tz)
         val = jnp.sum(wgt * sky, axis=0) / jnp.sum(wgt, axis=0)
         return None, val
     _, data_out = jax.lax.scan(body, None, rot_ms)
@@ -85,7 +85,7 @@ class HPM(aipy.healpix.HealpixMap):
     def rotate_interpolate_and_sum(self, sky, crds, rot_ms, chunk_size=16):
         data_out = []
         for i in range(0, rot_ms.shape[0], chunk_size):
-            data_out.append(rotate_interpolate_and_sum(int_dtype(self._nside),
+            data_out.append(rotate_interpolate_and_sum(self._nside,
                             self.map, sky, crds, rot_ms[i:i+chunk_size]))
         return np.concatenate(data_out, axis=0)
 
@@ -96,7 +96,7 @@ class HPM(aipy.healpix.HealpixMap):
         if type(crd) is tuple:
             crd = [aipy.healpix.mk_arr(c, dtype=np.double) for c in crd]
             if self._use_interpol:
-                return interpolate_map(int_dtype(self._nside), self.map, *crd)
+                return interpolate_map(self._nside, self.map, *crd)
             else:
                 px = self.crd2px(*crd)
         else:
