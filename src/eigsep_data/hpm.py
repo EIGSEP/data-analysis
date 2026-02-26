@@ -24,28 +24,26 @@ def vec2pix(scheme, nside, c1, c2, c3):
 
 @jax.jit
 def interpolate_map(nside, map_data, c1, c2, c3=None):
-    '''Jax accelerated map interpolation using healjax vec2ang
-    and get_interp_weights.'''
-    if c3 is not None:  # translate xyz to th/phi
-        c1, c2 = vec2ang(c1, c2, c3)
+    """Jax accelerated map interpolation using healjax vec2ang
+    and get_interp_weights."""
+    if c3 is not None:
+        c1, c2 = healjax.vec2ang(c1, c2, c3)   # healjax.vec2ang is array-safe natively
     px, wgts = get_interp_weights(c1, c2, nside)
+    # map_data[px]: (4, *c1.shape, *map_data.shape[1:])
     slicing = (slice(None),) * wgts.ndim + (None,) * (map_data.ndim - 1)
-    interp_data = jnp.sum(map_data[px] * wgts[slicing], axis=0) 
-    return interp_data
+    return jnp.sum(map_data[px] * wgts[slicing], axis=0)
 
-@jax.jit
+@partial(jax.jit, static_argnums=(0,))
 def rotate_interpolate_and_sum(nside, map_data, sky, crds, rot_ms):
     '''Jax accelerated rotation/interpolation/summing using interpolate_map
     and jnp vector math.'''
-    ntimes, nfreq = rot_ms.shape[0], map_data.shape[-1]
-    data_out = jnp.empty((ntimes, nfreq), dtype=float_dtype)
-    for tind, rot_m in enumerate(rot_ms):
-        tx, ty, tz = jnp.einsum('xy,yp->xp', rot_m, crds)
-        wgt = interpolate_map(nside, map_data, tx, ty, tz)
+    def body(_, rot_m):
+        tx, ty, tz = rot_m @ crds  # (3,3) @ (3,N)
+        wgt = _interpolate_map(nside, map_data, tx, ty, tz)
         val = jnp.sum(wgt * sky, axis=0) / jnp.sum(wgt, axis=0)
-        data_out = data_out.at[tind].set(val)
-    return data_out    
-
+        return None, val
+    _, data_out = jax.lax.scan(body, None, rot_ms)
+    return data_out   # shape: (ntimes, nfreq)
 
 
 #  _   _ ____  __  __ 
