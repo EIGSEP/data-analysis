@@ -40,3 +40,11 @@ def test_load_auto_real_file():
     assert freqs.shape == (lib.N_CHAN,)
     assert n_acc == 10
     assert np.array_equal(lib.detect_comb(spec), lib.comb_channels())
+
+
+def test_floor_amplitude_dynamic_range():
+    spec = _synthetic(floor=500.0, amp=1e8, leak=0.0)
+    tones = lib.comb_channels()
+    assert lib.noise_floor(spec, tones) == pytest.approx(500.0)
+    assert lib.tone_amplitude(spec, tones) == pytest.approx(1e8)
+    assert lib.dynamic_range(spec, tones) == pytest.approx(2e5)

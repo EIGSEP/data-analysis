@@ -50,3 +50,27 @@ def detect_comb(spec, rel_threshold=100.0, band=BAND):
     band_mask = in_band_mask(spec.size, band)
     med = np.median(spec[band_mask])
     return np.where((spec > rel_threshold * med) & band_mask)[0]
+
+
+def off_tone_mask(spec, tones, guard=2, band=BAND):
+    """In-band channels not within ``guard`` of any tone."""
+    mask = in_band_mask(spec.size, band)
+    for t in tones:
+        mask[max(0, t - guard) : t + guard + 1] = False
+    return mask
+
+
+def noise_floor(spec, tones, guard=2, band=BAND):
+    """Median power of the off-tone, in-band channels."""
+    return np.median(spec[off_tone_mask(spec, tones, guard, band)])
+
+
+def tone_amplitude(spec, tones):
+    """Mean power in the tone channels."""
+    return spec[tones].mean()
+
+
+def dynamic_range(spec, tones, guard=2, band=BAND):
+    """Mean tone amplitude divided by the noise floor."""
+    floor = noise_floor(spec, tones, guard, band)
+    return tone_amplitude(spec, tones) / floor
