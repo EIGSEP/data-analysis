@@ -95,3 +95,32 @@ def stacked_profile(spec, tones, half_width=8):
     mean = windows.mean(axis=0)
     err = windows.std(axis=0, ddof=1) / np.sqrt(windows.shape[0])
     return offsets, mean, err
+
+
+def adjacent_excess(spec, tones, half_width=8, near=1):
+    """Excess power in the +/-``near`` channels over the far wing.
+
+    Compares the immediately adjacent (+/-``near``) channels to the
+    in-gap far wing (offsets ``near+1 .. half_width`` on both sides),
+    both measured from the stacked, per-tone-normalized profile with the
+    SAME mean estimator. Using a common estimator cancels the
+    mean-vs-median bias of the noise, so a genuine adjacent-channel
+    leakage shows up as a positive ``diff``.
+
+    Returns ``(near_mean, far_mean, diff, sem)``:
+      near_mean : mean normalized power at offset +/-``near``
+      far_mean  : mean normalized power over the far-wing offsets
+      diff      : ``near_mean - far_mean`` (the adjacent-channel excess)
+      sem       : standard error of ``diff``
+    """
+    offsets, mean, err = stacked_profile(spec, tones, half_width)
+    c = int(np.where(offsets == 0)[0][0])
+    near_idx = [c - near, c + near]
+    far_idx = [c + d for d in range(near + 1, half_width + 1)]
+    far_idx += [c - d for d in range(near + 1, half_width + 1)]
+    near_mean = float(np.mean(mean[near_idx]))
+    far_mean = float(np.mean(mean[far_idx]))
+    near_sem = 0.5 * float(np.hypot(err[c - near], err[c + near]))
+    far_sem = float(np.std(mean[far_idx], ddof=1)) / np.sqrt(len(far_idx))
+    sem = float(np.hypot(near_sem, far_sem))
+    return near_mean, far_mean, near_mean - far_mean, sem

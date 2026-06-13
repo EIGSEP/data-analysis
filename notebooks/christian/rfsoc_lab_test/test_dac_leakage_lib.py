@@ -63,3 +63,20 @@ def test_stacked_profile_recovers_leakage():
     assert mean[c - 2] == pytest.approx(0.0)
     assert offsets[0] == -8 and offsets[-1] == 8
     assert err.shape == mean.shape
+
+
+def test_adjacent_excess_recovers_leakage():
+    leak = 3e-4
+    spec = _synthetic(floor=0.0, amp=1e8, leak=leak, hw_leak=1)
+    tones = lib.comb_channels()
+    near, far, diff, sem = lib.adjacent_excess(spec, tones)
+    assert near == pytest.approx(leak)
+    assert far == pytest.approx(0.0)
+    assert diff == pytest.approx(leak)
+
+
+def test_adjacent_excess_no_leakage():
+    spec = _synthetic(floor=5.0, amp=1e8, leak=0.0)
+    tones = lib.comb_channels()
+    near, far, diff, sem = lib.adjacent_excess(spec, tones)
+    assert diff == pytest.approx(0.0, abs=1e-12)
