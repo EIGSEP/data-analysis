@@ -26,3 +26,17 @@ def test_comb_channels():
     assert tones[-1] == 944
     assert len(tones) == 52
     assert np.all(np.diff(tones) == 16)
+
+
+def test_detect_comb_recovers_comb():
+    spec = _synthetic(floor=1.0, amp=1e6, leak=0.0)
+    assert np.array_equal(lib.detect_comb(spec), lib.comb_channels())
+
+
+def test_load_auto_real_file():
+    path = os.path.join(HERE, "noise_floor_15db.h5")
+    spec, freqs, n_acc = lib.load_auto(path)
+    assert spec.shape == (lib.N_CHAN,)
+    assert freqs.shape == (lib.N_CHAN,)
+    assert n_acc == 10
+    assert np.array_equal(lib.detect_comb(spec), lib.comb_channels())
