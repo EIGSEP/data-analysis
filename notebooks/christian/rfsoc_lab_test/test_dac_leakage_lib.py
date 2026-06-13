@@ -80,3 +80,15 @@ def test_adjacent_excess_no_leakage():
     tones = lib.comb_channels()
     near, far, diff, sem = lib.adjacent_excess(spec, tones)
     assert diff == pytest.approx(0.0, abs=1e-12)
+
+
+def test_adjacent_excess_sem_on_noise():
+    rng = np.random.default_rng(0)
+    tones = lib.comb_channels()
+    spec = np.full(lib.N_CHAN, 100.0)
+    spec += rng.normal(0.0, 5.0, size=lib.N_CHAN)
+    for t in tones:
+        spec[t] = 1e8  # strong tones, no injected adjacent leakage
+    near, far, diff, sem = lib.adjacent_excess(spec, tones)
+    assert sem > 0.0
+    assert abs(diff) < 5 * sem  # consistent with no spillover

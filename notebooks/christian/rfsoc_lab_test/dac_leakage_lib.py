@@ -120,7 +120,8 @@ def adjacent_excess(spec, tones, half_width=8, near=1):
     far_idx += [c - d for d in range(near + 1, half_width + 1)]
     near_mean = float(np.mean(mean[near_idx]))
     far_mean = float(np.mean(mean[far_idx]))
-    near_sem = 0.5 * float(np.hypot(err[c - near], err[c + near]))
-    far_sem = float(np.std(mean[far_idx], ddof=1)) / np.sqrt(len(far_idx))
-    sem = float(np.hypot(near_sem, far_sem))
+    # Common per-offset noise estimated from the far wing, propagated as
+    # a two-sample difference-of-means SEM (same convention for both):
+    sigma_off = float(np.std(mean[far_idx], ddof=1))
+    sem = sigma_off * float(np.sqrt(1.0 / len(near_idx) + 1.0 / len(far_idx)))
     return near_mean, far_mean, near_mean - far_mean, sem
