@@ -48,3 +48,18 @@ def test_floor_amplitude_dynamic_range():
     assert lib.noise_floor(spec, tones) == pytest.approx(500.0)
     assert lib.tone_amplitude(spec, tones) == pytest.approx(1e8)
     assert lib.dynamic_range(spec, tones) == pytest.approx(2e5)
+
+
+def test_stacked_profile_recovers_leakage():
+    leak = 3e-4
+    spec = _synthetic(floor=0.0, amp=1e8, leak=leak, hw_leak=1)
+    tones = lib.comb_channels()
+    offsets, mean, err = lib.stacked_profile(spec, tones, half_width=8)
+    c = int(np.where(offsets == 0)[0][0])
+    assert mean[c] == pytest.approx(1.0)
+    assert mean[c - 1] == pytest.approx(leak)
+    assert mean[c + 1] == pytest.approx(leak)
+    assert mean[c + 2] == pytest.approx(0.0)
+    assert mean[c - 2] == pytest.approx(0.0)
+    assert offsets[0] == -8 and offsets[-1] == 8
+    assert err.shape == mean.shape

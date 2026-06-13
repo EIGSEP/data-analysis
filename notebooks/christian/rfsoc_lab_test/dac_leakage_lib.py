@@ -74,3 +74,24 @@ def dynamic_range(spec, tones, guard=2, band=BAND):
     """Mean tone amplitude divided by the noise floor."""
     floor = noise_floor(spec, tones, guard, band)
     return tone_amplitude(spec, tones) / floor
+
+
+def stacked_profile(spec, tones, half_width=8):
+    """Stack the wings of all comb tones, normalized per tone.
+
+    Each tone's window ``spec[t-hw : t+hw+1]`` is divided by its own
+    tone-channel value ``spec[t]`` and averaged across tones.
+
+    Returns ``(offsets, mean, err)``:
+      offsets : integer channel offsets ``-hw .. hw``
+      mean    : mean normalized power at each offset
+      err     : standard error of the mean across tones
+    """
+    hw = half_width
+    offsets = np.arange(-hw, hw + 1)
+    windows = np.array(
+        [spec[t - hw : t + hw + 1] / spec[t] for t in tones]
+    )  # (n_tones, 2*hw+1)
+    mean = windows.mean(axis=0)
+    err = windows.std(axis=0, ddof=1) / np.sqrt(windows.shape[0])
+    return offsets, mean, err
