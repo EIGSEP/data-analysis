@@ -100,28 +100,37 @@ def stacked_profile(spec, tones, half_width=8):
 def adjacent_excess(spec, tones, half_width=8, near=1):
     """Excess power in the +/-``near`` channels over the far wing.
 
-    Compares the immediately adjacent (+/-``near``) channels to the
-    in-gap far wing (offsets ``near+1 .. half_width`` on both sides),
-    both measured from the stacked, per-tone-normalized profile with the
-    SAME mean estimator. Using a common estimator cancels the
-    mean-vs-median bias of the noise, so a genuine adjacent-channel
-    leakage shows up as a positive ``diff``.
+    For each tone the window ``spec[t-hw : t+hw+1]`` is normalized by
+    its own tone value ``spec[t]``; we form the per-tone contrast
+    ``d = mean(+/-near) - mean(far wing)``, where the far wing is offsets
+    ``near+1 .. half_width`` on both sides. Forming the contrast per tone
+    (a paired comparison) cancels the common tone-to-tone noise-level
+    variation, so the uncertainty reflects only the channel contrast.
 
     Returns ``(near_mean, far_mean, diff, sem)``:
       near_mean : mean normalized power at offset +/-``near``
       far_mean  : mean normalized power over the far-wing offsets
-      diff      : ``near_mean - far_mean`` (the adjacent-channel excess)
-      sem       : standard error of ``diff``
+      diff      : mean over tones of the per-tone contrast
+      sem       : standard error of ``diff`` across tones
     """
-    offsets, mean, err = stacked_profile(spec, tones, half_width)
-    c = int(np.where(offsets == 0)[0][0])
-    near_idx = [c - near, c + near]
-    far_idx = [c + d for d in range(near + 1, half_width + 1)]
-    far_idx += [c - d for d in range(near + 1, half_width + 1)]
-    near_mean = float(np.mean(mean[near_idx]))
-    far_mean = float(np.mean(mean[far_idx]))
-    # Common per-offset noise estimated from the far wing, propagated as
-    # a two-sample difference-of-means SEM (same convention for both):
-    sigma_off = float(np.std(mean[far_idx], ddof=1))
-    sem = sigma_off * float(np.sqrt(1.0 / len(near_idx) + 1.0 / len(far_idx)))
-    return near_mean, far_mean, near_mean - far_mean, sem
+    hw = half_width
+    c = hw
+    near_off = [c - near, c + near]
+    far_off = [c + k for k in range(near + 1, hw + 1)]
+    far_off += [c - k for k in range(near + 1, hw + 1)]
+    near_vals, far_vals, contrast = [], [], []
+    for t in tones:
+        w = spec[t - hw : t + hw + 1] / spec[t]
+        nv = float(np.mean(w[near_off]))
+        fv = float(np.mean(w[far_off]))
+        near_vals.append(nv)
+        far_vals.append(fv)
+        contrast.append(nv - fv)
+    contrast = np.asarray(contrast)
+    sem = float(np.std(contrast, ddof=1) / np.sqrt(contrast.size))
+    return (
+        float(np.mean(near_vals)),
+        float(np.mean(far_vals)),
+        float(contrast.mean()),
+        sem,
+    )
