@@ -169,6 +169,206 @@ class EigsepData:
         )
 
 
+def _select_h5_in_range(data_dir, start_unix, end_unix, file_patterns):
+    """
+    Read HDF5 files in *data_dir* matching *file_patterns* and keep only
+    the integrations with header["times"] in [start_unix, end_unix).
+
+    Returns
+    -------
+    times : np.ndarray, shape (nsamples,)
+        Chronologically sorted Unix times.
+    freqs : np.ndarray or None
+        Frequency axis from the first file's header.
+    data_range : dict[str, np.ndarray]
+        Per-key data arrays, sorted to match *times*.
+    headers : list[dict]
+        Per-file dicts with "selected_indices" (positions in the
+        original file arrays) and "times" (filtered), in file order.
+    metadata : list[dict]
+        Per-file raw metadata dicts (as returned by io.read_hdf5), in
+        file order, aligned with *headers*.
+    sort_index : np.ndarray
+        Index used to sort per-file-concatenated arrays chronologically;
+        reused to align per-file metadata (motor/potmon/imu) extracted
+        separately via *headers*.
+    """
+    data_dir = Path(data_dir)
+    h5_files = []
+    for pattern in file_patterns:
+        h5_files.extend(data_dir.glob(pattern))
+    h5_files = sorted(set(h5_files))
+    if not h5_files:
+        raise FileNotFoundError(
+            f"No files matching {file_patterns} found in:\n{data_dir}"
+        )
+
+    selected_data = {}
+    selected_times = []
+    headers = []
+    metadata = []
+    freqs = None
+
+    for filename in h5_files:
+        data_file, header_file, metadata_file = io.read_hdf5(filename)
+        if "times" not in header_file:
+            raise KeyError(f"{filename.name} does not contain header['times'].")
+
+        times_file = np.asarray(header_file["times"])
+        time_mask = (times_file >= start_unix) & (times_file < end_unix)
+        if not np.any(time_mask):
+            continue
+
+        selected_times.append(times_file[time_mask])
+        headers.append({
+            "selected_indices": np.flatnonzero(time_mask),
+            "times": times_file[time_mask],
+        })
+        metadata.append(metadata_file)
+        if freqs is None:
+            freqs = header_file.get("freqs")
+
+        for key, values in data_file.items():
+            values = np.asarray(values)
+            if values.shape[0] != times_file.size:
+                raise ValueError(
+                    f"{filename.name}, key {key!r}: shape mismatch "
+                    f"({values.shape[0]} vs {times_file.size})"
+                )
+            selected_data.setdefault(key, []).append(values[time_mask])
+
+    if not selected_times:
+        raise ValueError("No integrations found inside the requested time range.")
+
+    times = np.concatenate(selected_times)
+    sort_index = np.argsort(times)
+    times = times[sort_index]
+    data_range = {
+        k: np.concatenate(v, axis=0)[sort_index] for k, v in selected_data.items()
+    }
+
+    return times, freqs, data_range, headers, metadata, sort_index
+
+
+def extract_beam_mapping_data(
+    data_dir,
+    start_time,
+    end_time,
+    file_patterns=("*.h5", "*.hdf5"),
+    sky_key="4",
+    ground_key="0",
+    cross_key="04",
+    sweep_slice=None,
+):
+    """
+    Extract raw beam-mapping arrays from correlator HDF5 files.
+
+    Reads every file matching *file_patterns* in *data_dir*, keeps
+    integrations within [*start_time*, *end_time*), and pulls out the
+    power spectra plus the motor/potentiometer/IMU metadata needed by
+    the beam-mapping pipeline (beam_sim, beam_fit, rfi). The IMU
+    elevation angle is derived from the accelerometer axes via SVD, the
+    same way as the reference notebook.
+
+    Parameters
+    ----------
+    data_dir : str or Path
+        Directory containing correlator HDF5 files.
+    start_time, end_time : str, datetime, or Unix timestamp
+        Time range to select; passed through to_unix_time.
+    file_patterns : tuple of str
+        Glob patterns used to find HDF5 files in *data_dir*.
+    sky_key, ground_key, cross_key : str
+        Data-dict keys for the sky, ground, and cross-correlation power
+        spectra.
+    sweep_slice : slice, optional
+        If given, applied to every returned per-sample array (e.g. to
+        drop a calibration sweep at the start of a run).
+
+    Returns
+    -------
+    dict with keys:
+        times : np.ndarray, shape (nsamples,) -- Unix times
+        freqs : np.ndarray -- frequency axis from the first file's header
+        sky, ground, cross : np.ndarray, shape (nsamples, nchan)
+        el_pos, az_pos : np.ndarray -- commanded motor positions
+        pot_az_angle : np.ndarray -- raw potentiometer azimuth reading
+        imu_el_deg : np.ndarray -- IMU-derived elevation angle
+        imu_accel : np.ndarray, shape (nsamples, 3) -- raw accelerometer
+            (x, y, z)
+    """
+    start_unix = to_unix_time(start_time)
+    end_unix = to_unix_time(end_time)
+    if end_unix <= start_unix:
+        raise ValueError("end_time must be later than start_time.")
+
+    times, freqs, data_range, headers, metadata, sort_index = _select_h5_in_range(
+        data_dir, start_unix, end_unix, file_patterns
+    )
+
+    for key in (sky_key, ground_key, cross_key):
+        if key not in data_range:
+            raise KeyError(
+                f"Data key {key!r} not found; available keys: "
+                f"{sorted(data_range)}"
+            )
+
+    el_list, az_list, pot_list, accel_list = [], [], [], []
+    for header_entry, meta in zip(headers, metadata):
+        indices = header_entry["selected_indices"]
+
+        motor = meta["motor"]
+        file_el, file_az = [], []
+        for idx in indices:
+            entry = motor[idx]
+            if entry is None:
+                file_el.append(np.nan)
+                file_az.append(np.nan)
+            else:
+                file_el.append(entry.get("el_pos", np.nan))
+                file_az.append(entry.get("az_pos", np.nan))
+        el_list.append(np.asarray(file_el, dtype=float))
+        az_list.append(np.asarray(file_az, dtype=float))
+
+        potmon = meta["potmon"]
+        pot_list.append(np.array([potmon[idx]["pot_az_angle"] for idx in indices]))
+
+        imu_el = meta["imu_el"]
+        accel_list.append(np.array([
+            [imu_el[idx]["accel_x"], imu_el[idx]["accel_y"], imu_el[idx]["accel_z"]]
+            for idx in indices
+        ]))
+
+    el_pos = np.concatenate(el_list)[sort_index]
+    az_pos = np.concatenate(az_list)[sort_index]
+    pot_az_angle = np.concatenate(pot_list)[sort_index]
+    accel = np.concatenate(accel_list)[sort_index]
+
+    # IMU elevation angle: SVD of the accelerometer axes finds the plane
+    # of rotation; the angle within that plane tracks elevation.
+    _, _, Vt = np.linalg.svd(accel, full_matrices=False)
+    u, v = Vt[0, :], Vt[1, :]
+    proj_x = accel @ u
+    proj_y = accel @ v
+    imu_el_deg = np.unwrap(np.degrees(np.arctan2(proj_y, proj_x)), period=360) - 180
+
+    out = {
+        "times": times,
+        "freqs": freqs,
+        "sky": data_range[sky_key],
+        "ground": data_range[ground_key],
+        "cross": data_range[cross_key],
+        "el_pos": el_pos,
+        "az_pos": az_pos,
+        "pot_az_angle": pot_az_angle,
+        "imu_el_deg": imu_el_deg,
+        "imu_accel": accel,
+    }
+    if sweep_slice is not None:
+        out = {k: (v if k == "freqs" else v[sweep_slice]) for k, v in out.items()}
+    return out
+
+
 def extract_clean_pot_data_v2(az_pot, az_step, min_stable_samples=10, settle_samples=3):
     """
     Clean noisy potentiometer data by isolating stable plateaus, computing

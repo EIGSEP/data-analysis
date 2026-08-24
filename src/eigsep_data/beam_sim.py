@@ -7,6 +7,7 @@ for JIT compilation and vmapping over rotation angles.
 
 Public API
 ----------
+read_beam
 TransmitterAntenna
 RotatingAntennaCartesian
 power_sim
@@ -25,6 +26,57 @@ from .hpm import xyz2thphi
 jax.config.update("jax_enable_x64", True)
 
 dtype_r = jnp.float64
+
+
+# -----------------------------------------------------------------------
+# HFSS beam I/O
+# -----------------------------------------------------------------------
+
+def read_beam(cart_path, th_path, ph_path, drop_last=True):
+    """
+    Load HFSS beam maps from disk.
+
+    Reads two representations of the same simulated beam:
+      - a complex Cartesian E-field beam (npz, single array stored under
+        key 'arr_0'), shape (nfreq, 3, npix); consumed by
+        RotatingAntennaCartesian for forward simulation and fitting.
+      - spherical theta/phi gain components (two .npy files), summed and
+        peak-normalized per frequency to serve as HFSS "truth" maps for
+        comparison against reduced data.
+
+    Parameters
+    ----------
+    cart_path : str or Path
+        Path to the Cartesian E-field beam .npz file.
+    th_path, ph_path : str or Path
+        Paths to the theta- and phi-polarized gain .npy files.
+    drop_last : bool
+        If True (default), drop the last frequency slice from all three
+        arrays before combining -- matches the convention used elsewhere
+        in this pipeline where the final HFSS entry is unused.
+
+    Returns
+    -------
+    beam_cart : np.ndarray, shape (nfreq, 3, npix)
+        Complex Cartesian E-field beam maps.
+    gain_sph : np.ndarray, shape (nfreq, npix)
+        Peak-normalized total-gain maps (theta + phi power), one per
+        frequency.
+    """
+    with np.load(cart_path) as npz:
+        beam_cart = npz["arr_0"]
+    beam_th = np.load(th_path)
+    beam_ph = np.load(ph_path)
+
+    if drop_last:
+        beam_cart = beam_cart[:-1]
+        beam_th = beam_th[:-1, :]
+        beam_ph = beam_ph[:-1, :]
+
+    gain_sph = beam_th + beam_ph
+    gain_sph = gain_sph / np.max(gain_sph, axis=1, keepdims=True)
+
+    return beam_cart, gain_sph
 
 
 # -----------------------------------------------------------------------
