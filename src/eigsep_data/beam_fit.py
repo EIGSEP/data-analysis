@@ -211,9 +211,10 @@ def rms_err_np(truth, sim, mask=None, eps=1e-30):
     valid = np.isfinite(truth) & np.isfinite(sim)
     if mask is not None:
         valid &= np.asarray(mask, dtype=bool)
-    if np.sum(valid) == 0:
+    n_valid = np.sum(valid)
+    if n_valid == 0:
         return np.nan
-    return np.sqrt(np.sum((truth[valid] - sim[valid]) ** 2))
+    return np.sqrt(np.sum((truth[valid] - sim[valid]) ** 2) / n_valid)
 
 
 def rms_err_per_freq_np(truth, sim, mask=None, eps=1e-30):

@@ -453,7 +453,7 @@ def alms_to_filled_maps(
     return out
 
 
-def sph_fit(maps, nside, lmax, lam, peak_weight_alpha=0.0, peak_weight_gamma=0.0):
+def sph_fit(maps, nside, lmax, lam, peak_weight_alpha=0.0, peak_weight_gamma=2.0):
     """
     Convenience wrapper: fit alms then synthesize full maps.
 
