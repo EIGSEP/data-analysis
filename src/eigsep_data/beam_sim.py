@@ -8,6 +8,7 @@ for JIT compilation and vmapping over rotation angles.
 Public API
 ----------
 read_beam
+tot_g
 TransmitterAntenna
 RotatingAntennaCartesian
 power_sim
@@ -77,6 +78,36 @@ def read_beam(cart_path, th_path, ph_path, drop_last=True):
     gain_sph = gain_sph / np.max(gain_sph, axis=1, keepdims=True)
 
     return beam_cart, gain_sph
+
+
+def tot_g(beam_cart):
+    """
+    Convert a complex Cartesian HFSS E-field beam (in mV) to total gain.
+
+    Assumes a unit incident power (Pinc = 1 W).
+
+    Parameters
+    ----------
+    beam_cart : array-like, shape (..., 3, npix)
+        Complex Cartesian E-field beam, e.g. as returned by read_beam,
+        with axis -2 holding [Ex, Ey, Ez] in millivolts. Leading axes
+        (e.g. frequency) are broadcast over.
+
+    Returns
+    -------
+    gain : jnp.ndarray, shape (..., npix)
+        Total gain at each pixel.
+    """
+    mu0, eps0 = 12.566e-7, 8.854e-12
+    eta0 = jnp.sqrt(mu0 / eps0)
+    Pinc = 1.0
+    K_E = 4 * jnp.pi / (2 * eta0 * Pinc)
+
+    mv_V = 1e-3
+    Ex = beam_cart[..., 0, :] * mv_V
+    Ey = beam_cart[..., 1, :] * mv_V
+    Ez = beam_cart[..., 2, :] * mv_V
+    return (jnp.abs(Ex) ** 2 + jnp.abs(Ey) ** 2 + jnp.abs(Ez) ** 2) * K_E
 
 
 # -----------------------------------------------------------------------
