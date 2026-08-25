@@ -210,14 +210,27 @@ def _select_h5_in_range(data_dir, start_unix, end_unix, file_patterns):
     freqs = None
 
     for filename in h5_files:
-        data_file, header_file, metadata_file = io.read_hdf5(filename)
-        if "times" not in header_file:
-            raise KeyError(f"{filename.name} does not contain header['times'].")
+        try:
+            data_file, header_file, metadata_file = io.read_hdf5(filename)
+            if "times" not in header_file:
+                raise KeyError(f"{filename.name} does not contain header['times'].")
+        except (OSError, KeyError) as e:
+            warnings.warn(f"Skipping {filename.name}: {e}")
+            continue
 
         times_file = np.asarray(header_file["times"])
         time_mask = (times_file >= start_unix) & (times_file < end_unix)
         if not np.any(time_mask):
             continue
+
+        if selected_times and set(data_file) != set(selected_data):
+            raise KeyError(
+                f"{filename.name} has data keys {sorted(data_file)}, which "
+                f"differ from the keys seen so far {sorted(selected_data)}. "
+                "The requested time range straddles a change in recorded "
+                "data keys (e.g. a deployment reconfiguration); narrow the "
+                "range to a window with consistent keys."
+            )
 
         selected_times.append(times_file[time_mask])
         headers.append({
@@ -331,13 +344,23 @@ def extract_beam_mapping_data(
         az_list.append(np.asarray(file_az, dtype=float))
 
         potmon = meta["potmon"]
-        pot_list.append(np.array([potmon[idx]["pot_az_angle"] for idx in indices]))
+        file_pot = []
+        for idx in indices:
+            entry = potmon[idx]
+            file_pot.append(np.nan if entry is None else entry.get("pot_az_angle", np.nan))
+        pot_list.append(np.asarray(file_pot, dtype=float))
 
         imu_el = meta["imu_el"]
-        accel_list.append(np.array([
-            [imu_el[idx]["accel_x"], imu_el[idx]["accel_y"], imu_el[idx]["accel_z"]]
-            for idx in indices
-        ]))
+        file_accel = []
+        for idx in indices:
+            entry = imu_el[idx]
+            if entry is None:
+                file_accel.append((np.nan, np.nan, np.nan))
+            else:
+                file_accel.append(
+                    (entry.get("accel_x", np.nan), entry.get("accel_y", np.nan), entry.get("accel_z", np.nan))
+                )
+        accel_list.append(np.asarray(file_accel, dtype=float))
 
     el_pos = np.concatenate(el_list)[sort_index]
     az_pos = np.concatenate(az_list)[sort_index]
@@ -345,12 +368,19 @@ def extract_beam_mapping_data(
     accel = np.concatenate(accel_list)[sort_index]
 
     # IMU elevation angle: SVD of the accelerometer axes finds the plane
-    # of rotation; the angle within that plane tracks elevation.
-    _, _, Vt = np.linalg.svd(accel, full_matrices=False)
-    u, v = Vt[0, :], Vt[1, :]
-    proj_x = accel @ u
-    proj_y = accel @ v
-    imu_el_deg = np.unwrap(np.degrees(np.arctan2(proj_y, proj_x)), period=360) - 180
+    # of rotation; the angle within that plane tracks elevation. NaN rows
+    # (dropped IMU readings) are excluded from the SVD and left NaN in the
+    # output, since np.linalg.svd raises on NaN input.
+    valid_accel = ~np.any(np.isnan(accel), axis=1)
+    imu_el_deg = np.full(accel.shape[0], np.nan)
+    if np.any(valid_accel):
+        _, _, Vt = np.linalg.svd(accel[valid_accel], full_matrices=False)
+        u, v = Vt[0, :], Vt[1, :]
+        proj_x = accel[valid_accel] @ u
+        proj_y = accel[valid_accel] @ v
+        imu_el_deg[valid_accel] = (
+            np.unwrap(np.degrees(np.arctan2(proj_y, proj_x)), period=360) - 180
+        )
 
     out = {
         "times": times,
