@@ -312,7 +312,12 @@ def summarize_dpss_reduction(dpss_out, test_data_skyavg=None, rfi_bad=None):
             if 0 <= fi < valid.shape[1]:
                 valid[:, fi] = False
 
-    neg_frac = np.mean((reduced <= 0) & valid, axis=0)
+    n_valid = np.sum(valid, axis=0)
+    n_neg = np.sum((reduced <= 0) & valid, axis=0)
+    neg_frac = np.divide(
+        n_neg, n_valid, out=np.full(n_valid.shape, np.nan, dtype=float),
+        where=n_valid > 0,
+    )
 
     print("DPSS reduced shape:", reduced.shape)
     print("DPSS normalized shape:", dps.shape)

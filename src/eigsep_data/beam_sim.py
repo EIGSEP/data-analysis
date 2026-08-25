@@ -314,7 +314,7 @@ def _px_th_ph_vmapped(rx, tx, az, el):
 
 @jax.jit
 def power_sim(rx, tx, az, el, K=1.0, C0=0.0, normalize=True,
-              use_gain_units=False, noise=False):
+              use_gain_units=False):
     """
     Compute received power for every (az, el) pointing.
 

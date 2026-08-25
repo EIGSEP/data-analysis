@@ -884,8 +884,7 @@ def fit_dpss_model_per_time(
     if mask_untrusted_output:
         reduced[:, ~trusted_comb_mask] = np.nan
 
-    test_data = normalize_each_freq(reduced,
-                                    valid=(np.isfinite(reduced) & (reduced >= 0)))
+    test_data = normalize_each_freq(reduced, valid=np.isfinite(reduced))
 
     if verbose:
         print(f"\nDPSS fit diagnostics")

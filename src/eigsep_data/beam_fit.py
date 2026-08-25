@@ -30,7 +30,7 @@ def fit_multi_freq_joint(
     el_deg,
     freq_map,
     mask=None,
-    theta_bounds=(0.0, 180.0),
+    theta_bounds=(90.0, 180.0),
     phi_bounds=(0.0, 360.0),
     alpha_bounds=(0.0, 180.0),
     fit_offset=True,
@@ -60,7 +60,9 @@ def fit_multi_freq_joint(
     mask : array-like of bool, shape (n_samples,), optional
         True = include sample in fit. Defaults to all True.
     theta_bounds : (float, float)
-        Search bounds for polar angle in degrees.
+        Search bounds for polar angle in degrees. Defaults to (90, 180),
+        i.e. the bottom hemisphere (z <= 0), matching the loss map below
+        which always evaluates z = -sqrt(1 - x^2 - y^2).
     phi_bounds : (float, float)
         Search bounds for azimuth in degrees.
     alpha_bounds : (float, float)
@@ -85,8 +87,9 @@ def fit_multi_freq_joint(
         x and y components of best_coord.
     best_alpha : float
         Best-fit polarization angle in degrees.
-    loss_2d : np.ndarray, shape (nx, ny)
-        Loss landscape on a Cartesian grid at best_alpha. Points outside
+    loss_2d : np.ndarray, shape (ny, nx)
+        Loss landscape on a Cartesian grid at best_alpha, indexed
+        [row=y, col=x] per imshow/pcolormesh convention. Points outside
         the unit disk are set to np.inf.
     extent : list of float
         [x_min, x_max, y_min, y_max] for imshow/pcolormesh.
@@ -169,7 +172,7 @@ def fit_multi_freq_joint(
     lo, hi = xy_bounds
     xs = np.arange(lo, hi + grid_res, grid_res)
     ys = np.arange(lo, hi + grid_res, grid_res)
-    loss_2d = np.full((len(xs), len(ys)), np.inf)
+    loss_2d = np.full((len(ys), len(xs)), np.inf)
 
     print(f"Generating {len(xs)}x{len(ys)} Cartesian loss map "
           f"at alpha = {best_alpha:.2f}°...")
@@ -179,7 +182,7 @@ def fit_multi_freq_joint(
             r2 = x ** 2 + y ** 2
             if r2 <= 1.0:
                 z = -np.sqrt(1.0 - r2)
-                loss_2d[i, j] = loss_from_coord(
+                loss_2d[j, i] = loss_from_coord(
                     jnp.array([x, y, z]), best_alpha
                 )
 
