@@ -134,7 +134,7 @@ def calibrate_field_s11(datadir, switchpaths, osldata, pattern="*.h5"):
             uncaled_s11s.setdefault(key, {})
             caled_s11s.setdefault(key, {})
             uncaled_s11s[key][hdr["metadata_snapshot_unix"]] = s11
-            caled_s11s[key][hdr["metadata_snapshot_unix"]] = {}
+            caled_s11s[key][hdr["metadata_snapshot_unix"]] = {'raw': s11}
         osl = np.array([cal_data["VNAO"], cal_data["VNAS"], cal_data["VNAL"]])
         if np.any(osl == 0):
             continue  # unmeasured/invalid internal OSL set
