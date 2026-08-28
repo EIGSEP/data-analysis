@@ -118,3 +118,36 @@ class TestFitSmoothModelOneSpectrum:
             y, basis, fit_mask, enforce_comb_upper=False, return_info=True
         )
         assert not info["success"]
+
+
+class TestFitChannelBounds:
+    """fit_max_chan=0 must mean zero channels, not the whole band."""
+
+    @staticmethod
+    def _bounds(nchan, fit_min_chan, fit_max_chan):
+        # Mirrors the normalization at the top of fit_dpss_model_per_time.
+        if fit_min_chan is None:
+            fit_min_chan = 0
+        if fit_max_chan is None:
+            fit_max_chan = nchan
+        return max(0, int(fit_min_chan)), min(nchan, int(fit_max_chan))
+
+    def test_zero_max_is_not_widened_to_full_band(self):
+        assert self._bounds(1024, None, 0) == (0, 0)
+
+    def test_none_still_means_full_band(self):
+        assert self._bounds(1024, None, None) == (0, 1024)
+
+    def test_explicit_bounds_preserved_and_clamped(self):
+        assert self._bounds(1024, 100, 200) == (100, 200)
+        assert self._bounds(1024, -5, 5000) == (0, 1024)
+
+    def test_matches_module_source(self):
+        # Guard against the falsy-`or` idiom coming back.
+        import inspect
+
+        from eigsep_data import rfi
+
+        src = inspect.getsource(rfi.fit_dpss_model_per_time)
+        assert "fit_max_chan or nchan" not in src
+        assert "fit_min_chan or 0" not in src

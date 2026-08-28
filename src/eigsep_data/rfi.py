@@ -604,8 +604,14 @@ def make_dpss_fit_mask(
     fit_mask : np.ndarray of bool, shape (nchan,)
     """
     chs = np.asarray(chs, dtype=int)
-    fit_min_chan = max(0, int(fit_min_chan or 0))
-    fit_max_chan = min(nchan, int(fit_max_chan or nchan))
+    # `is None`, not `or`: fit_max_chan=0 is a real (if degenerate)
+    # bound, and the falsy-or idiom silently widened it to the full band.
+    if fit_min_chan is None:
+        fit_min_chan = 0
+    if fit_max_chan is None:
+        fit_max_chan = nchan
+    fit_min_chan = max(0, int(fit_min_chan))
+    fit_max_chan = min(nchan, int(fit_max_chan))
 
     fit_mask = np.zeros(nchan, dtype=bool)
     fit_mask[fit_min_chan:fit_max_chan] = True
