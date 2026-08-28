@@ -261,10 +261,12 @@ def _select_h5_in_range(data_dir, start_unix, end_unix, file_patterns):
             )
 
         selected_times.append(times_file[time_mask])
-        headers.append({
-            "selected_indices": np.flatnonzero(time_mask),
-            "times": times_file[time_mask],
-        })
+        headers.append(
+            {
+                "selected_indices": np.flatnonzero(time_mask),
+                "times": times_file[time_mask],
+            }
+        )
         metadata.append(metadata_file)
         if freqs is None:
             freqs = header_file.get("freqs")
@@ -279,13 +281,16 @@ def _select_h5_in_range(data_dir, start_unix, end_unix, file_patterns):
             selected_data.setdefault(key, []).append(values[time_mask])
 
     if not selected_times:
-        raise ValueError("No integrations found inside the requested time range.")
+        raise ValueError(
+            "No integrations found inside the requested time range."
+        )
 
     times = np.concatenate(selected_times)
     sort_index = np.argsort(times)
     times = times[sort_index]
     data_range = {
-        k: np.concatenate(v, axis=0)[sort_index] for k, v in selected_data.items()
+        k: np.concatenate(v, axis=0)[sort_index]
+        for k, v in selected_data.items()
     }
 
     return times, freqs, data_range, headers, metadata, sort_index
@@ -350,8 +355,8 @@ def extract_beam_mapping_data(
     if end_unix <= start_unix:
         raise ValueError("end_time must be later than start_time.")
 
-    times, freqs, data_range, headers, metadata, sort_index = _select_h5_in_range(
-        data_dir, start_unix, end_unix, file_patterns
+    times, freqs, data_range, headers, metadata, sort_index = (
+        _select_h5_in_range(data_dir, start_unix, end_unix, file_patterns)
     )
 
     for key in (sky_key, ground_key, cross_key):
@@ -382,7 +387,9 @@ def extract_beam_mapping_data(
         file_pot = []
         for idx in indices:
             entry = potmon[idx]
-            file_pot.append(np.nan if entry is None else entry.get("pot_az_angle", np.nan))
+            file_pot.append(
+                np.nan if entry is None else entry.get("pot_az_angle", np.nan)
+            )
         pot_list.append(np.asarray(file_pot, dtype=float))
 
         imu_el = meta["imu_el"]
@@ -393,7 +400,11 @@ def extract_beam_mapping_data(
                 file_accel.append((np.nan, np.nan, np.nan))
             else:
                 file_accel.append(
-                    (entry.get("accel_x", np.nan), entry.get("accel_y", np.nan), entry.get("accel_z", np.nan))
+                    (
+                        entry.get("accel_x", np.nan),
+                        entry.get("accel_y", np.nan),
+                        entry.get("accel_z", np.nan),
+                    )
                 )
         accel_list.append(np.asarray(file_accel, dtype=float))
 
@@ -417,7 +428,9 @@ def extract_beam_mapping_data(
         "imu_accel": accel,
     }
     if sweep_slice is not None:
-        out = {k: (v if k == "freqs" else v[sweep_slice]) for k, v in out.items()}
+        out = {
+            k: (v if k == "freqs" else v[sweep_slice]) for k, v in out.items()
+        }
     return out
 
 
@@ -486,7 +499,9 @@ def imu_el_from_accel(accel, el_pos, counts_per_deg=62.77777777777778):
     return imu_el_deg
 
 
-def extract_clean_pot_data_v2(az_pot, az_step, min_stable_samples=10, settle_samples=3):
+def extract_clean_pot_data_v2(
+    az_pot, az_step, min_stable_samples=10, settle_samples=3
+):
     """
     Clean noisy potentiometer data by isolating stable plateaus, computing
     their medians, and linearly interpolating across motor transitions.
@@ -619,7 +634,10 @@ def calibrate_weak_arm(el_deg, az_deg, dpss_red):
     def _malus_law(az, peak_power, min_power, phase_offset):
         az_rad = np.deg2rad(az)
         phase_rad = np.deg2rad(phase_offset)
-        return min_power + (peak_power - min_power) * np.cos(az_rad - phase_rad) ** 2
+        return (
+            min_power
+            + (peak_power - min_power) * np.cos(az_rad - phase_rad) ** 2
+        )
 
     peak_powers = np.full(num_freqs, np.nan)
     for f_idx in range(num_freqs):
@@ -630,7 +648,9 @@ def calibrate_weak_arm(el_deg, az_deg, dpss_red):
         p_v, az_v = p_freq[valid], az_at_0[valid]
         try:
             popt, _ = curve_fit(
-                _malus_law, az_v, p_v,
+                _malus_law,
+                az_v,
+                p_v,
                 p0=[np.max(p_v), np.min(p_v), az_v[np.argmax(p_v)]],
             )
             peak_powers[f_idx] = popt[0]
