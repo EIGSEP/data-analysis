@@ -272,6 +272,7 @@ def extract_beam_mapping_data(
     ground_key="0",
     cross_key="04",
     sweep_slice=None,
+    counts_per_deg=62.77777777777778,
 ):
     """
     Extract raw beam-mapping arrays from correlator HDF5 files.
@@ -297,6 +298,11 @@ def extract_beam_mapping_data(
     sweep_slice : slice, optional
         If given, applied to every returned per-sample array (e.g. to
         drop a calibration sweep at the start of a run).
+    counts_per_deg : float
+        Stepper counts per degree, used to convert *el_pos* to degrees
+        when anchoring the IMU elevation angle. The default follows
+        picohost.motor.PicoMotor (step_angle_deg=1.8, gear_teeth=113,
+        microstep=1), i.e. +-11300 counts = +-180 deg.
 
     Returns
     -------
@@ -306,7 +312,8 @@ def extract_beam_mapping_data(
         sky, ground, cross : np.ndarray, shape (nsamples, nchan)
         el_pos, az_pos : np.ndarray -- commanded motor positions
         pot_az_angle : np.ndarray -- raw potentiometer azimuth reading
-        imu_el_deg : np.ndarray -- IMU-derived elevation angle
+        imu_el_deg : np.ndarray -- IMU-derived elevation angle, in
+            degrees, with sign and zero point anchored to el_pos
         imu_accel : np.ndarray, shape (nsamples, 3) -- raw accelerometer
             (x, y, z)
     """
@@ -367,20 +374,7 @@ def extract_beam_mapping_data(
     pot_az_angle = np.concatenate(pot_list)[sort_index]
     accel = np.concatenate(accel_list)[sort_index]
 
-    # IMU elevation angle: SVD of the accelerometer axes finds the plane
-    # of rotation; the angle within that plane tracks elevation. NaN rows
-    # (dropped IMU readings) are excluded from the SVD and left NaN in the
-    # output, since np.linalg.svd raises on NaN input.
-    valid_accel = ~np.any(np.isnan(accel), axis=1)
-    imu_el_deg = np.full(accel.shape[0], np.nan)
-    if np.any(valid_accel):
-        _, _, Vt = np.linalg.svd(accel[valid_accel], full_matrices=False)
-        u, v = Vt[0, :], Vt[1, :]
-        proj_x = accel[valid_accel] @ u
-        proj_y = accel[valid_accel] @ v
-        imu_el_deg[valid_accel] = (
-            np.unwrap(np.degrees(np.arctan2(proj_y, proj_x)), period=360) - 180
-        )
+    imu_el_deg = imu_el_from_accel(accel, el_pos, counts_per_deg)
 
     out = {
         "times": times,
@@ -397,6 +391,71 @@ def extract_beam_mapping_data(
     if sweep_slice is not None:
         out = {k: (v if k == "freqs" else v[sweep_slice]) for k, v in out.items()}
     return out
+
+
+def imu_el_from_accel(accel, el_pos, counts_per_deg=62.77777777777778):
+    """
+    Derive elevation in degrees from accelerometer readings.
+
+    An SVD of the accelerometer vectors finds the plane gravity sweeps
+    out as the antenna tilts; the angle within that plane tracks
+    elevation.
+
+    Finding the plane is well posed, but the basis (u, v) spanning it is
+    arbitrary up to a rotation within the plane and a reflection, and
+    LAPACK's choice depends on the rows it is given. Two calls over
+    different time windows of one scan therefore disagree on both the
+    sign and the origin of the angle. Both are anchored to the commanded
+    motor position: the IMU still supplies the precise angle, *el_pos*
+    only resolves the two-fold sign and pins the constant offset.
+
+    Parameters
+    ----------
+    accel : np.ndarray, shape (nsamples, 3)
+        Accelerometer (x, y, z). Rows containing NaN (dropped IMU
+        readings) are excluded from the SVD and left NaN in the output,
+        since np.linalg.svd raises on NaN input.
+    el_pos : np.ndarray, shape (nsamples,)
+        Commanded motor elevation, in stepper counts.
+    counts_per_deg : float
+        Stepper counts per degree, used to convert *el_pos* to degrees.
+
+    Returns
+    -------
+    imu_el_deg : np.ndarray, shape (nsamples,)
+        Elevation in degrees, NaN where the IMU reading was dropped.
+    """
+    accel = np.asarray(accel, dtype=float)
+    el_pos = np.asarray(el_pos, dtype=float)
+    valid = ~np.any(np.isnan(accel), axis=1)
+    imu_el_deg = np.full(accel.shape[0], np.nan)
+    if not np.any(valid):
+        return imu_el_deg
+
+    _, _, Vt = np.linalg.svd(accel[valid], full_matrices=False)
+    u, v = Vt[0, :], Vt[1, :]
+    proj_x = accel[valid] @ u
+    proj_y = accel[valid] @ v
+    raw_deg = np.unwrap(np.degrees(np.arctan2(proj_y, proj_x)), period=360)
+
+    el_motor_deg = el_pos[valid] / counts_per_deg
+    anchor = np.isfinite(el_motor_deg)
+    if np.count_nonzero(anchor) < 2:
+        warnings.warn(
+            "No usable motor el_pos to anchor the IMU elevation angle; "
+            "its sign and zero point are arbitrary and may differ between "
+            "calls over different time windows."
+        )
+        imu_el_deg[valid] = raw_deg - 180
+        return imu_el_deg
+
+    cov = np.cov(raw_deg[anchor], el_motor_deg[anchor])[0, 1]
+    # cov == 0 means the scan holds one elevation, where the sign is
+    # unobservable and immaterial: the offset below absorbs it.
+    sign = -1.0 if cov < 0 else 1.0
+    offset = np.median(el_motor_deg[anchor] - sign * raw_deg[anchor])
+    imu_el_deg[valid] = sign * raw_deg + offset
+    return imu_el_deg
 
 
 def extract_clean_pot_data_v2(az_pot, az_step, min_stable_samples=10, settle_samples=3):

@@ -96,3 +96,84 @@ class TestExtractCleanPotDataV2:
         out = data.extract_clean_pot_data_v2(y, az_step)
         np.testing.assert_array_equal(out[:20], base[:20])
         np.testing.assert_array_equal(out[46:], base[46:])
+
+
+CPD = 62.77777777777778  # stepper counts per degree
+
+
+def _el_scan(span_deg, n=800, noise=1e-3, seed=0):
+    """Gravity vector for an elevation scan, plus commanded motor counts."""
+    el = np.linspace(-span_deg / 2, span_deg / 2, n)
+    th = np.deg2rad(el)
+    accel = np.stack([np.zeros(n), np.sin(th), -np.cos(th)], axis=1)
+    accel += np.random.default_rng(seed).normal(0, noise, accel.shape)
+    return el, accel, el * CPD
+
+
+class TestImuElFromAccel:
+    """The SVD plane basis is arbitrary; el_pos must anchor it."""
+
+    def test_recovers_truth(self):
+        for span in (80, 180, 260, 360):
+            el, accel, el_pos = _el_scan(span)
+            out = data.imu_el_from_accel(accel, el_pos)
+            assert np.max(np.abs(out - el)) < 1.0
+
+    def test_windows_agree_on_sign_and_origin(self):
+        # Two calls over different time windows of one physical scan used
+        # to disagree by up to ~180 deg in origin, and could come back
+        # mirrored. They must now agree wherever they overlap.
+        for span in (80, 180, 260, 360):
+            el, accel, el_pos = _el_scan(span)
+            full = data.imu_el_from_accel(accel, el_pos)
+            for lo, hi in [(5, 800), (0, 795), (20, 780), (137, 642)]:
+                got = data.imu_el_from_accel(accel[lo:hi], el_pos[lo:hi])
+                np.testing.assert_allclose(got, full[lo:hi], atol=1.0)
+
+    def test_sign_follows_motor_direction(self):
+        # A scan run in the opposite direction must come back with the
+        # opposite sense, not the same one.
+        el, accel, el_pos = _el_scan(180)
+        fwd = data.imu_el_from_accel(accel, el_pos)
+        rev = data.imu_el_from_accel(accel[::-1], el_pos[::-1])
+        assert np.polyfit(el, fwd, 1)[0] > 0
+        assert np.polyfit(el[::-1], rev, 1)[0] > 0
+
+    def test_nan_accel_rows_stay_nan(self):
+        el, accel, el_pos = _el_scan(180)
+        accel[100:110] = np.nan
+        out = data.imu_el_from_accel(accel, el_pos)
+        assert np.isnan(out[100:110]).all()
+        assert np.isfinite(out[:100]).all()
+        assert np.isfinite(out[110:]).all()
+
+    def test_partial_nan_el_pos_still_anchors(self):
+        el, accel, el_pos = _el_scan(180)
+        el_pos = el_pos.copy()
+        el_pos[::3] = np.nan  # most of the anchor dropped
+        out = data.imu_el_from_accel(accel, el_pos)
+        assert np.max(np.abs(out - el)) < 1.0
+
+    def test_fixed_elevation_scan_is_consistent(self):
+        # Zero covariance leaves the sign unobservable; the offset must
+        # still place the answer at the commanded elevation.
+        n = 400
+        th = np.full(n, np.deg2rad(30.0))
+        accel = np.stack([np.zeros(n), np.sin(th), -np.cos(th)], axis=1)
+        accel += np.random.default_rng(0).normal(0, 1e-3, accel.shape)
+        out = data.imu_el_from_accel(accel, np.full(n, 30.0 * CPD))
+        np.testing.assert_allclose(out, 30.0, atol=1.0)
+
+    def test_warns_without_usable_motor_position(self):
+        el, accel, _ = _el_scan(180)
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            out = data.imu_el_from_accel(accel, np.full(len(el), np.nan))
+        assert len(w) == 1
+        assert "anchor" in str(w[0].message)
+        assert np.isfinite(out).all()
+
+    def test_all_nan_accel_returns_all_nan(self):
+        accel = np.full((50, 3), np.nan)
+        out = data.imu_el_from_accel(accel, np.arange(50.0) * CPD)
+        assert np.isnan(out).all()
