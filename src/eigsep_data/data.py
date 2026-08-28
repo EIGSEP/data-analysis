@@ -4,6 +4,7 @@ from pathlib import Path
 import re
 import warnings
 
+import h5py
 import numpy as np
 from scipy.optimize import curve_fit
 
@@ -223,17 +224,31 @@ def _select_h5_in_range(data_dir, start_unix, end_unix, file_patterns):
     freqs = None
 
     for filename in h5_files:
+        # Read header["times"] alone before deciding whether to load the
+        # file. io.read_hdf5 pulls the full payload at ~36 ms/file, which
+        # is ~77x the cost of this peek and is wasted on every file
+        # outside the window -- and in a deployment directory of several
+        # thousand files, that is nearly all of them. Selection still
+        # uses header times, so this changes speed only, not results.
         try:
-            data_file, header_file, metadata_file = io.read_hdf5(filename)
-            if "times" not in header_file:
-                raise KeyError(f"{filename.name} does not contain header['times'].")
+            with h5py.File(filename, "r") as h5:
+                if "header" not in h5 or "times" not in h5["header"]:
+                    raise KeyError(
+                        f"{filename.name} does not contain header['times']."
+                    )
+                times_file = np.asarray(h5["header"]["times"])
         except (OSError, KeyError) as e:
             warnings.warn(f"Skipping {filename.name}: {e}")
             continue
 
-        times_file = np.asarray(header_file["times"])
         time_mask = (times_file >= start_unix) & (times_file < end_unix)
         if not np.any(time_mask):
+            continue
+
+        try:
+            data_file, header_file, metadata_file = io.read_hdf5(filename)
+        except (OSError, KeyError) as e:
+            warnings.warn(f"Skipping {filename.name}: {e}")
             continue
 
         if selected_times and set(data_file) != set(selected_data):
