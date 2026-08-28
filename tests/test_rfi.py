@@ -43,3 +43,78 @@ class TestMedianFlagger:
         d = np.full((20, 64), 7.0)
         flags = rfi.median_flagger(d)
         assert not flags.any()
+
+
+class TestFitSmoothModelOneSpectrum:
+    """The MAD-clipping refit must not solve an underdetermined system."""
+
+    @staticmethod
+    def _setup(nchan=64, nterms=8, poly_order=2, spread=False, n_out=3):
+        basis = rfi.build_dpss_basis(
+            nchan, nterms=nterms, poly_order=poly_order
+        )
+        nbasis = basis.shape[1]
+        rng = np.random.default_rng(1)
+        y = np.full(nchan, 1e3) + rng.normal(0, 1.0, nchan)
+        ngood = nbasis + 2  # exactly passes the pre-clipping check
+        idx = (
+            np.linspace(0, nchan - 1, ngood).astype(int)
+            if spread
+            else np.arange(ngood)
+        )
+        fit_mask = np.zeros(nchan, dtype=bool)
+        fit_mask[idx] = True
+        y[idx[:n_out]] *= 50.0  # positive outliers -> MAD-clipped
+        return y, basis, fit_mask, nbasis
+
+    def test_underdetermined_after_clipping_fails(self):
+        # The pre-check passes on the unclipped set, but MAD clipping
+        # drops it below nbasis. The ridge term keeps lhs2 positive
+        # definite, so solve() succeeds and would report a garbage model
+        # as a success.
+        y, basis, fit_mask, _ = self._setup()
+        model, info = rfi.fit_smooth_model_one_spectrum(
+            y, basis, fit_mask, enforce_comb_upper=False, return_info=True
+        )
+        assert info["success"] is False
+        assert "clipping" in info["message"]
+        assert np.isnan(model).all()
+
+    def test_healthy_fit_still_succeeds(self):
+        # Guard must not fire on a well-sampled spectrum.
+        nchan = 256
+        basis = rfi.build_dpss_basis(nchan, nterms=12, poly_order=2)
+        rng = np.random.default_rng(3)
+        y = 1e3 * (1.0 + 0.1 * np.linspace(-1, 1, nchan) ** 2)
+        y += rng.normal(0, 1.0, nchan)
+        fit_mask = np.ones(nchan, dtype=bool)
+        model, info = rfi.fit_smooth_model_one_spectrum(
+            y, basis, fit_mask, enforce_comb_upper=False, return_info=True
+        )
+        assert info["success"] is True
+        assert np.isfinite(model).all()
+        np.testing.assert_allclose(model, y, rtol=0.05)
+
+    def test_pre_clipping_check_still_fires(self):
+        # The original guard on the unclipped set must be unaffected.
+        nchan = 64
+        basis = rfi.build_dpss_basis(nchan, nterms=8, poly_order=2)
+        nbasis = basis.shape[1]
+        y = np.full(nchan, 1e3)
+        fit_mask = np.zeros(nchan, dtype=bool)
+        fit_mask[: nbasis - 1] = True
+        model, info = rfi.fit_smooth_model_one_spectrum(
+            y, basis, fit_mask, enforce_comb_upper=False, return_info=True
+        )
+        assert info["success"] is False
+        assert info["message"] == "Not enough valid fit channels"
+        assert np.isnan(model).all()
+
+    def test_failed_fit_recorded_as_unsuccessful_per_time(self):
+        # fit_dpss_model_per_time copies info["success"] into
+        # fit_success; a bad fit must not enter the beam map flagged good.
+        y, basis, fit_mask, _ = self._setup()
+        _, info = rfi.fit_smooth_model_one_spectrum(
+            y, basis, fit_mask, enforce_comb_upper=False, return_info=True
+        )
+        assert not info["success"]

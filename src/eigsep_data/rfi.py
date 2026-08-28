@@ -712,6 +712,12 @@ def fit_smooth_model_one_spectrum(
     rfi_mask = residuals > (med_res + 3.0 * (std_robust + 1e-8))
     Ag_fit, yy_fit = Ag[~rfi_mask], yy[~rfi_mask]
 
+    # Re-check after clipping: the ridge term makes lhs2 positive definite
+    # for any ridge > 0, so np.linalg.solve succeeds even when Ag_fit has
+    # fewer rows than nbasis and the fit is underdetermined.
+    if Ag_fit.shape[0] < nbasis + min_good_extra:
+        return _fail("Not enough valid fit channels after RFI clipping")
+
     lhs2 = Ag_fit.T @ Ag_fit + ridge * np.eye(nbasis)
     rhs2 = Ag_fit.T @ yy_fit
     try:
