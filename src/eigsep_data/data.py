@@ -429,12 +429,24 @@ def extract_clean_pot_data_v2(az_pot, az_step, min_stable_samples=10, settle_sam
     boundaries = np.concatenate(([0], change_indices, [len(az_step)]))
 
     plateaus = []
+    dropped = []
     for i in range(len(boundaries) - 1):
         start = boundaries[i]
         end = boundaries[i + 1]
         if (end - start) >= min_stable_samples:
             safe_start = min(start + settle_samples, end - 1)
-            plateau_median = np.median(az_pot[safe_start:end])
+            window = az_pot[safe_start:end]
+            if not np.any(np.isfinite(window)):
+                # A dropout run can cover an entire plateau. Keep it out
+                # of `plateaus` so a NaN median cannot poison the
+                # neighbouring ramps, and record it so it stays NaN
+                # below: there is no measurement here, and interpolating
+                # would assign azimuths the motor never visited.
+                dropped.append((start, end))
+                continue
+            # nanmedian, not median: a single missing sample would
+            # otherwise turn the whole plateau NaN.
+            plateau_median = np.nanmedian(window)
             clean_az_pot[start:end] = plateau_median
             plateaus.append((start, end, plateau_median))
 
@@ -450,6 +462,11 @@ def extract_clean_pot_data_v2(az_pot, az_step, min_stable_samples=10, settle_sam
             clean_az_pot[: plateaus[0][0]] = plateaus[0][2]
         if plateaus[-1][1] < len(clean_az_pot):
             clean_az_pot[plateaus[-1][1] :] = plateaus[-1][2]
+
+    # Applied last: the ramp and edge fills above write across these
+    # spans, and a plateau with no data must stay flagged as missing.
+    for start, end in dropped:
+        clean_az_pot[start:end] = np.nan
 
     return clean_az_pot
 
