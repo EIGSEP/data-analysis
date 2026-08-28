@@ -5,13 +5,69 @@ import jax.numpy as jnp
 import numpy as np
 
 from eigsep_data.beam_sim import (
+    DEFAULT_BEAM_PATH,
     RotatingAntennaCartesian,
     TransmitterAntenna,
     power_sim,
+    read_beam,
 )
 
 NSIDE = 8
 NPIX = healpy.nside2npix(NSIDE)
+
+
+def _write_beam_npz(path, nfreq=4, npix=12):
+    rng = np.random.default_rng(0)
+    beam_cart = rng.normal(size=(nfreq, 3, npix)) + 1j * rng.normal(
+        size=(nfreq, 3, npix)
+    )
+    gain_th = rng.uniform(0.1, 1.0, size=(nfreq, npix))
+    gain_ph = rng.uniform(0.1, 1.0, size=(nfreq, npix))
+    freqs = np.linspace(50.0, 250.0, nfreq)
+    np.savez(
+        path,
+        beam_cart=beam_cart,
+        gain_th=gain_th,
+        gain_ph=gain_ph,
+        freqs=freqs,
+        nside=healpy.npix2nside(npix),
+    )
+    return beam_cart, gain_th, gain_ph, freqs
+
+
+class TestReadBeam:
+    def test_default_path_exists_and_loads(self):
+        # The HFSS bowtie beam ships with the repo; the default must
+        # resolve to it without any override.
+        assert DEFAULT_BEAM_PATH.exists()
+        beam_cart, gain_sph, freqs = read_beam()
+        assert beam_cart.shape[0] == gain_sph.shape[0] == freqs.shape[0]
+        assert beam_cart.shape[1:] == (3, gain_sph.shape[1])
+
+    def test_gain_sph_is_peak_normalized(self, tmp_path):
+        path = tmp_path / "beam.npz"
+        _, gain_th, gain_ph, _ = _write_beam_npz(path)
+        _, gain_sph, _ = read_beam(path, drop_last=False)
+        np.testing.assert_allclose(np.max(gain_sph, axis=1), 1.0)
+        expected = (gain_th + gain_ph) / np.max(
+            gain_th + gain_ph, axis=1, keepdims=True
+        )
+        np.testing.assert_allclose(gain_sph, expected)
+
+    def test_drop_last_trims_every_array_together(self, tmp_path):
+        path = tmp_path / "beam.npz"
+        beam_cart, gain_th, gain_ph, freqs = _write_beam_npz(path, nfreq=5)
+        beam_cart_kept, gain_sph_kept, freqs_kept = read_beam(
+            path, drop_last=True
+        )
+        beam_cart_all, gain_sph_all, freqs_all = read_beam(
+            path, drop_last=False
+        )
+        assert beam_cart_kept.shape[0] == 4
+        assert freqs_kept.shape[0] == 4
+        np.testing.assert_array_equal(freqs_kept, freqs[:-1])
+        np.testing.assert_array_equal(beam_cart_kept, beam_cart_all[:-1])
+        np.testing.assert_array_equal(gain_sph_kept, gain_sph_all[:-1])
 
 
 def _power(beam_cart, conjugate_beam, E2):

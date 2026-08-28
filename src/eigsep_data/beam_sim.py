@@ -35,44 +35,42 @@ dtype_r = jnp.float64
 # HFSS beam I/O
 # -----------------------------------------------------------------------
 
-# The HFSS bowtie beam maps ship with the repo (hfss_beam_maps/) rather
+# The HFSS bowtie beam map ships with the repo (hfss_beam_maps/) rather
 # than being fetched from external storage, so read_beam can default to
-# them directly.
-_HFSS_BEAM_DIR = Path(__file__).resolve().parents[2] / "hfss_beam_maps"
-DEFAULT_BEAM_CART_PATH = _HFSS_BEAM_DIR / "bowtie_beams_cart.npz"
-DEFAULT_BEAM_TH_PATH = _HFSS_BEAM_DIR / "beam_th.npy"
-DEFAULT_BEAM_PH_PATH = _HFSS_BEAM_DIR / "beam_ph.npy"
+# it directly. Single compressed npz with named keys -- freqs, bm-style
+# Cartesian/spherical arrays, nside -- matching the convention used for
+# other simulation inputs (see sim.py's load_beam).
+DEFAULT_BEAM_PATH = (
+    Path(__file__).resolve().parents[2] / "hfss_beam_maps" / "bowtie_beam.npz"
+)
 
 
-def read_beam(
-    cart_path=DEFAULT_BEAM_CART_PATH,
-    th_path=DEFAULT_BEAM_TH_PATH,
-    ph_path=DEFAULT_BEAM_PH_PATH,
-    drop_last=True,
-):
+def read_beam(path=DEFAULT_BEAM_PATH, drop_last=True):
     """
     Load HFSS beam maps from disk.
 
-    Reads two representations of the same simulated beam:
-      - a complex Cartesian E-field beam (npz, single array stored under
-        key 'arr_0'), shape (nfreq, 3, npix); consumed by
-        RotatingAntennaCartesian for forward simulation and fitting.
-      - spherical theta/phi gain components (two .npy files), summed and
-        peak-normalized per frequency to serve as HFSS "truth" maps for
-        comparison against reduced data.
+    Reads a single npz holding two representations of the same simulated
+    beam, plus the frequency each slice corresponds to:
+      - beam_cart : complex Cartesian E-field beam, shape (nfreq, 3, npix);
+        consumed by RotatingAntennaCartesian for forward simulation and
+        fitting.
+      - gain_th, gain_ph : spherical theta/phi gain components, shape
+        (nfreq, npix); summed and peak-normalized per frequency to serve
+        as HFSS "truth" maps for comparison against reduced data.
+      - freqs : frequency of each slice, in MHz, on the same grid as
+        eigsep_observing's correlator freqs (freqs[::16][12:]).
+      - nside : HEALPix nside of the pixelization (npix = 12*nside**2).
 
     Parameters
     ----------
-    cart_path : str or Path
-        Path to the Cartesian E-field beam .npz file. Defaults to the
-        bowtie beam committed at hfss_beam_maps/bowtie_beams_cart.npz.
-    th_path, ph_path : str or Path
-        Paths to the theta- and phi-polarized gain .npy files. Default
-        to the matching files under hfss_beam_maps/.
+    path : str or Path
+        Path to the beam npz file. Defaults to the bowtie beam committed
+        at hfss_beam_maps/bowtie_beam.npz.
     drop_last : bool
-        If True (default), drop the last frequency slice from all three
-        arrays before combining -- matches the convention used elsewhere
-        in this pipeline where the final HFSS entry is unused.
+        If True (default), drop the last frequency slice from beam_cart,
+        gain_th, gain_ph, and freqs before combining -- matches the
+        convention used elsewhere in this pipeline where the final HFSS
+        entry is unused.
 
     Returns
     -------
@@ -81,21 +79,25 @@ def read_beam(
     gain_sph : np.ndarray, shape (nfreq, npix)
         Peak-normalized total-gain maps (theta + phi power), one per
         frequency.
+    freqs : np.ndarray, shape (nfreq,)
+        Frequency of each slice, in MHz.
     """
-    with np.load(cart_path) as npz:
-        beam_cart = npz["arr_0"]
-    beam_th = np.load(th_path)
-    beam_ph = np.load(ph_path)
+    with np.load(path) as npz:
+        beam_cart = npz["beam_cart"]
+        beam_th = npz["gain_th"]
+        beam_ph = npz["gain_ph"]
+        freqs = npz["freqs"]
 
     if drop_last:
         beam_cart = beam_cart[:-1]
         beam_th = beam_th[:-1, :]
         beam_ph = beam_ph[:-1, :]
+        freqs = freqs[:-1]
 
     gain_sph = beam_th + beam_ph
     gain_sph = gain_sph / np.max(gain_sph, axis=1, keepdims=True)
 
-    return beam_cart, gain_sph
+    return beam_cart, gain_sph, freqs
 
 
 def tot_g(beam_cart):
