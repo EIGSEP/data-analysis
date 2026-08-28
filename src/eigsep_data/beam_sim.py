@@ -96,7 +96,11 @@ def tot_g(beam_cart):
     Returns
     -------
     gain : jnp.ndarray, shape (..., npix)
-        Total gain at each pixel.
+        Total gain at each pixel, in absolute (not peak-normalized)
+        units. Note this differs from read_beam's *gain_sph*, which is
+        divided by its per-frequency peak: the two describe the same
+        beam but are not directly comparable without normalizing one of
+        them.
     """
     mu0, eps0 = 12.566e-7, 8.854e-12
     eta0 = jnp.sqrt(mu0 / eps0)
