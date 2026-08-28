@@ -177,3 +177,48 @@ class TestImuElFromAccel:
         accel = np.full((50, 3), np.nan)
         out = data.imu_el_from_accel(accel, np.arange(50.0) * CPD)
         assert np.isnan(out).all()
+
+
+class TestCalibrateWeakArm:
+    def test_no_valid_crossings_returns_nan_not_indexerror(self):
+        # A fixed-elevation azimuth raster has no el=0 crossings, so
+        # power_at_0 is shape (0,) rather than (0, nfreq) and the
+        # per-frequency loop used to raise IndexError before reaching
+        # its own validity check.
+        n = 200
+        el = np.full(n, 45.0)
+        el[::40] = 44.0
+        az = np.linspace(0, 360, n)
+        dpss = np.ones((n, 8))
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            scale, peaks = data.calibrate_weak_arm(el, az, dpss)
+        assert scale.shape == (4,)
+        assert peaks.shape == (8,)
+        assert np.isnan(scale).all()
+        assert np.isnan(peaks).all()
+        assert len(w) == 1
+        assert "crossings" in str(w[0].message)
+
+    def test_crossings_outside_ten_degrees_are_not_valid(self):
+        # Crossings exist but all are steep enough that |el| >= 10 at the
+        # sample before zero, so valid_crossings is still empty.
+        n = 100
+        el = np.tile([30.0, -30.0], n // 2)
+        az = np.linspace(0, 360, n)
+        with warnings.catch_warnings(record=True):
+            warnings.simplefilter("always")
+            scale, peaks = data.calibrate_weak_arm(el, az, np.ones((n, 4)))
+        assert np.isnan(scale).all()
+
+    def test_normal_scan_still_fits(self):
+        el = 45 * np.sin(np.linspace(0, 8 * np.pi, 400))
+        az = np.linspace(0, 720, 400)
+        dpss = (
+            np.abs(np.cos(np.deg2rad(az)))[:, None] ** 2
+            * np.arange(1, 9)[None, :]
+            + 0.01
+        )
+        scale, peaks = data.calibrate_weak_arm(el, az, dpss)
+        assert np.isfinite(peaks).all()
+        assert scale.shape == (4,)

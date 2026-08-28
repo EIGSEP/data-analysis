@@ -564,6 +564,17 @@ def calibrate_weak_arm(el_deg, az_deg, dpss_red):
     crossings = np.where(np.diff(np.sign(el_deg)))[0]
     valid_crossings = [i for i in crossings if abs(el_deg[i]) < 10]
 
+    num_freqs = dpss_red.shape[1]
+    if not valid_crossings:
+        # e.g. a fixed-elevation azimuth raster. Without this, power_at_0
+        # is shape (0,) rather than (0, nfreq) and the per-frequency loop
+        # below raises IndexError before its own validity check runs.
+        warnings.warn(
+            "No el=0 crossings within +-10 deg; cannot fit the weak-arm "
+            "calibration. Returning NaN scale factors."
+        )
+        return np.full(num_freqs // 2, np.nan), np.full(num_freqs, np.nan)
+
     az_at_0 = []
     power_at_0 = []
     for i in valid_crossings:
@@ -582,7 +593,6 @@ def calibrate_weak_arm(el_deg, az_deg, dpss_red):
         phase_rad = np.deg2rad(phase_offset)
         return min_power + (peak_power - min_power) * np.cos(az_rad - phase_rad) ** 2
 
-    num_freqs = dpss_red.shape[1]
     peak_powers = np.full(num_freqs, np.nan)
     for f_idx in range(num_freqs):
         p_freq = power_at_0[:, f_idx]
