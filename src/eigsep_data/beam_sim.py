@@ -282,17 +282,31 @@ class RotatingAntennaCartesian:
     conjugate_beam : bool
         If True, compute V = conj(E_beam) · E_inc (standard receiving
         convention). Set False if the HFSS phase convention appears flipped.
+    el_axis, az_axis : array-like, shape (3,)
+        Unit vectors, in the beam's own Cartesian frame, that the gimbal
+        physically rotates the antenna about for elevation and azimuth.
+        Default to [1, 0, 0] and [0, 0, 1] -- the assumed-ideal mount.
+        Override to test a suspected mounting misalignment (the true
+        mechanical axes not matching the beam's coordinate frame); there
+        is no fit that recovers these from data (see fit_multi_freq_joint
+        notes on the alpha/axis-tilt degeneracy).
     """
 
-    def __init__(self, beam_cart, conjugate_beam=True):
+    def __init__(
+        self,
+        beam_cart,
+        conjugate_beam=True,
+        el_axis=(1, 0, 0),
+        az_axis=(0, 0, 1),
+    ):
         self.beam_cart = jnp.asarray(beam_cart)
         if self.beam_cart.shape[0] != 3:
             raise ValueError(
                 "beam_cart must have shape (3, npix) with axes [Ex, Ey, Ez]."
             )
         self.nside = healpy.npix2nside(int(self.beam_cart.shape[-1]))
-        self.el_axis = jnp.array([1, 0, 0], dtype=dtype_r)
-        self.az_axis = jnp.array([0, 0, 1], dtype=dtype_r)
+        self.el_axis = jnp.asarray(el_axis, dtype=dtype_r)
+        self.az_axis = jnp.asarray(az_axis, dtype=dtype_r)
         self._theta_flip_to_data = False
         self.conjugate_beam = bool(conjugate_beam)
 

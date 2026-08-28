@@ -16,6 +16,34 @@ NSIDE = 8
 NPIX = healpy.nside2npix(NSIDE)
 
 
+class TestRotationAxes:
+    def test_default_axes_unchanged(self):
+        rx = RotatingAntennaCartesian(beam_cart=jnp.zeros((3, NPIX)))
+        np.testing.assert_array_equal(rx.el_axis, [1, 0, 0])
+        np.testing.assert_array_equal(rx.az_axis, [0, 0, 1])
+
+    def test_custom_axes_are_used(self):
+        rx_default = RotatingAntennaCartesian(beam_cart=jnp.zeros((3, NPIX)))
+        rx_tilted = RotatingAntennaCartesian(
+            beam_cart=jnp.zeros((3, NPIX)), el_axis=(0, 1, 0)
+        )
+        np.testing.assert_array_equal(rx_tilted.el_axis, [0, 1, 0])
+        assert not np.allclose(
+            rx_default.rotation(0.3, 0.4), rx_tilted.rotation(0.3, 0.4)
+        )
+
+    def test_custom_axes_survive_pytree_roundtrip(self):
+        rx = RotatingAntennaCartesian(
+            beam_cart=jnp.zeros((3, NPIX)),
+            el_axis=(0, 1, 0),
+            az_axis=(1, 0, 0),
+        )
+        leaves, aux = rx.tree_flatten()
+        rx2 = RotatingAntennaCartesian.tree_unflatten(aux, leaves)
+        np.testing.assert_array_equal(rx2.el_axis, [0, 1, 0])
+        np.testing.assert_array_equal(rx2.az_axis, [1, 0, 0])
+
+
 def _write_beam_npz(path, nfreq=4, npix=12):
     rng = np.random.default_rng(0)
     beam_cart = rng.normal(size=(nfreq, 3, npix)) + 1j * rng.normal(
