@@ -271,7 +271,6 @@ class RotatingAntennaCartesian:
         self.az_axis = jnp.array([0, 0, 1], dtype=dtype_r)
         self._theta_flip_to_data = False
         self.conjugate_beam = bool(conjugate_beam)
-        self.pvec = jnp.array([1, 0, 0], dtype=dtype_r)
 
     def tree_flatten(self):
         leaves = (self.beam_cart, self.el_axis, self.az_axis)
@@ -401,7 +400,10 @@ def power_sim(rx, tx, az, el, K=1.0, C0=0.0, normalize=True,
     pinc_xyz = Es   / En[:, None]
     prx_xyz  = Wxyz / Wn[:, None]
 
-    inner = jnp.einsum("ij,ij->i", jnp.conj(prx_xyz), pinc_xyz)
+    # conjugate_beam lives in the pytree aux data, so it is static under
+    # jit and a plain Python branch is fine here.
+    prx_use = jnp.conj(prx_xyz) if rx.conjugate_beam else prx_xyz
+    inner = jnp.einsum("ij,ij->i", prx_use, pinc_xyz)
     PLF   = (inner.conj() * inner).real
 
     P_shape = C0 + K * (Wpow * PLF * Epow)
