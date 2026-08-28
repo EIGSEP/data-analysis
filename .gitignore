@@ -8,7 +8,9 @@ ripple_plots/
 **egg-info/
 **.npz
 **.npy
-hfss_beam_maps/
+!hfss_beam_maps/bowtie_beams_cart.npz
+!hfss_beam_maps/beam_th.npy
+!hfss_beam_maps/beam_ph.npy
 **__pycache__/
 
 # derived/raw data caches -- regenerate from data/, don't track
