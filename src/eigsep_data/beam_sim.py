@@ -16,6 +16,8 @@ simulate_all_frequencies
 simulate_both_arms_interleaved
 """
 
+from pathlib import Path
+
 import healpy
 import numpy as np
 import jax
@@ -33,7 +35,21 @@ dtype_r = jnp.float64
 # HFSS beam I/O
 # -----------------------------------------------------------------------
 
-def read_beam(cart_path, th_path, ph_path, drop_last=True):
+# The HFSS bowtie beam maps ship with the repo (hfss_beam_maps/) rather
+# than being fetched from external storage, so read_beam can default to
+# them directly.
+_HFSS_BEAM_DIR = Path(__file__).resolve().parents[2] / "hfss_beam_maps"
+DEFAULT_BEAM_CART_PATH = _HFSS_BEAM_DIR / "bowtie_beams_cart.npz"
+DEFAULT_BEAM_TH_PATH = _HFSS_BEAM_DIR / "beam_th.npy"
+DEFAULT_BEAM_PH_PATH = _HFSS_BEAM_DIR / "beam_ph.npy"
+
+
+def read_beam(
+    cart_path=DEFAULT_BEAM_CART_PATH,
+    th_path=DEFAULT_BEAM_TH_PATH,
+    ph_path=DEFAULT_BEAM_PH_PATH,
+    drop_last=True,
+):
     """
     Load HFSS beam maps from disk.
 
@@ -48,9 +64,11 @@ def read_beam(cart_path, th_path, ph_path, drop_last=True):
     Parameters
     ----------
     cart_path : str or Path
-        Path to the Cartesian E-field beam .npz file.
+        Path to the Cartesian E-field beam .npz file. Defaults to the
+        bowtie beam committed at hfss_beam_maps/bowtie_beams_cart.npz.
     th_path, ph_path : str or Path
-        Paths to the theta- and phi-polarized gain .npy files.
+        Paths to the theta- and phi-polarized gain .npy files. Default
+        to the matching files under hfss_beam_maps/.
     drop_last : bool
         If True (default), drop the last frequency slice from all three
         arrays before combining -- matches the convention used elsewhere
