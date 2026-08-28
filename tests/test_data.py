@@ -222,3 +222,28 @@ class TestCalibrateWeakArm:
         scale, peaks = data.calibrate_weak_arm(el, az, dpss)
         assert np.isfinite(peaks).all()
         assert scale.shape == (4,)
+
+
+class TestParseTimeFromName:
+    def test_handles_deployment_naming_variants(self):
+        cases = {
+            "corr_20250922_160500.h5": (2025, 9, 22, 16, 5, 0),
+            "corr_20260715_172825Z.h5": (2026, 7, 15, 17, 28, 25),
+            "corr_20260712_235712Z-1.h5": (2026, 7, 12, 23, 57, 12),
+        }
+        for name, expect in cases.items():
+            got = data._parse_time_from_name(name)
+            assert (
+                got.year,
+                got.month,
+                got.day,
+                got.hour,
+                got.minute,
+                got.second,
+            ) == expect
+
+    def test_unparseable_name_raises(self):
+        import pytest
+
+        with pytest.raises(ValueError):
+            data._parse_time_from_name("not_a_corr_file.h5")

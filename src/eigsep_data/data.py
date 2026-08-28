@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+import re
 import warnings
 
 import numpy as np
@@ -50,11 +51,23 @@ def to_unix_time(value):
 
 def _parse_time_from_name(fname: str) -> datetime:
     """
-    Parse datetime from filename of form 'corr_YYYYMMDD_HHMMSS.h5'
+    Parse datetime from a correlator filename.
+
+    Handles the naming variants seen across deployments, e.g.
+    'corr_20250922_160500.h5', 'corr_20260715_172825Z.h5' (UTC marker)
+    and 'corr_20260712_235712Z-1.h5' (disambiguating suffix for files
+    closed within the same second).
+
+    Note this is the file *close* time, which lags the integrations
+    inside it -- by up to ~17 min on deployment-5 data, and by far more
+    on the ~10% of files written before the clock synced. Use
+    header["times"] whenever the actual integration time matters.
     """
-    stem = Path(fname).stem  # 'corr_20250922_160500'
-    _, datestr, timestr = stem.split("_")  # ['corr', '20250922', '160500']
-    return datetime.strptime(datestr + timestr, "%Y%m%d%H%M%S")
+    stem = Path(fname).stem
+    match = re.search(r"(\d{8})_(\d{6})", stem)
+    if match is None:
+        raise ValueError(f"Could not parse a timestamp from {fname!r}.")
+    return datetime.strptime(match.group(1) + match.group(2), "%Y%m%d%H%M%S")
 
 
 @dataclass
