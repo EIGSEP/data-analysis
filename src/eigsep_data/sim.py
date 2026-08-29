@@ -1,4 +1,3 @@
-from hpm import HPM, float_dtype
 import numpy as np
 import jax.numpy as jnp
 from scipy.interpolate import interp1d
@@ -14,6 +13,8 @@ from pygdsm import GlobalSkyModel16 as GSM16
 import eigsep_terrain.utils as etu
 import aipy
 import tqdm
+from .src import SourceCatalog, query_vizier
+from .hpm import HPM, float_dtype
 
 PRECISION = 1
 
@@ -182,8 +183,9 @@ class GlobalSim:
         self.terrain = terrain
         self.freqs = np.asarray(freqs, dtype=real_dtype)
         self.location = EarthLocation.from_geodetic(lat=lat, lon=lon, height=height)
+        self.times = times
         self.set_sky_model(monopole=monopole)
-        self.set_times(times)
+        self.update_crds(times)
 
     @property
     def nfreqs(self):
@@ -218,10 +220,12 @@ class GlobalSim:
 
     def set_sky_model(self,
                       monopole=None,
-                      weights={'gsm': 1., 'points': 1},
+                      gsm=True,
+                      sun=True,
+                      three_c=True,
+                      nrandom=0,
                       chromatic=True,
                       fq0=150e6,
-                      flatten_index=0,
                      ):
         """Set self.sky_model to a weighted combination of GSM and point sources."""
         gsm = self.gen_galactic_gsm(chromatic=chromatic, fq0=fq0)
@@ -230,9 +234,17 @@ class GlobalSim:
         self.dec = np.pi/2 - th
         self.crd_eq = np.asarray(coordinates.point_source_crd_eq(self.ra, self.dec), dtype=real_dtype)
         gx, gy, gz = self.eq2ga_m @ self.crd_eq
-        flux_pntsrc = self.gen_point_sources(self.npix, chromatic=chromatic, fq0=fq0)
-        self.sky_model = (weights['gsm'] * gsm[gx, gy, gz] + \
-                          weights['points'] * flux_pntsrc    ) * (self.freqs[None, :] / fq0)**flatten_index
+        self.sky_model = gsm[gx, gy, gz] 
+        self.catalog = SourceCatalog(self.nside, self.freqs, self.times)
+        if not sun:
+            self.catalog.set_sun_flux(F0_Sun=0.0)
+        if three_c:
+            srcs, fluxes = query_vizier()
+            self.catalog.add_sources(srcs, fluxes, np.full(fluxes.shape, -1), fq0=178e6)
+        if nrandom > 0:
+            self.catalog.add_random_sources(nrandom)
+        # XXX for now, rasterizing catalog
+        self.sky_model += self.catalog.convert_to_healpix()
         if monopole is not None:
             assert monopole.size == self.nfreqs
             self.sky_model += monopole[None, :]
@@ -259,23 +271,25 @@ class GlobalSim:
         eq2top_m = enu.dot(pm.dot(c2h))
         return eq2top_m
 
-    def get_topocentric(self, tind):
+    def get_topocentric(self, tind, crd_eq=None):
         eq2top_m = self.get_rotation_matrix(tind)
-        tx, ty, tz = eq2top_m.dot(self.crd_eq)
+        if crd_eq is None:
+            crd_eq = self.crd_eq
+        tx, ty, tz = eq2top_m.dot(crd_eq)
         return tx, ty, tz
 
-    def set_times(self, times):
-        self.times = times
+    def update_crds(self, times):
         skycrd = SkyCoord(ra=self.ra, dec=self.dec, unit='rad')
         self.crds = CoordinateRotationERFA(
                     skycoords=skycrd,
-                    times=times,
+                    times=self.times,
                     telescope_loc=self.location,
                     flux=self.sky_model,
                     update_bcrs_every=1e9,
                     precision=PRECISION,
         )
         self.crds.setup()
+
 
     def time2lst(self):
         raise NotImplementedError
@@ -290,20 +304,33 @@ class GlobalSim:
     def terrain_screen(self, crd_top, flux, Tgnd):
         return self.terrain.cover_sky(crd_top, flux, Tgnd=Tgnd)
 
-    def sim(self, azalts=np.zeros((1, 2), dtype=real_dtype), Tgnd=300.0, Trx=50.0, bandpass=1.0, S11=0.0):
+    def sim(self, azalts=np.zeros((1,2), dtype=real_dtype),
+            Tgnd=300.0, Trx=50.0, bandpass=1.0, S11=0.0):
         """Convert the specified (healpix) fluxes into visibilities using fftvis."""
         S12 = 1 - S11
-        NAZALT = azalts.shape[0]
+        assert azalts.shape[-1] == 2
+        nazalt_per_t = azalts.shape[-2]
+        if azalts.ndim == 3:
+            assert azalts.shape[-3] == self.ntimes
+        else:
+            azalts = np.broadcast_to(azalts, (self.ntimes, *azalts.shape))
         rot_ms = self.beam.get_rotation_matrices(azalts[..., 0], azalts[..., 1])
         rot_ms = jnp.asarray(rot_ms, dtype=float_dtype)
-        vis = np.empty((self.ntimes, NAZALT, self.nfreqs), dtype=real_dtype)
+        vis = np.empty((self.ntimes, nazalt_per_t, self.nfreqs), dtype=real_dtype)
         for tind in tqdm.tqdm(range(self.ntimes)):
             crd_top = self.get_topocentric(tind)
+            #self.update_sun_pos(tind)
+            #sun_pix = healpy.vec2pix(nside, self._sun_crd_eq)
+            #self.sky_model[sun_pix, :] += self._Tsun / sun_pix.size
+            #sun_crd_top = self.get_topocentric(tind, crd_eq=self._sun_crd_eq)
             Isky = self.terrain_screen(crd_top, self.sky_model, Tgnd)
+            #self.sky_model[sun_pix, :] -= self._Tsun / sun_pix.size
+            #crd_top = np.concatenate([crd_top, sun_crd_top, self.terrain.tx_crd_top], axis=1)
             crd_top = np.concatenate([crd_top, self.terrain.tx_crd_top], axis=1)
+            #Isky = np.concatenate([Isky, self._Tsun, self.terrain.tx_flux], axis=0)
             Isky = np.concatenate([Isky, self.terrain.tx_flux], axis=0)
             Isky = jnp.asarray(Isky, dtype=float_dtype)
             crd_top = jnp.asarray(crd_top, dtype=float_dtype)
-            sky_spec = self.beam.rotate_interpolate_and_sum(Isky, crd_top, rot_ms)
+            sky_spec = self.beam.rotate_interpolate_and_sum(Isky, crd_top, rot_ms[tind])
             vis[tind] = bandpass[None, :] * (S12[None, :] * sky_spec + Trx)
         return vis

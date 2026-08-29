@@ -45,6 +45,38 @@ def rotate_interpolate_and_sum(nside, map_data, sky, crds, rot_ms):
     _, data_out = jax.lax.scan(body, None, rot_ms)
     return data_out   # shape: (ntimes, nfreq)
 
+#@partial(jax.jit, static_argnums=(0,))
+#def rotate_interpolate_and_sum(nside, map_data, sky, crds, rot_ms):
+#    """
+#    Memory-lean: does NOT materialize (4, Npix, nfreq) nor (Npix, nfreq) beam array.
+#    This is about 10% slower...
+#    """
+#    def one_rot(_, rot_m):
+#        tx, ty, tz = rot_m @ crds  # (3, Npix)
+#
+#        th, ph = healjax.vec2ang(tx, ty, tz)
+#        px, wgts = get_interp_weights(th, ph, nside)  # px,wgts: (4, Npix)
+#
+#        # Accumulate numerator/denominator spectra (nfreq,)
+#        num = jnp.zeros((map_data.shape[1],), dtype=map_data.dtype)
+#        den = jnp.zeros((map_data.shape[1],), dtype=map_data.dtype)
+#
+#        # Loop over 4 neighbors without stacking
+#        def accum(k, state):
+#            num, den = state
+#            beam_k = map_data[px[k], :]                  # (Npix, nfreq)
+#            w_k = wgts[k][:, None]                       # (Npix, 1)
+#            num = num + jnp.sum(beam_k * (w_k * sky), axis=0)
+#            den = den + jnp.sum(beam_k * w_k, axis=0)
+#            return (num, den)
+#
+#        num, den = jax.lax.fori_loop(0, 4, accum, (num, den))
+#        val = num / den
+#        return None, val
+#
+#    _, out = jax.lax.scan(one_rot, None, rot_ms)  # (nrots, nfreq)
+#    return out
+
 
 #  _   _ ____  __  __ 
 # | | | |  _ \|  \/  |
