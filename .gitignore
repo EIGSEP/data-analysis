@@ -1,8 +1,15 @@
 .venv/
 .ipynb_checkpoints/
+# local secrets (API keys etc) -- never commit
+.env
 build/
 data/
 ripple_plots/
 **egg-info/
 **.npz
 **__pycache__/
+
+# derived/raw data caches -- regenerate from data/, don't track
+**.h5
+!notebooks/christian/rfsoc_lab_test/noise_floor_15db.h5
+switch_measurement_061426/

@@ -16,6 +16,8 @@ import tqdm
 from .src import SourceCatalog, query_vizier
 from .hpm import HPM, float_dtype
 
+from .hpm import HPM, float_dtype
+
 PRECISION = 1
 
 if PRECISION == 1:
