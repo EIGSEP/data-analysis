@@ -173,9 +173,9 @@ def calibrate_field_s11(datadir, switchpaths, osldata, pattern="*.h5"):
                 pass  # nothing to de-embed for this DUT
             try:
                 # embed the RF/LNA-leg switch path from dut to lna
-                lna_port = calkit.de_embed_sparams(
+                lna_port = calkit.embed_sparams(
                     sparams=sparam_dict[EMBED_DICT[key][0]],
-                    gamma_prime=dut_port,
+                    gamma=dut_port,
                 )
                 caled_s11s[key][time]["lna"] = lna_port
             except IndexError:
