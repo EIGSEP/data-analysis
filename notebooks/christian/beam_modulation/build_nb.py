@@ -34,19 +34,38 @@ records is transmitter drift or common-mode gain, not rotation.
 ## What the figure shows
 
 One full rotation at azimuth $-90^\circ$. Each curve is one injected tone, coloured by
-frequency. The response varies by up to 26 dB through the turn, with deep nulls near
+frequency, with the sky continuum subtracted from its channel. The response varies by
+8.1–33.1 dB through the turn (median 25.4 dB across tones), with deep nulls near
 $\pm90^\circ$ and maxima at $0^\circ$ and $\pm180^\circ$.
 
 ## Things that are easy to get wrong
 
-- **The comb sits on channel residue 8** (`ch % 16 == 8`), not 15/0/1. A weaker set sits on
-  residue 0. Masking the wrong residues puts every transmitter tone inside a nominally
+- **The comb sits on channel residue 8** (`ch % 16 == 8`), not 15/0/1. A second comb sits
+  on residue 0. Masking the wrong residues puts every transmitter tone inside a nominally
   clean band.
-- **Raw channel power is tone + sky continuum**, so the depth a channel can show is capped
-  by how far the tone sits above the continuum. That ratio rises from 3.3 dB at 76 MHz to
-  24.2 dB at 190 MHz, and the measured depth tracks it to within ~2 dB across the band.
-  The frequency ordering in this figure is therefore **the transmitter link budget, not the
-  beam sharpening**. Do not read it as beam physics.
+- **The two combs are the transmitter's two polarizations, not a strong and a weak set.**
+  Their coupling to the single-polarization bowtie trades off in antiphase as the azimuth
+  is stepped: residue 8 nulls at azimuth $-130^\circ$ exactly where residue 0 peaks, and
+  the reverse near $-45^\circ$ (`explore/54`). At the $-90^\circ$ azimuth this figure uses,
+  residue 8 leads residue 0 by 7.9 dB, so residue 8 is the aligned polarization here.
+- **Raw channel power is tone + sky continuum.** A raw curve flattens onto that pedestal
+  once the tone becomes weak, so the depth it can show is capped by the tone-to-continuum
+  ratio, which rises from 0.2 dB at 53 MHz to 25 dB at 197 MHz. The frequency ordering of
+  raw curves is therefore **the transmitter link budget, not the beam sharpening**.
+  Subtracting the continuum removes that ordering and extends the usable band down to
+  56.6 MHz.
+- **The continuum estimate has to be local.** DPSS models spanning the band were scored
+  against transmitter-off data, where the comb channels carry continuum only and the truth
+  is known (`explore/45`–`47`), and lost to the flanking median: 2.5 per cent against
+  1.6 per cent error at the comb channels. The bandpass has structure on a few MHz that a
+  band-spanning basis cannot follow, and over a window narrow enough to track it a DPSS
+  basis supports less than one mode and reduces to that same local average. Fitting in
+  linear rather than log power is far worse again (28 per cent).
+- **A bin's own scatter is not its error bar.** Each 5° bin holds one to three
+  integrations. Pooling within-bin variances is no better — across a 5° bin the response
+  itself changes by several dB near the shoulders, so that measures the gradient rather
+  than the noise. The noise is taken instead from a null test on the flanking channels,
+  which carry the same continuum and the same estimator error but no injected tone.
 - **Only the first half of the scan is well behaved.** Rotations 0–29 (az $-180^\circ$ to
   $-35^\circ$) vary smoothly with azimuth; rotations 30–51 are ~6× rougher and include
   implausible ~50 dB depths. The azimuth potentiometer does not explain this — its offset
@@ -60,14 +79,12 @@ $\pm90^\circ$ and maxima at $0^\circ$ and $\pm180^\circ$.
 
 code(r"""
 from pathlib import Path
-import json
 
 import h5py
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import Normalize
-from scipy.ndimage import median_filter
 
 REPO = Path.cwd().resolve()
 while not (REPO / "data" / "deployment5_filtered").is_dir():
@@ -81,12 +98,19 @@ OUTDIR = REPO / "notebooks" / "christian" / "beam_modulation"
 KEY0_CACHE = OUTDIR / "key0_raster.npz"
 
 COMB_RESIDUE = 8              # comb tones sit on ch % 16 == 8
-COMB_SPILL = (7, 8, 9, 15, 0, 1)   # tones, their +-1 spillover, and the residue-0 set
-FM_BAND = (86.0, 110.0)       # broadcast FM, excluded throughout
+COMB_SPILL = (7, 8, 9, 15, 0, 1)   # both combs, plus their +-1 spillover
+FM_BAND = (86.0, 110.0)       # broadcast FM plus a margin, excluded throughout
 BIN_DEG = 5.0                 # rotation-angle bin width
-MIN_TONE_SNR = 3.0            # dB the tone must exceed the local continuum, at the peak
-MAX_ROUGHNESS = 0.06          # dB, point-to-point roughness of the flanking channels
-FLAG_DB = 3.0                 # deviation from a 5-sample rolling median that flags a sample
+MAX_ROUGHNESS = 0.25          # dB, point-to-point roughness of the flanking channels
+NSIG = 3.0                    # significance the binned excess must reach to count
+""")
+
+md(r"""
+`MAX_ROUGHNESS` sits in a gap in the distribution: flanking roughness runs smoothly from
+0.013 to 0.174 dB and then jumps to 0.499 dB (244.1 MHz) and 0.953 dB (248.0 MHz), so this
+threshold removes those two channels and nothing else. A tighter cut mattered when the
+figure plotted raw power and the continuum set the floor; with the continuum subtracted and
+the tones well above it, a noisy continuum estimate barely moves the excess.
 """)
 
 code(r"""
@@ -102,6 +126,7 @@ with h5py.File(SIDECAR, "r") as f:
 d4[d4 <= 0] = np.nan
 nchan = d4.shape[1]
 chan = np.arange(nchan)
+is_fm = (freq > FM_BAND[0]) & (freq < FM_BAND[1])
 tmin = (t - t[0]) / 60.0
 
 print(f"{d4.shape[0]} integrations x {nchan} channels, {tmin[-1]:.1f} min contiguous")
@@ -157,22 +182,29 @@ ROT = int(np.argmin(np.abs(rot_az - (-90.0))))
 A, B = rotations[ROT]
 print(f"using rotation {ROT}: azimuth {rot_az[ROT]:+.0f} deg, "
       f"t = {tmin[A]:.1f}-{tmin[B - 1]:.1f} min, {B - A} integrations")
+
+# a channel counts as usable if it is finite through the rotation being plotted, rather
+# than over the whole raster, where a single bad sample would discard it outright
+finite = np.isfinite(d4[A:B]).mean(0) > 0.9
+print(f"{finite.sum()} of {nchan} channels usable through this rotation")
 """)
 
 md(r"""
-### Binning on rotation angle
+### Subtracting the continuum
 
-Each channel is binned in $5^\circ$ steps of rotation angle and referenced to its own value
-at $0^\circ$ — a physical orientation rather than an arbitrary average. Samples deviating
-more than `FLAG_DB` from a 5-sample rolling median along the sweep are flagged; this is a
-light touch that removes isolated RFI hits without smoothing real structure.
+A tone channel holds the injected tone *and* the sky continuum. Raw power therefore
+flattens onto the continuum once the tone becomes weak, and the trough a curve reaches is
+set by its tone-to-continuum ratio rather than by the antenna. The continuum under each
+tone is estimated from the median of the non-comb channels three to six channels either
+side — close enough to track the few-MHz bandpass structure that defeats a band-spanning
+DPSS model, far enough to clear the comb spillover.
 """)
 
 code(r"""
 edges = np.arange(-180.0, 180.0 + BIN_DEG, BIN_DEG)
 centres = 0.5 * (edges[:-1] + edges[1:])
 bin_idx = np.digitize(el, edges) - 1
-ZERO = np.argmin(np.abs(centres))
+ZERO = int(np.argmin(np.abs(centres)))
 
 
 def to_db(x):
@@ -180,60 +212,97 @@ def to_db(x):
         return 10.0 * np.log10(x)
 
 
-def flanking(c, half=(3, 7)):
-    # non-comb channels either side of tone channel c, clear of its spillover
-    lo, hi = half
-    offs = [o for o in range(-hi + 1, hi) if lo <= abs(o) < hi]
-    return [c + o for o in offs if 0 <= c + o < nchan and (c + o) % 16 not in COMB_SPILL]
+def flanking(c):
+    # non-comb, non-FM channels either side of c, clear of the comb spillover
+    return [c + o for o in range(-6, 7)
+            if 3 <= abs(o) <= 6 and 0 <= c + o < nchan and finite[c + o]
+            and (c + o) % 16 not in COMB_SPILL and not is_fm[c + o]]
 
 
-def profile(series, a, b, flag=True):
-    # bin one series over rotation [a, b); returns dB relative to 0 deg
-    s = series[a:b].copy()
-    if flag:
-        smooth = median_filter(np.nan_to_num(s, nan=np.nanmedian(s)), size=5, mode="nearest")
-        s[np.abs(s - smooth) > FLAG_DB] = np.nan
+def binned(series, a, b):
+    # median of the series in each rotation-angle bin
+    s = series[a:b]
     idx = bin_idx[a:b]
-    out = np.full(len(centres), np.nan)
+    mu = np.full(len(centres), np.nan)
     for j in range(len(centres)):
         v = s[(idx == j) & np.isfinite(s)]
         if v.size:
-            out[j] = np.median(v)
-    return out - np.nanmedian(out[ZERO - 1:ZERO + 2])
+            mu[j] = np.median(v)
+    return mu
+
+
+def subtract(c):
+    # continuum-subtracted power in channel c, per integration
+    return d4[:, c] - np.nanmedian(d4[:, flanking(c)], axis=1)
+""")
+
+md(r"""
+### How noisy is a binned excess?
+
+Not something a bin can tell us: each 5° bin holds one to three integrations, so its own
+scatter is far too noisy to use as an error bar and would reject bins at random part-way
+down the slope. Pooling the within-bin variances fails the other way — across 5° the
+response itself changes by several dB near the shoulders, so the pooled number measures the
+gradient, not the noise.
+
+Instead run the identical reduction on the clean channels flanking the tone. They carry the
+same continuum and the same estimator error but no injected tone, so the scatter of their
+binned residual about zero is the noise floor for that tone's excess. It varies from $-7$
+to $-37$ dB relative to each tone's own response at $0^\circ$, so no single level applies
+to all of them.
+""")
+
+code(r"""
+def noise_sigma(c):
+    sds = [np.nanstd(binned(subtract(cp), A, B)) for cp in flanking(c) if flanking(cp)]
+    return np.nanmedian(sds) if sds else np.inf
+
+
+def excess_profile(c):
+    # continuum-subtracted tone power per bin, in dB relative to 0 deg, plus the mask
+    # marking where the excess is significant
+    mu = binned(subtract(c), A, B)
+    ok = mu > NSIG * noise_sigma(c)
+    pos = mu > 0
+    ref = np.nanmedian(mu[ZERO - 1:ZERO + 2])
+    full = np.where(pos, to_db(np.where(pos, mu, np.nan) / ref), np.nan)
+    return full, ok
 """)
 
 md(r"""
 ### Selecting tones
 
-A tone is used only if it is **clean** (its flanking channels are not RFI-ridden) and
-**dominant** (the tone exceeds the local continuum by `MIN_TONE_SNR` at the response peak).
-The second gate matters: below ~76 MHz the injected tone sits within a decibel of the sky
-continuum, so the channel would be tracking the sky rather than the injection.
+A tone is used if its flanking channels are not RFI-ridden and its excess is significant at
+$0^\circ$ and over at least 20 of the 72 bins. There is deliberately **no** smoothness cut
+on a tone's own profile: one was tried, and the secondary dip near $-45^\circ$ that would
+trip it turns out to be present in every tone from 201 to 240 MHz, deepening progressively
+with frequency (`explore/57`), so it is structure in the response rather than a channel
+glitch.
+
+The band limit is the instrument band; the roughness cut removes the DTV-contaminated
+channels above ~225 MHz on its own.
 """)
 
 code(r"""
-peak = np.zeros(len(el), bool)
-peak[A:B] = True
-peak &= np.abs(el) < 30.0                      # near the response maximum
-
-candidates = [c for c in chan[chan % 16 == COMB_RESIDUE] if 50.0 < freq[c] < 200.0]
+in_band = [c for c in chan[(chan % 16 == COMB_RESIDUE) & (freq > 50) & (freq < 250)]]
+candidates = [c for c in in_band if finite[c] and not is_fm[c] and flanking(c)]
 tones, rejected = [], []
 for c in candidates:
-    if FM_BAND[0] < freq[c] < FM_BAND[1]:
-        rejected.append((freq[c], "FM band")); continue
     nb = flanking(c)
-    snr = to_db(np.nanmedian(d4[peak][:, c])) - to_db(np.nanmedian(d4[peak][:, nb]))
-    rough = np.nanmedian(np.abs(np.diff(profile(to_db(np.nanmedian(d4[:, nb], axis=1)), A, B), 2)))
+    rough = np.nanmedian(np.abs(np.diff(binned(to_db(np.nanmedian(d4[:, nb], 1)), A, B), 2)))
     if rough >= MAX_ROUGHNESS:
-        rejected.append((freq[c], f"RFI, roughness {rough:.3f} dB")); continue
-    if snr < MIN_TONE_SNR:
-        rejected.append((freq[c], f"tone only {snr:.1f} dB over continuum")); continue
+        rejected.append((freq[c], f"RFI, flanking roughness {rough:.3f} dB")); continue
+    prof, ok = excess_profile(c)
+    if not ok[ZERO] or ok.sum() < 20:
+        rejected.append((freq[c], f"excess significant in only {int(ok.sum())} bins")); continue
     tones.append(c)
 
 tone_freq = freq[np.array(tones)]
-print(f"{len(tones)} tones kept, {tone_freq.min():.1f}-{tone_freq.max():.1f} MHz, "
-      f"spacing {16 * (freq[1] - freq[0]):.3f} MHz")
-print(f"{len(rejected)} rejected:")
+profs = {c: excess_profile(c) for c in tones}
+print(f"{len(in_band)} comb channels of this polarization in the band; {len(tones)} used, "
+      f"{tone_freq.min():.1f}-{tone_freq.max():.1f} MHz")
+print(f"{len(in_band) - len(candidates)} dropped in the FM band, where there are no clean "
+      f"flanking channels for a continuum estimate")
 for f_, why in rejected:
     print(f"    {f_:7.1f} MHz  {why}")
 """)
@@ -241,38 +310,56 @@ for f_, why in rejected:
 md(r"""
 ### Controls
 
-Two checks before plotting, both run on the same integrations as the figure:
-
 1. **Stationary receiver on the same tones** — bounds transmitter drift and common-mode gain.
-2. **Non-comb channels** — the sky continuum, which should show the same broad structure far
-   more weakly, since an extended source cannot be nulled the way a point source can.
+2. **Raw depth on the same tones** — how much of the modulation the pedestal was hiding.
 """)
 
 code(r"""
-gnd = profile(to_db(np.nanmedian(d0[:, tones], axis=1)), A, B)
-depth = lambda p: np.nanmax(p) - np.nanmin(p)
-print(f"stationary receiver, same tones : {depth(gnd):.2f} dB over the rotation")
+sig = [np.where(profs[c][1], profs[c][0], np.nan) for c in tones]
+sub_depth = np.array([np.nanmax(m) - np.nanmin(m) for m in sig])     # peak-to-trough
+below_zero = np.array([-np.nanmin(m) for m in sig])                  # drop below 0 deg
+raw_depth = np.array([np.ptp(binned(to_db(d4[:, c]), A, B)[
+    np.isfinite(binned(to_db(d4[:, c]), A, B))]) for c in tones])
 
-tone_depths, sky_depths = [], []
-for c in tones:
-    tone_depths.append(depth(profile(to_db(d4[:, c]), A, B)))
-    sky_depths.append(depth(profile(to_db(np.nanmedian(d4[:, flanking(c)], axis=1)), A, B)))
-tone_depths, sky_depths = np.array(tone_depths), np.array(sky_depths)
+gnd_cont = np.nanmedian(d0[:, [o for c in tones for o in flanking(c)]], axis=1)
+gnd_mu = binned(np.nanmedian(d0[:, tones], axis=1) - gnd_cont, A, B)
+gnd = to_db(gnd_mu / np.nanmedian(gnd_mu[ZERO - 1:ZERO + 2]))
 
-print(f"suspended receiver, tones       : {tone_depths.min():.1f}-{tone_depths.max():.1f} dB "
-      f"(median {np.median(tone_depths):.1f})")
-print(f"suspended receiver, non-comb    : median {np.median(sky_depths):.2f} dB "
-      f"-> tones are {np.median(tone_depths) / np.median(sky_depths):.0f}x deeper")
+print(f"subtracted, peak-to-trough : {sub_depth.min():.1f}-{sub_depth.max():.1f} dB "
+      f"(median {np.median(sub_depth):.1f})")
+print(f"subtracted, below 0 deg    : {below_zero.min():.1f}-{below_zero.max():.1f} dB "
+      f"(median {np.median(below_zero):.1f})")
+print(f"raw, peak-to-trough        : {raw_depth.min():.1f}-{raw_depth.max():.1f} dB "
+      f"(median {np.median(raw_depth):.1f})")
+print(f"stationary receiver        : {np.nanmax(gnd) - np.nanmin(gnd):.2f} dB")
 print()
-print("The non-comb channels show the same broad shape but no deep nulls: a point")
-print("transmitter can be nulled by >20 dB, an extended sky cannot, because the rest of")
-print("the beam fills the null in. Averaging 9 rotations (az -110..-70) to beat the noise")
-print("and running the identical reduction on the stationary receiver as a null test gives")
-print("0.96 dB vs 0.04 dB at 55-85 MHz (27x), 0.86 vs 0.16 at 115-145, 0.65 vs 0.18 at 150-195.")
+print("The 0 deg reference is not quite each curve's maximum -- the maxima at +-180 deg sit")
+print("a median of 1.3 dB above it -- so the drop below 0 deg is smaller than the")
+print("peak-to-trough. Quote them consistently; the paper uses peak-to-trough.")
+
+hi = [c for c in tones if freq[c] > 158]
+print(f"\n{sum(1 for c in tones if profs[c][1].all())} tones never drop below the noise "
+      f"anywhere in the sweep;")
+print(f"above 158 MHz that is {sum(1 for c in hi if profs[c][1].all())} of {len(hi)}, so "
+      f"those nulls are measured.")
+print("Below it the tone reaches the noise before the null does and the depths are upper")
+print("limits on the power received in the null.")
 """)
 
 md(r"""
 ## The figure
+
+Curves are drawn wherever the subtracted power is positive, so each one runs past its own
+detection threshold and into the noise rather than stopping dead at a per-curve limit the
+reader cannot decode. Where the tone falls to the level of the continuum the subtraction
+scatters about zero and the curve breaks — 0.6 per cent of bins, almost all within 30° of
+the nulls.
+
+The axis is clipped at $-33$ dB, just below the deepest significant point over all tones
+($-31.3$ dB), so nothing measured is hidden. Left to autoscale it runs to $-42$ dB to
+accommodate noise excursions on two tones (76.2 and 111.3 MHz, the two least reliable
+continuum estimates in the set), which compresses the part of the plot that carries the
+result.
 """)
 
 code(r"""
@@ -281,15 +368,15 @@ smap = ScalarMappable(norm, plt.cm.plasma)
 
 fig, ax = plt.subplots(figsize=(5.2, 3.8))
 for c in tones:
-    ax.plot(centres, profile(to_db(d4[:, c]), A, B),
-            color=smap.to_rgba(freq[c]), lw=0.9, alpha=0.95)
+    ax.plot(centres, profs[c][0], color=smap.to_rgba(freq[c]), lw=0.9, alpha=0.95)
 
 ax.axhline(0.0, color="0.75", lw=0.5, ls=":")
 ax.set_xlim(-180, 180)
+ax.set_ylim(-33, 4)
 ax.set_xticks([-180, -90, 0, 90, 180])
 ax.grid(alpha=0.25, lw=0.5)
 ax.set_xlabel("Platform rotation angle [deg]", fontsize=9)
-ax.set_ylabel("Received power relative to $0^\\circ$ [dB]", fontsize=9)
+ax.set_ylabel("Injected tone power relative to $0^\\circ$ [dB]", fontsize=9)
 ax.tick_params(labelsize=8)
 
 cb = fig.colorbar(smap, ax=ax, pad=0.02)
@@ -303,32 +390,48 @@ print(f"saved {OUTDIR / 'beam_modulation.pdf'}")
 """)
 
 md(r"""
+The version in the paper is rendered at the single-column figure size by
+`docs/render_beam_modulation.py` in the manuscript repo, which carries the same reduction.
+
 ## Caption
 
-> Response of the suspended EIGSEP receiver to platform rotation, measured against an
-> injected signal. A ground-based comb transmitter radiates tones every 3.906 MHz; each
-> curve follows one tone through a single full rotation of the platform about its
-> elevation axis at fixed azimuth ($-90^\circ$), binned in $5^\circ$ steps and referenced
-> to the response at $0^\circ$. The received power varies by up to 26 dB through the turn,
-> with maxima at $0^\circ$ and $\pm180^\circ$ and deep nulls near $\pm90^\circ$. A second,
-> identical receiver fixed on the ground records the same tones over the same integrations
-> and varies by 0.06 dB, confirming that the modulation is the moving antenna's response
-> and not transmitter drift or gain variation. The spread between curves reflects the
-> transmitter's efficiency rising with frequency rather than a change in the antenna
-> response: raw channel power is the sum of tone and sky continuum, so each channel's
-> achievable depth is capped by the tone-to-continuum ratio, which rises from 3.3 dB at
-> 76 MHz to 24.2 dB at 190 MHz. The FM broadcast band (86–110 MHz) is excluded.
+> Response of the suspended EIGSEP antenna to platform rotation, measured against an
+> injected signal during the July 2026 deployment. The curves represent the received power
+> of the bowtie antenna as a function of rotation angle, binned in $5^\circ$ steps. Each
+> curve corresponds to one transmitted tone, coloured by the transmission frequency. Tones
+> in the FM broadcast band are excluded, along with those close enough to its edges that
+> the channels used to estimate the continuum fall inside the band. The sky continuum is
+> subtracted from each tone channel and the power is referenced to the power at $0^\circ$
+> rotation. Each curve is drawn wherever the continuum-subtracted power is positive; where
+> the tone falls to the level of the continuum the subtraction scatters about zero and the
+> curve breaks. The vertical axis is clipped at $-33$ dB, just below the deepest point at
+> which any tone is still significantly detected, so the tails reaching that limit are
+> noise. The depths quoted in the text use only those bins in which a tone stays above its
+> own noise level, which differs from tone to tone.
 
 ## Numbers quoted above
 
 | quantity | value |
 |---|---|
-| tones used | 23, 76–197 MHz, 3.906 MHz spacing |
-| rotation shown | one full turn, azimuth $-90^\circ$, 128 integrations, 69 s |
-| depth, suspended receiver | 4.9–26.4 dB (median 15.7 dB) |
-| depth, stationary receiver | 0.06 dB |
-| depth, non-comb channels | median 1.04 dB — 15× shallower |
-| samples flagged | 0 |
+| tones used | 42, 56.6–240.2 MHz, 3.906 MHz spacing |
+| in-band comb channels of this polarization | 51: 42 used, 6 in the FM band, 2 RFI-rough (244, 248 MHz), 1 not detected (52.7 MHz) |
+| rotation shown | one full turn, azimuth $-90^\circ$, 128 integrations, 68 s |
+| polarization | residue 8, aligned at this azimuth, 7.9 dB above residue 0 |
+| depth, subtracted, peak-to-trough | 8.1–33.1 dB (median 25.4) |
+| depth, subtracted, below $0^\circ$ | 6.9–31.3 dB (median 24.5) |
+| depth, raw, peak-to-trough | 1.7–29.5 dB (median 18.2) |
+| depth, stationary receiver | 0.03 dB |
+| nulls measured rather than limited | above 158 MHz, 17 of 18 tones |
+
+## Why the FM band cannot be recovered
+
+The injected tone is perfectly detectable there — it rises 5.7–8.5 dB above its local
+neighbours when the transmitter switches on, comparable to the tones just above the band.
+It is unusable for a different reason: FM broadcast arrives from a fixed direction on the
+horizon, so the rotation modulates it in the same way as it modulates the injected tone.
+The non-comb channels there swing up to 7.3 dB through a turn against 1.1–3.0 dB in clean
+bands (`explore/60`), so the contaminant is degenerate with the signal and no continuum
+estimate can separate them.
 """)
 
 nb["cells"] = C
