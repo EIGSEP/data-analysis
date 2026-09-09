@@ -103,6 +103,8 @@ FM_BAND = (86.0, 110.0)       # broadcast FM plus a margin, excluded throughout
 BIN_DEG = 5.0                 # rotation-angle bin width
 MAX_ROUGHNESS = 0.25          # dB, point-to-point roughness of the flanking channels
 NSIG = 3.0                    # significance the binned excess must reach to count
+GND_MAX = 0.35                # dB, peak-to-trough allowed on the stationary ground
+                              # copy before a channel is kept out of the sky panel
 """)
 
 md(r"""
@@ -213,10 +215,15 @@ def to_db(x):
 
 
 def flanking(c):
-    # non-comb, non-FM channels either side of c, clear of the comb spillover
+    # the eight channels the continuum is estimated from: offsets +-3..+-6.
+    # Seven non-comb channels sit between consecutive comb channels; this skips
+    # +-1, +-2 for comb spillover and +-7 for abutting the next comb channel.
+    # No FM condition: only one tone in the band, 111.3 MHz, has a flanker inside
+    # the 86-110 MHz guard window, and dropping the exception costs 0.1 dB on that
+    # one curve and saves explaining a seven-channel special case in the caption.
     return [c + o for o in range(-6, 7)
             if 3 <= abs(o) <= 6 and 0 <= c + o < nchan and finite[c + o]
-            and (c + o) % 16 not in COMB_SPILL and not is_fm[c + o]]
+            and (c + o) % 16 not in COMB_SPILL]
 
 
 def binned(series, a, b):
@@ -347,6 +354,97 @@ print("limits on the power received in the null.")
 """)
 
 md(r"""
+## The sky continuum, as a measurement in its own right
+
+Everything above treats the continuum as a pedestal to be removed. It is also the
+measurement the rotation strategy actually rests on: the tones show that a *point* source
+can be driven deep into a null, but the sky is extended, and the question is how much a
+turn modulates it. So plot the same estimate that was subtracted -- the median of the
+eight flanking channels, binned and referenced identically -- as a second panel.
+
+Plotted raw it is wrong. A dozen channels between 110 and 240 MHz swing 1--3 dB through
+the turn, far more than the sky does, because they carry a terrestrial transmitter.
+
+**The control is the ground copy.** It does not rotate, so anything it also saw change
+over the same integrations changed in *time* rather than with orientation. A tone's
+continuum is plotted only where the ground copy was steady on that tone's own flanking
+channels, `GND_MAX = 0.35` dB peak-to-trough. `explore/61` fixes the threshold.
+
+Two things to be honest about, both from `explore/61`:
+
+- **The threshold is not sitting in a natural gap.** Values run 0.04--0.34 and then
+  0.43--1.61, which is a step of only 0.09 dB, and it is not the largest break in the
+  distribution (that is 1.35 → 1.59). Neighbouring spacings are comparable. What defends
+  the choice is not the gap but the *stability*: the median sky swing moves 0.82--0.96 dB
+  across a factor of eight in threshold, so the quoted number does not depend on it.
+- **The test is blind to a source that is steady in time but fixed in direction.** Such a
+  source is constant on a stationary receiver and passes, yet a rotating antenna modulates
+  it exactly like a point source. The aeronautical band shows both halves and the ground
+  copy splits them where the allocation does — continuous navigation beacons below
+  118 MHz pass the cut, intermittent airband voice above it does not. The two deepest
+  curves left in the panel, 111.3 and 115.2 MHz, are on the passing side of that line.
+""")
+
+code(r"""
+def referenced(data, chans):
+    # binned power in `chans`, in dB relative to the value at 0 deg
+    mu = binned(np.nanmedian(data[:, chans], axis=1), A, B)
+    return to_db(mu / np.nanmedian(mu[ZERO - 1:ZERO + 2]))
+
+
+def continuum(c):
+    # the estimate subtract() removes from tone c, as a rotation curve
+    return referenced(d4, flanking(c))
+
+
+def ground_swing(c):
+    # peak-to-trough of the same channels on the stationary ground copy
+    v = referenced(d0, flanking(c))
+    return np.ptp(v[np.isfinite(v)])
+
+
+cont_tones = [c for c in tones if ground_swing(c) < GND_MAX]
+cont = {c: continuum(c) for c in cont_tones}
+cont_depth = np.array([np.ptp(v[np.isfinite(v)]) for v in cont.values()])
+
+print(f"sky panel: {len(cont_tones)} of {len(tones)} tones, "
+      f"{freq[cont_tones[0]]:.1f}-{freq[cont_tones[-1]]:.1f} MHz")
+print(f"  swing : {cont_depth.min():.2f}-{cont_depth.max():.2f} dB "
+      f"(median {np.median(cont_depth):.2f}, "
+      f"{100 * (10 ** (np.median(cont_depth) / 10) - 1):.0f} per cent in power)")
+print()
+print("  threshold stability -- the quoted median against the choice of GND_MAX:")
+for thr in (1.00, 0.60, GND_MAX, 0.25, 0.20, 0.15, 0.12):
+    k = [c for c in tones if ground_swing(c) < thr]
+    d_ = [np.ptp(continuum(c)[np.isfinite(continuum(c))]) for c in k]
+    print(f"    {thr:4.2f} dB -> {len(k):2d} tones, median {np.median(d_):.2f} dB, "
+          f"{freq[k[0]]:5.1f}-{freq[k[-1]]:5.1f} MHz")
+print("  The rise at the tight end is frequency coverage, not cleanliness: below 0.15")
+print("  only tones under 116 MHz survive, and those have the deepest sky modulation.")
+""")
+
+md(r"""
+### Why the two panels are selected differently
+
+They are the same data at very different dynamic ranges, so the same contamination means
+different things in each. The honest form of the argument is bounded to the top of the
+range, and `explore/61` is explicit about where it stops holding:
+
+- **At $0^\circ$, the response peak**, every tone the cut removes still sits 10.8--32.1 dB
+  above its own continuum. There the entire ground-copy swing would move the tone curve by
+  at most 0.08 dB, on an axis spanning 37 dB. The cut is genuinely irrelevant to panel (a).
+- **Near the null it is not.** Over the significant bins panel (a) actually draws, the
+  margin closes to $-12.3$ dB for the worst tone (123.0 MHz), where the same swing would
+  move the curve by up to 6 dB.
+
+That is not a contradiction with the figure — below 158 MHz the tone reaches the noise
+before the null does and those depths are already reported as upper limits — but it does
+mean the claim must be made *at the peak*, not for the curve as a whole. Do not write "the
+selection does not affect panel (a)" without that qualifier.
+
+Where the subtraction genuinely matters, the channels are clean and are kept: 56.6 MHz,
+the weakest tone relative to its own continuum, passes the cut.
+
 ## The figure
 
 Curves are drawn wherever the subtracted power is positive, so each one runs past its own
@@ -360,30 +458,41 @@ The axis is clipped at $-33$ dB, just below the deepest significant point over a
 accommodate noise excursions on two tones (76.2 and 111.3 MHz, the two least reliable
 continuum estimates in the set), which compresses the part of the plot that carries the
 result.
+
+Panel (b) shares the angle axis and the colour scale, and carries every curve that
+survives the ground-copy cut, so nothing in it is clipped. It is drawn on its own linear
+scale: the whole sky signal is about 1 dB against 37 dB for the tones, and on a shared
+axis it would be a flat line.
 """)
 
 code(r"""
 norm = Normalize(tone_freq.min(), tone_freq.max())
 smap = ScalarMappable(norm, plt.cm.plasma)
 
-fig, ax = plt.subplots(figsize=(5.2, 3.8))
+fig, ax = plt.subplots(2, 1, figsize=(5.2, 6.0), sharex=True,
+                       gridspec_kw={"height_ratios": [1.55, 1.0], "hspace": 0.1})
 for c in tones:
-    ax.plot(centres, profs[c][0], color=smap.to_rgba(freq[c]), lw=0.9, alpha=0.95)
+    ax[0].plot(centres, profs[c][0], color=smap.to_rgba(freq[c]), lw=0.9, alpha=0.95)
+for c in cont_tones:
+    ax[1].plot(centres, cont[c], color=smap.to_rgba(freq[c]), lw=0.9, alpha=0.95)
 
-ax.axhline(0.0, color="0.75", lw=0.5, ls=":")
-ax.set_xlim(-180, 180)
-ax.set_ylim(-33, 4)
-ax.set_xticks([-180, -90, 0, 90, 180])
-ax.grid(alpha=0.25, lw=0.5)
-ax.set_xlabel("Platform rotation angle [deg]", fontsize=9)
-ax.set_ylabel("Injected tone power relative to $0^\\circ$ [dB]", fontsize=9)
-ax.tick_params(labelsize=8)
+ax[0].set_ylim(-33, 4)
+ax[0].set_ylabel("Injected tone [dB]", fontsize=9)
+ax[1].set_ylim(-1.45, 1.1)
+ax[1].set_ylabel("Sky continuum [dB]", fontsize=9)
+ax[1].set_xlabel("Platform rotation angle [deg]", fontsize=9)
+
+for a, label in zip(ax, ("(a)", "(b)")):
+    a.set_xlim(-180, 180)
+    a.set_xticks([-180, -90, 0, 90, 180])
+    a.axhline(0.0, color="0.75", lw=0.5, ls=":")
+    a.grid(alpha=0.25, lw=0.5)
+    a.tick_params(labelsize=8)
+    a.text(0.022, 0.05, label, transform=a.transAxes, fontsize=9, va="bottom")
 
 cb = fig.colorbar(smap, ax=ax, pad=0.02)
 cb.set_label("Frequency [MHz]", fontsize=9)
 cb.ax.tick_params(labelsize=8)
-
-fig.tight_layout()
 for ext in ("png", "pdf"):
     fig.savefig(OUTDIR / f"beam_modulation.{ext}", dpi=200, bbox_inches="tight")
 print(f"saved {OUTDIR / 'beam_modulation.pdf'}")
@@ -391,23 +500,31 @@ print(f"saved {OUTDIR / 'beam_modulation.pdf'}")
 
 md(r"""
 The version in the paper is rendered at the single-column figure size by
-`docs/render_beam_modulation.py` in the manuscript repo, which carries the same reduction.
+`docs/render_beam_modulation.py` in the manuscript repo. That script carries the same
+reduction as this notebook and differs only in figsize, font sizes and line width; if the
+two ever disagree, this notebook is the source and the renderer is the copy.
 
 ## Caption
 
 > Response of the suspended EIGSEP antenna to platform rotation, measured against an
-> injected signal during the July 2026 deployment. The curves represent the received power
-> of the bowtie antenna as a function of rotation angle, binned in $5^\circ$ steps. Each
-> curve corresponds to one transmitted tone, coloured by the transmission frequency. Tones
-> in the FM broadcast band are excluded, along with those close enough to its edges that
-> the channels used to estimate the continuum fall inside the band. The sky continuum is
-> subtracted from each tone channel and the power is referenced to the power at $0^\circ$
-> rotation. Each curve is drawn wherever the continuum-subtracted power is positive; where
-> the tone falls to the level of the continuum the subtraction scatters about zero and the
-> curve breaks. The vertical axis is clipped at $-33$ dB, just below the deepest point at
-> which any tone is still significantly detected, so the tails reaching that limit are
-> noise. The depths quoted in the text use only those bins in which a tone stays above its
-> own noise level, which differs from tone to tone.
+> injected signal during the July 2026 deployment. Both panels show power as a function of
+> rotation angle, binned in $5^\circ$ steps, referenced to the power at $0^\circ$ rotation
+> and coloured by frequency.
+> *(a)* The injected tones, one curve per transmitted tone, each with the sky continuum
+> subtracted from its channel. Tones inside the FM broadcast band are excluded, as are
+> those whose continuum estimate draws on channels inside it. Each curve is drawn wherever
+> the continuum-subtracted power is positive, so a curve breaks where the tone falls to the
+> level of the continuum. The vertical axis is clipped at $-33$ dB, just below the deepest
+> point at which any tone is still significantly detected; tails reaching that limit are
+> noise.
+> *(b)* The continuum estimate subtracted from each tone in *(a)*, over the same rotation:
+> the median of the eight neighbouring non-comb channels, which carry the sky and the
+> receiver noise rather than the injected signal. It is drawn for the 24 of the 42 tones,
+> spanning 57--225 MHz, whose neighbouring channels were stable to within 0.35 dB on the
+> stationary ground copy over the same integrations.
+
+The manuscript keeps the judgement calls out of the caption: §4.5 says how the quoted
+depths are defined, and §4.6 gives the reason for the ground-copy cut and its bound.
 
 ## Numbers quoted above
 
@@ -421,7 +538,10 @@ The version in the paper is rendered at the single-column figure size by
 | depth, subtracted, below $0^\circ$ | 6.9–31.3 dB (median 24.5) |
 | depth, raw, peak-to-trough | 1.7–29.5 dB (median 18.2) |
 | depth, stationary receiver | 0.03 dB |
-| nulls measured rather than limited | above 158 MHz, 17 of 18 tones |
+| nulls measured rather than limited | above 158 MHz — printed by the controls cell, do not hand-copy |
+| sky panel | 24 of the 42 tones, 56.6–224.6 MHz, ground copy < 0.35 dB |
+| sky swing, kept tones | 0.50–1.89 dB (median 0.82, 21 per cent in power) |
+| tone above own continuum, discarded tones | 10.8–32.1 dB **at $0^\circ$**; down to $-12.3$ dB over the significant bins |
 
 ## Why the FM band cannot be recovered
 
