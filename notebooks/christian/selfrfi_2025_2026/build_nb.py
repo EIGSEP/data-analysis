@@ -6,7 +6,11 @@ Then: .venv/bin/jupyter nbconvert --to notebook --execute --inplace \
           notebooks/christian/selfrfi_2025_2026/selfrfi_2025_2026.ipynb
 """
 
+from pathlib import Path as _Path
+
 import nbformat as nbf
+
+_HERE = _Path(__file__).resolve().parent
 
 nb = nbf.v4.new_notebook()
 C = []
@@ -14,13 +18,23 @@ def md(s): C.append(nbf.v4.new_markdown_cell(s.strip()))
 def code(s): C.append(nbf.v4.new_code_cell(s.strip()))
 
 md(r"""
-# Self-generated RFI in EIGSEP: 2025 characterisation and the 2026 before/after
+# Self-generated RFI: 2025 characterisation and the 2026 comparison
 
-Paper trail for the self-RFI statements in the EIGSEP instrument paper (RASTI).
-Everything the manuscript says about self-RFI should be derivable from this
-notebook.
+Measures the duty-cycled broadband emitter seen in the 2025 field data, applies
+the same detector to the 2026 data, and compares the narrowband line populations
+between the two epochs.
 
-## What this establishes
+**This notebook describes measurements, not conclusions.** Section 9 lists what
+was measured and what these data cannot settle.
+
+| | |
+|---|---|
+| **Input** | `../deployment4/cache_dropout_{metadata,passA,passB}.npz`; `data/deployment5_filtered/corr_2026071[5678]*.h5` |
+| **Produces** | 3 figures; the event census for both epochs; the line census |
+| **Runtime** | ~3-5 min, dominated by the 2026 correlator read |
+| **Rebuild** | `python build_nb.py`, then `jupyter nbconvert --to notebook --execute --inplace selfrfi_2025_2026.ipynb` |
+
+## What the measurements show
 
 1. **2025 (deployment 4)** carried a duty-cycled broadband emitter and a
    population of persistent narrowband lines.
@@ -71,7 +85,7 @@ on-board one.
 | 2025 cached spectra and census | `../deployment4/cache_dropout_{metadata,passA,passB}.npz` |
 | 2025 raw correlator files | **not on this machine** -- the caches are the input |
 | 2026 correlator files | `data/deployment5_filtered/` (~10 GB, local) |
-| Prior notebooks | branch `chb-self-rfi`: `noise_dropouts_selfRFI`, `radiated_selfRFI_lines`, `explore_24h_july19_20`, `paper_selfrfi_figure` |
+| Prior notebooks | `../deployment4/noise_dropouts_selfRFI.ipynb` (the 2025 emitter) and `../deployment4/radiated_selfRFI_lines.ipynb` (the 2025 lines) |
 """)
 
 code(r"""
@@ -225,13 +239,52 @@ print("~2 per cent elsewhere in 50-250 MHz.")
 """)
 
 md(r"""
-## 2. The duty cycle looks thermal, not scheduled
+### Figure 1 -- where the emitter power actually sits
 
-A digital device on a timer gives a tight, time-of-day-invariant period. This
-does not: the interval between off-windows is ~2.5x shorter in the afternoon
-than overnight while the off-duration stays fixed -- a roughly constant recovery
-time with a load-dependent interval, which is what a thermostatted compressor
-does.
+The band table above collapses a spectrum into five numbers. Plotted against
+frequency, the structure the single "7-11 per cent" figure hides is visible.
+""")
+
+code(r"""
+plt.figure(figsize=(9.5, 4.2))
+for p, c in zip(ANTS, ["C0", "C1", "C2"]):
+    fr_p = 100.0 * (1.0 - off25[p] / on25[p])
+    plt.plot(freq[nontx25], fr_p[nontx25], lw=0.8, color=c, label=LABEL[p])
+plt.axvspan(30, 50, color="0.88", zorder=0)
+plt.text(40, plt.ylim()[1] * 0.92, "below the\noperating band",
+         ha="center", va="top", fontsize=8, color="0.35")
+plt.axhline(0, color="0.6", lw=0.8)
+plt.xlim(30, 250)
+plt.xlabel("Frequency [MHz]")
+plt.ylabel("Emitter [% of total measured power]")
+plt.title("2025 duty-cycled emitter, per-event paired on/off", fontsize=10)
+plt.legend(fontsize=9)
+plt.grid(alpha=0.3)
+plt.tight_layout()
+plt.show()
+""")
+
+md(r"""
+**Figure 1.** The 2025 emitter as a percentage of each antenna's own total measured
+power, against frequency, for the suspended bowtie and the two polarisations of the
+ground Vivaldi. Per-event paired on/off, so each dropout is differenced against its
+own +-9 min baseline. The shaded region is below the 50-250 MHz operating band.
+
+The bowtie's contribution is concentrated in 100-150 MHz and in the 40-50 MHz strip
+that sits outside the operating band; between those it is at the per-cent level. This
+is a within-antenna fraction, so the vertical spacing between the three traces mixes
+in each receiver's bandpass and sky coupling and does not by itself locate the source
+-- section 3 does that with a gain-free ratio.
+""")
+
+md(r"""
+## 2. Duty cycle: interval against time of day
+
+A device on a digital timer gives a tight, time-of-day-invariant period. What is
+measured here is not that: the interval between off-windows is ~2.5x shorter in
+the afternoon than overnight, while the off-duration stays fixed. A roughly
+constant recovery time with a load-dependent interval is the signature of a
+thermostatted load rather than a schedule.
 
 Checked against detrend windows from 15 to 90 min so it is not an artefact of
 the 35-min detrending. It is **suggestive, not conclusive**: the overnight
@@ -290,7 +343,7 @@ print(f"Motor stream: {len(meta['mot_t'])} record(s) -> no motor power-state tel
 """)
 
 md(r"""
-## 3. Localisation, done gain-free -- and why the old answer flips
+## 3. Emitter power referenced to the received comb
 
 The comb is radiated from the **ground** transmitter. Referencing the emitter's
 power to the received comb cancels each receiver's gain, so:
@@ -338,7 +391,7 @@ print("ground antennas. Section 5 shows that line is external anyway.")
 """)
 
 md(r"""
-## 4. 2026 -- did it go away?
+## 4. The same detector applied to the 2026 data
 
 Same detector, same band, same threshold, same hours, applied to the 2026
 suspended bowtie (`box-air`, correlator key 4). The detrend runs inside
@@ -484,8 +537,53 @@ print("The absolute cut is the physical one: 0.7 dB is ~15 per cent of total pow
 print("and the 2025 dropouts had a median depth of 1.12 dB.")
 """)
 
+code(r"""
+_lab, _pct, _mad, _red = [], [], [], []
+for _k, _bm in BANDS.items():
+    _, _tot, _low, _m, _nev = census26(BALL[_k])
+    _lab.append(_k.replace(" ", "\n", 1))
+    _pct.append(100.0 * _low / _tot)
+    _mad.append(_m)
+    _red.append(frac25n / (_low / _tot))
+
+fig, (axA, axB) = plt.subplots(1, 2, figsize=(11, 4.2))
+_x = np.arange(len(_lab))
+axA.bar(_x, _pct, color=["C0", "C3", "C7"])
+axA.axhline(100 * frac25n, ls="--", color="k", lw=1.2,
+            label=f"2025 night, matched band ({100 * frac25n:.1f}%)")
+axA.set_xticks(_x); axA.set_xticklabels(_lab, fontsize=8)
+axA.set_ylabel(f"Integrations below {THR} dB [%]")
+axA.set_title("2026, by choice of band", fontsize=10)
+axA.legend(fontsize=8); axA.grid(alpha=0.3, axis="y")
+
+axB.bar(_x, _red, color=["C0", "C3", "C7"])
+for _i, (_r, _mm) in enumerate(zip(_red, _mad)):
+    axB.text(_i, _r, f" {_r:.1f}x\nMAD {_mm:.3f}", ha="center", va="bottom", fontsize=8)
+axB.set_xticks(_x); axB.set_xticklabels(_lab, fontsize=8)
+axB.set_ylabel("Apparent reduction vs 2025")
+axB.set_title("The same data, three band choices", fontsize=10)
+axB.set_ylim(0, max(_red) * 1.35)
+axB.grid(alpha=0.3, axis="y")
+plt.tight_layout()
+plt.show()
+""")
+
 md(r"""
-## 5. Which narrowband lines survived?
+**Figure 2.** Left: the percentage of 2026 night integrations falling below the
+absolute -0.7 dB cut, for each of three plausible bands, against the 2025 night value
+on the matched band (dashed). Right: the apparent 2025-to-2026 reduction that each
+band choice produces, annotated with that band's detrended-floor MAD.
+
+The same data and the same threshold give a reduction between 8x and 60x depending
+only on which band the detector runs in. The cut is absolute while the floor's MAD
+varies by an order of magnitude across these bands, so an unmatched band changes what
+the threshold means. The matched band is the leftmost bar and is the one quoted
+elsewhere in this notebook; the FM-free band is the quietest and would be the better
+choice for both epochs if the 2025 raw files are ever recovered.
+""")
+
+md(r"""
+## 5. Narrowband lines, 2025 against 2026
 
 Line excess is the spectrum divided by its own 17-channel running median, in dB,
 so it is insensitive to each receiver's bandpass. Computed on the 2025 night
@@ -559,7 +657,7 @@ for ch in np.nonzero(is25)[0]:
 """)
 
 md(r"""
-### The 244 MHz feature is not ours -- and not digital TV either
+### The 244 MHz feature: shape, and the change between epochs
 
 It is **~20 dB stronger** in 2026 than 2025, which no mitigation story explains.
 Its shape is a handful of discrete carriers spread over ~10 MHz with deep gaps
@@ -584,7 +682,7 @@ print(f"\n  {len(wide)} channels > +3 dB, spanning "
 """)
 
 md(r"""
-## 5b. Are the lines that grew actually external?
+## 5b. Two discriminators applied to the lines that grew
 
 Two discriminators, both computed from 761 night file-averages spanning 72.5 h,
 using the two 2026 receivers -- `box-air` (suspended, ~90 m up) and `box-gnd`
@@ -659,7 +757,7 @@ print("consistent with their large night-to-night scatter.")
 """)
 
 md(r"""
-## 6. The confound that must be stated
+## 6. A confound in the 2026 comparison
 
 The 2026 phase-C data was taken with the **calibration transmitter off**
 (tone/continuum ~0 dB, against +16.6 dB band-median when on in 2025).
@@ -698,7 +796,7 @@ print("  -> confirms the transmitter was OFF in the 2026 phase-C data.")
 """)
 
 md(r"""
-## 7. Figure
+## 7. Figure 3 -- the 2025/2026 comparison
 
 Three panels, all on the suspended antenna.
 
@@ -796,6 +894,22 @@ for c_, v_ in zip(fc, fv):
 """)
 
 md(r"""
+**Figure 3.** All three panels are the suspended antenna. **(a)** and **(b)**: six hours
+of band-averaged power over `95-110 | 125-150 MHz`, detrended by a 35-minute running
+median and binned to 30 s, for 2025 and 2026 respectively, with the -0.7 dB dropout
+threshold marked. The square notches in (a) are the emitter switching off; (b) is the
+same quantity over the same band and duration, and does not reach the threshold.
+
+**(c)**: the 2025 emitter contribution against frequency, in per cent of total power,
+binned to 10 MHz -- the same quantity as Figure 1, binned for legibility, with the FM
+band shaded.
+
+The sign in (a) and (b) is worth restating: the emitter is on ~88 per cent of the time,
+so the running median is itself "emitter on", and the emitter switching *off* reads as
+a dip rather than a spike.
+""")
+
+md(r"""
 ## 8. Export
 
 Compact, self-contained arrays for the paper repo -- no raw data, Zenodo-safe.
@@ -834,60 +948,66 @@ print("wrote selfrfi_2025_2026.npz")
 """)
 
 md(r"""
-## 9. What the manuscript can say
+## 9. What was measured
 
-**Supported:**
+| Quantity | Value |
+|---|---|
+| 2025 emitter, 100-150 MHz | ~10 per cent of total measured power |
+| 2025 emitter, elsewhere in 50-250 MHz | ~2 per cent |
+| 2025 off-window cadence | ~4 min, interval ~2.5x shorter in the afternoon |
+| 2026 integrations below the 2025 threshold | 1.2 per cent, against 9.2 per cent in 2025 |
+| 2026 dropout event rate | 0.14 / h, against 1.5 / h in 2025 |
+| Ratio, matched band and hours | about a factor of ten |
+| Ratio if the band is left unmatched | 40.7x -- see section 4a |
+| 2025 lines surviving into 2026 | a minority; most that remain are stronger |
+| 244 MHz feature | ~20 dB stronger in 2026 |
+| Lines that grew, air-vs-ground asymmetry | none above 6 dB (median +0.02 dB) |
 
-- Self-generated interference was identified in the July 2025 field data: a
-  duty-cycled broadband emitter, off for ~4 min roughly every half hour, and a
-  population of persistent narrowband lines.
-- Between 100 and 150 MHz the duty-cycled emitter contributed of order **ten per
-  cent** of the total measured power on the suspended antenna, falling to the
-  **per cent level** elsewhere in 50-250 MHz.
-- After mitigation, the July 2026 data shows the duty-cycled emitter strongly
-  suppressed: over 49.8 h of night observation, **1.2 per cent** of integrations
-  fall below the threshold that flagged **9.2 per cent** of the 2025 night data
-  on the same band -- and the rate of 2-10 min dropout events falls from
-  **1.5 to 0.14 per hour**. Quote this as **about a factor of ten**, and quote
-  it night-to-night on the matched band.
-  **Do not quote ~50x.** That figure came from comparing 2025 over all hours on
-  `95-110 | 125-150` against 2026 over night only on `100-150`; two mismatches,
-  worth ~5x between them. Section 4a shows the size of each.
-- A majority of the 2025 narrowband lines are gone; those that remain are mostly
-  *stronger* than in 2025, which identifies them as external rather than ours.
-- The 244 MHz feature in particular is ~20 dB stronger in 2026, so it is not
-  ours, and its shape is discrete carriers over ~10 MHz rather than a flat 6 MHz
-  block, so it is not digital TV either.
+The band-resolved figure matters more than the single number: the older
+"7-11 per cent across 40-150 MHz" is carried by 40-50 MHz, which sits below the
+50-250 MHz operating band, plus 100-150 MHz. Figure 1 shows where it actually is.
 
-**Must be stated alongside it:** the 2026 data was taken with the calibration
-transmitter off, so mitigation is not the only possible cause of the
-improvement.
+## What these data cannot settle
 
-**Must NOT be claimed:**
-
-- that self-RFI is the *dominant* systematic -- it has never been compared with
-  calibration error, beam mis-modelling or terrain coupling;
-- where the emitters are -- the gain-free test contradicts the earlier
-  on-platform conclusion and the rotation test does not separate the cases;
-- that the 244 MHz line is ours;
-- any impact on usable observing bandwidth beyond what is quoted above.
+- **Where the 2025 emitters were.** Section 3 references the emitter to the
+  received comb, which cancels receiver gain; above 70 MHz the ratio is larger on
+  the ground antennas. The selection is rigged the other way -- events were
+  chosen on a bowtie dip -- and it still comes out this way. The rotation test in
+  `../deployment4/noise_dropouts_selfRFI.ipynb` does not separate the cases
+  either, because the metal platform 40 cm below the antenna shadows a ground
+  source about as well as it would carry an on-board one.
+- **Whether mitigation caused the 2026 improvement.** The 2026 phase-C data was
+  taken with the calibration transmitter off. Section 6 gives the size of that
+  confound; the two contributions are not separable in this data set.
+- **Whether self-RFI is the dominant systematic.** It has not been compared here
+  with calibration error, beam mis-modelling or terrain coupling.
+- **Any impact on usable observing bandwidth** beyond the band-resolved fractions
+  above.
 
 ## 10. Open follow-ups
 
 - **Per-subsystem power-cycling audit** at the next deployment -- the only thing
-  that will identify the device.
+  that would identify the device.
 - **A transmitter-on stretch in 2026** would separate mitigation from the
-  transmitter being off. Phases A/B (Jul 12-15) use different correlator keys
-  and were not checked here.
+  transmitter being off. Phases A/B (Jul 12-15) use different correlator keys and
+  were not checked here.
 - **FAA/NTIA allocation cross-check** for the 109-137 MHz forest and the
   239-249 MHz carriers.
 - **Cross-phase triangulation** of the surviving lines, using the `04` baseline.
+- **Redo both epochs on 110-150 MHz** if the 2025 raw files are recovered --
+  section 4a shows it is much the quietest band, and would give a far cleaner
+  comparison than either epoch's current choice.
 """)
+
 
 nb["cells"] = C
 nb.metadata.update({
     "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
     "language_info": {"name": "python"},
 })
-nbf.write(nb, "selfrfi_2025_2026.ipynb")
-print("wrote selfrfi_2025_2026.ipynb")
+# write beside this script, not into cwd -- the documented command runs it
+# from the repo root, which used to drop the notebook there and leave the
+# real one stale
+_out = _HERE / "selfrfi_2025_2026.ipynb"
+nbf.write(nb, str(_out))
+print(f"wrote {_out}")
