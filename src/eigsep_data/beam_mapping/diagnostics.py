@@ -1,4 +1,23 @@
-"""Fit the HFSS TX beam model to the v007 Marjum beam-map data."""
+"""Fit the HFSS TX beam model to the v007 Marjum beam-map data.
+
+Loads a v007 campaign directory, flags bad channels and times, and fits
+the transmitter heading/polarization jointly across TX channels, with
+plotting helpers for the standard diagnostic figures.
+
+Public API
+----------
+load_v007_data
+model_v007_points
+tx_arm_for_channel
+radiometer_difference_sigma
+channel_validity_masks
+isolated_map_outliers
+gross_power_time_flags
+fit_v007_beam_joint
+fit_v007_beam
+make_diagnostic
+make_joint_diagnostics
+"""
 
 import argparse
 from pathlib import Path
@@ -8,8 +27,8 @@ import numpy as np
 from scipy.optimize import minimize
 from scipy.spatial import cKDTree
 
-from rotation_beam import TransmitterGeometry
-from tx_beam_sim import HFSSBeamSet, ground_heading, simulate_hfss
+from .geometry import TransmitterGeometry
+from .tx_model import HFSSBeamSet, ground_heading, simulate_hfss
 
 
 MOTOR_CAL = 180.0 / 1.13e4

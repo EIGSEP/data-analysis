@@ -1,8 +1,8 @@
-"""Synthetic truth-recovery demonstration for ``rotation_beam``."""
+"""Synthetic truth-recovery demonstration for ``eigsep_data.beam_mapping``."""
 
 import numpy as np
 
-from rotation_beam import PolarizationBeamMapper, TransmitterGeometry
+from eigsep_data.beam_mapping import PolarizationBeamMapper, TransmitterGeometry
 
 
 def analytic_beam(theta, phi):

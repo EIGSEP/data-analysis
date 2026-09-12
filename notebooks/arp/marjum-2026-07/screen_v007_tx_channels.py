@@ -5,9 +5,9 @@ import json
 
 import numpy as np
 
-from rotation_beam import TransmitterGeometry
-from tx_beam_sim import HFSSBeamSet, simulate_hfss
-from v007_beam_diagnostic import (
+from eigsep_data.beam_mapping import TransmitterGeometry
+from eigsep_data.beam_mapping import HFSSBeamSet, simulate_hfss
+from eigsep_data.beam_mapping.diagnostics import (
     _beam_slice_at_frequency,
     channel_validity_masks,
     fit_v007_beam_joint,

@@ -1,6 +1,6 @@
 import numpy as np
 
-from rotation_beam import (
+from eigsep_data.beam_mapping import (
     MOTOR_DEG_PER_STEP,
     PolarizationBeamMapper,
     TransmitterGeometry,

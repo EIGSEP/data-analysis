@@ -1,6 +1,6 @@
 import numpy as np
 
-from v007_beam_diagnostic import (
+from eigsep_data.beam_mapping.diagnostics import (
     channel_validity_masks,
     gross_power_time_flags,
     isolated_map_outliers,

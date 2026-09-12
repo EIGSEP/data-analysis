@@ -17,11 +17,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 sys.path.insert(0, ".")
-from beam_pca import compute_beam_pca
+from eigsep_data.beam_mapping import compute_beam_pca
 from fit_v007_pca_beam import _project_templates
-from rotation_beam import TransmitterGeometry
-from tx_beam_sim import HFSSBeamSet
-from v007_beam_diagnostic import load_v007_data
+from eigsep_data.beam_mapping import TransmitterGeometry
+from eigsep_data.beam_mapping import HFSSBeamSet
+from eigsep_data.beam_mapping.diagnostics import load_v007_data
 
 MODEL_JSON = "v007_pca_beam_model_v5.json"
 BEAM_FILE = "../../../hfss_beam_maps/bowtie_beam.npz"

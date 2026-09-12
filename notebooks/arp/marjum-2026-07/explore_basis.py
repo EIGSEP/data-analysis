@@ -35,17 +35,17 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from beam_pca import compute_beam_pca
-from data_space_rfi import data_space_rfi_mask
+from eigsep_data.beam_mapping import compute_beam_pca
+from eigsep_data.beam_mapping import data_space_rfi_mask
 from fit_v007_pca_beam import (
     _project_templates,
     fit_channel,
     pointing_valid_mask,
     tx_arm_for_channel,
 )
-from rotation_beam import TransmitterGeometry, vector_to_spherical
-from tx_beam_sim import HFSSBeamSet, simulate_hfss_coupling
-from v007_beam_diagnostic import (
+from eigsep_data.beam_mapping import TransmitterGeometry, vector_to_spherical
+from eigsep_data.beam_mapping import HFSSBeamSet, simulate_hfss_coupling
+from eigsep_data.beam_mapping.diagnostics import (
     channel_validity_masks,
     gross_power_time_flags,
     load_v007_data,

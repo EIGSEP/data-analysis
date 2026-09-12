@@ -6,8 +6,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from rotation_beam import TransmitterGeometry
-from tx_beam_sim import HFSSBeamSet, ground_heading, simulate_hfss
+from eigsep_data.beam_mapping import TransmitterGeometry
+from eigsep_data.beam_mapping import HFSSBeamSet, ground_heading, simulate_hfss
 
 
 def _metadata_series(records, name, n):

@@ -5,8 +5,8 @@ import json
 
 import numpy as np
 
-from tx_beam_sim import HFSSBeamSet
-from v007_beam_diagnostic import fit_v007_beam_joint, load_v007_data
+from eigsep_data.beam_mapping import HFSSBeamSet
+from eigsep_data.beam_mapping.diagnostics import fit_v007_beam_joint, load_v007_data
 
 
 def _heading_separation_deg(a, b):

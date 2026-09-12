@@ -8,13 +8,13 @@ Run with a checkout of the HFSS asset, for example::
 import sys
 import numpy as np
 
-from rotation_beam import PolarizationBeamMapper, TransmitterGeometry
-from tx_beam_sim import HFSSBeamSet, ground_heading, simulate_hfss
+from eigsep_data.beam_mapping import PolarizationBeamMapper, TransmitterGeometry
+from eigsep_data.beam_mapping import HFSSBeamSet, ground_heading, simulate_hfss
 
 
 def simulate_gain_model(beam, az, el, geometry, arms):
     """Generate alternating-arm powers from the HFSS spherical gain maps."""
-    from rotation_beam import PolarizationBeamMapper
+    from eigsep_data.beam_mapping import PolarizationBeamMapper
     rows = []
     pxs = []
     for fi in range(beam.gain_th.shape[0]):

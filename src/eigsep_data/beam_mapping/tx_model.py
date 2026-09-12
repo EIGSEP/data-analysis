@@ -3,7 +3,19 @@
 This module consumes Dominic's ``hfss_beam_maps/bowtie_beam.npz`` format
 (``beam_cart``, ``gain_th``, ``gain_ph``, ``freqs``) from eigsep_data's
 ``origin/beams`` branch.  It deliberately keeps the dependency surface small
-and uses the same rotation convention as :mod:`rotation_beam`.
+and uses the same rotation convention as
+:mod:`eigsep_data.beam_mapping.geometry`.
+
+Public API
+----------
+HFSSBeamSet
+ground_heading
+simulate_hfss_coupling
+simulate_hfss
+correlator_waterfall
+simulate_correlator_waterfall
+fit_ground_position
+recover_sampled_beam
 """
 
 from dataclasses import dataclass
@@ -12,13 +24,13 @@ from pathlib import Path
 import numpy as np
 from scipy.optimize import least_squares
 
-from rotation_beam import (
-    PolarizationBeamMapper,
+from .geometry import (
     TransmitterGeometry,
     _sph_basis,
     rotation_matrix,
     vector_to_spherical,
 )
+from .mapper import PolarizationBeamMapper
 
 
 @dataclass

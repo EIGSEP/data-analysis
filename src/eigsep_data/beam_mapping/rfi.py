@@ -23,6 +23,12 @@ cross-correlation (between the ground-facing reference antenna, input
 monitor: the common-mode sky/monopole term that dominates the *auto*-
 correlations mostly cancels in this cross product, so genuine
 transient interference registers with much higher relative SNR.
+
+Public API
+----------
+monitor_channels
+smooth_time_flags
+data_space_rfi_mask
 """
 
 import glob

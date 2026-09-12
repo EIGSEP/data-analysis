@@ -1,7 +1,7 @@
 """Fit a low-order, HFSS-informed, data-corrected empirical beam model.
 
 Reduces the HFSS complex-vector beam to a handful of orthogonal spatial
-eigen-beams via PCA across frequency (see ``beam_pca.py``), then --
+eigen-beams via PCA across frequency (see ``eigsep_data.beam_mapping.basis``), then --
 holding the transmitter geometry/polarization fixed at the value
 already recovered by ``fit_v007_multichannel_consensus.py`` -- fits
 every candidate TX comb channel's data as a linear combination of
@@ -20,13 +20,13 @@ informed" part.
 
 Power is the squared magnitude of a coherent sum of complex fields, so
 the coupling is combined *before* squaring (see
-``tx_beam_sim.simulate_hfss_coupling``): summing each component's own
+``eigsep_data.beam_mapping.tx_model.simulate_hfss_coupling``): summing each component's own
 *power* would silently discard the interference cross-terms between
 components and give a physically wrong answer.
 
 Two independent layers of outlier/trust handling, matching the two
 kinds of contamination described:
-  * Per-time, shared across every channel: ``data_space_rfi.py`` flags
+  * Per-time, shared across every channel: ``eigsep_data.beam_mapping.rfi`` flags
     RFI-contaminated times using only the raw data -- smooth-in-time
     departures in off-comb channels and the 0x4 cross-correlation --
     never a fitted beam model. An earlier, model-residual-based
@@ -67,11 +67,11 @@ import numpy as np
 from hera_filters import dspec
 from scipy.optimize import least_squares
 
-from beam_pca import compute_beam_pca
-from data_space_rfi import data_space_rfi_mask
-from rotation_beam import TransmitterGeometry, vector_to_spherical
-from tx_beam_sim import HFSSBeamSet, simulate_hfss_coupling
-from v007_beam_diagnostic import (
+from eigsep_data.beam_mapping import compute_beam_pca
+from eigsep_data.beam_mapping import data_space_rfi_mask
+from eigsep_data.beam_mapping import TransmitterGeometry, vector_to_spherical
+from eigsep_data.beam_mapping import HFSSBeamSet, simulate_hfss_coupling
+from eigsep_data.beam_mapping.diagnostics import (
     channel_validity_masks,
     gross_power_time_flags,
     load_v007_data,
@@ -204,7 +204,7 @@ def fit_channel(data, pca, templates_by_arm, channel, clean_mask,
     """Robustly fit one candidate channel's PCA coefficients.
 
     RFI rejection is handled entirely upstream via ``clean_mask`` (see
-    ``data_space_rfi.data_space_rfi_mask``): a single, model-independent,
+    ``eigsep_data.beam_mapping.rfi.data_space_rfi_mask``): a single, model-independent,
     data-space flag shared across every channel, rather than an
     iterative reject-and-refit loop keyed to this channel's own beam-
     model residual. The latter was tried first and found to be

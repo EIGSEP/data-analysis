@@ -1,6 +1,6 @@
 """Low-order PCA/POD spectral basis for the HFSS beam.
 
-Reduces the frequency axis of a :class:`tx_beam_sim.HFSSBeamSet` to a
+Reduces the frequency axis of a :class:`~eigsep_data.beam_mapping.tx_model.HFSSBeamSet` to a
 small number of orthogonal complex-vector eigen-beams via an
 (uncentered) SVD of the raw HFSS field across frequency. Component 0
 captures the dominant, roughly-frequency-independent beam shape;
@@ -12,15 +12,19 @@ This step is deliberately geometry-independent -- it only needs the
 raw HFSS data, not the transmitter heading/polarization -- so it is
 computed once and reused. Projecting the eigen-beams through a
 specific transmitter geometry/arm at fit time reuses
-:func:`tx_beam_sim.simulate_hfss_coupling` unchanged: each eigen-beam
+:func:`~eigsep_data.beam_mapping.tx_model.simulate_hfss_coupling` unchanged: each eigen-beam
 is just handed to it as if it were one more frequency slice.
+Public API
+----------
+BeamPCA
+compute_beam_pca
 """
 
 from dataclasses import dataclass
 
 import numpy as np
 
-from tx_beam_sim import HFSSBeamSet
+from .tx_model import HFSSBeamSet
 
 
 @dataclass

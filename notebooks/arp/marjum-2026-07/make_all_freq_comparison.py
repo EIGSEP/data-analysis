@@ -26,8 +26,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 sys.path.insert(0, ".")
-from beam_pca import compute_beam_pca
-from data_space_rfi import data_space_rfi_mask
+from eigsep_data.beam_mapping import compute_beam_pca
+from eigsep_data.beam_mapping import data_space_rfi_mask
 from fast_mollview import fast_mollview
 from fit_v007_pca_beam import (
     _project_templates,
@@ -35,9 +35,9 @@ from fit_v007_pca_beam import (
     fitted_coefficients_at,
     hfss_prior_vector,
 )
-from rotation_beam import TransmitterGeometry, vector_to_spherical
-from tx_beam_sim import HFSSBeamSet
-from v007_beam_diagnostic import channel_validity_masks, gross_power_time_flags, load_v007_data
+from eigsep_data.beam_mapping import TransmitterGeometry, vector_to_spherical
+from eigsep_data.beam_mapping import HFSSBeamSet
+from eigsep_data.beam_mapping.diagnostics import channel_validity_masks, gross_power_time_flags, load_v007_data
 
 MODEL_JSON = "v007_pca_beam_model_v4.json"
 BEAM_FILE = "../../../hfss_beam_maps/bowtie_beam.npz"
