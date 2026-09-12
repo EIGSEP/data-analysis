@@ -1,0 +1,17 @@
+# Marjum Pass 2026-07 analysis outputs (moved out of the campaign directory
+# 2026-09-12; see ~/projects/eigsep/marjum-2026-07/INDEX.md for provenance).
+#
+# All of these are regenerable from the scripts here. If you want to preserve
+# a specific artifact, add it with `git add -f`.
+
+# Diagnostic and beammap plots
+*.png
+
+# PCA / beam-fit model outputs (~9 MB each)
+v007_*.json
+regen/v007_*.json
+regen2/v007_*.json
+
+# Python bytecode
+__pycache__/
+*.py[cod]
