@@ -305,7 +305,11 @@ def main():
             "Azimuth zero point is not tied to true north; awaiting geometer.",
             "Motor counts are relative and slip; never use as absolute angles.",
             "Achieved azimuth steps are smaller than commanded (4.435 vs "
-            "5.0018 deg in the 07-17 scan). Do not assume the scan plan.",
+            "5.0018 deg in the 07-17 scan), accumulating 28.9 deg over the "
+            "62-min block. Do not assume the scan plan.",
+            "That slip is a discrete episode, not continuous drift: 27.4 deg "
+            "lost in 12.3 min (07-17 20:41:24-20:53:43, -133 deg/hr), with "
+            "the command tracked to within a few degrees either side.",
         ],
         "params": {
             "window_start_utc": extract.utc(table["t_utc_s"][0]),

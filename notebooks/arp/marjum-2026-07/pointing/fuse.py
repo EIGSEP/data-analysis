@@ -12,7 +12,9 @@ Sensor roles for this campaign (established empirically, see MEMO):
 ``motor.az_pos`` / ``motor.el_pos``
     Smooth and finely quantised (0.0159 deg/step) but **relative** and
     unreliable open-loop: the motor-vs-pot offset jumps by up to 45 deg at
-    discrete slip/re-home events and drifts ~34 deg/hr during the scan.
+    discrete slip/re-home events, and loses 27.4 deg in a single 12.3-min
+    episode during the 07-17 scan (20:41:24-20:53:43, -133 deg/hr) while
+    tracking the command to within a few degrees either side of it.
     Used for short-term motion only, never as an absolute angle.
 
 ``imu_el.el_deg``
@@ -166,8 +168,11 @@ def fuse_azimuth(motor_az_steps, pot_az_deg, half_window=56):
     """Complementary-filter azimuth: motor motion anchored to pot level.
 
     ``half_window`` of 56 samples is +/-30 s at the 0.537 s cadence, which
-    cuts the 1.73 deg pot noise to ~0.23 deg while limiting smeared slip
-    drift (~34 deg/hr during the scan) to a comparable ~0.28 deg.
+    cuts the 1.73 deg pot noise to ~0.23 deg.  Slip smeared into that window
+    is negligible outside slip episodes and reaches ~1.1 deg at the peak
+    episode rate (-133 deg/hr); those samples carry AZ_SLIP_EVENT, and the
+    segment-wise offset estimate keeps the episode from contaminating the
+    quiet phases either side of it.
     """
     motor_deg = MOTOR_DEG_PER_STEP * np.asarray(motor_az_steps, float)
     pot = np.asarray(pot_az_deg, float)
