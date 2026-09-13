@@ -3,20 +3,22 @@ __version__ = "0.0.1"
 
 from .imu import ImuCalibrator, ImuSnapshot, ImuDataset
 from .s11 import S11
-from .data import EigsepData
+from .data import EigsepData, to_unix_time
 from . import plot
 from . import src
 from . import sun
 from . import rfi
+from . import beam_mapping
 
 try:
     from . import hpm
-    from . import sim
+    from . import sph_fit
+    from . import beam_sim
 except ImportError:
     from warnings import warn
 
     warn(
-        "hpm and sim modules require additional dependencies. Install them to"
-        "use these modules.",
+        "hpm, sph_fit, beam_sim, and beam_fit modules require additional "
+        "dependencies (JAX, healjax). Install them to use these modules.",
         ImportWarning,
     )

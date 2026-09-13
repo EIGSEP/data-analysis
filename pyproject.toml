@@ -19,7 +19,6 @@ classifiers = [
     "Programming Language :: Python :: 3",
 ]
 dependencies = [
-    "aipy",
     "astropy",
     "croissant-sim",
     # croissant-sim imports spiceypy but doesn't declare it
@@ -35,10 +34,10 @@ dependencies = [
     "numpy",
     "optax",
     "pandas<3",
-    "scipy",
+    # hpm.py uses scipy.special.sph_harm_y, added in 1.15
+    "scipy>=1.15",
     "tqdm",
-    "eigsep_corr",
-    "eigsep_observing",
+    "eigsep_base",
     "eigsep_redis",
     "eigsep-vna",
     "picohost",
@@ -50,10 +49,16 @@ dependencies = [
     "pygdsm",
 ]
 
+# eigsep_base and healjax are not on PyPI yet. Until they are, install them
+# from the sibling checkouts with:
+#     pip install -e ../eigsep_base -e ../healjax
+# then `pip install -e .` here (or add them to [tool.uv.sources] below if
+# you drive the workspace with uv).
+
 # Field setup: eigsep stack comes from local editable checkouts so code
 # can be updated on-site without network access.
 [tool.uv.sources]
-eigsep_observing = { path = "../eigsep_observing", editable = true }
+eigsep_base = { path = "../eigsep_base", editable = true }
 eigsep_redis = { path = "../eigsep_redis", editable = true }
 eigsep-vna = { path = "../cmt_vna", editable = true }
 picohost = { path = "../pico-firmware/picohost", editable = true }
@@ -72,6 +77,14 @@ dev = [
     "pytest-cov",
     "black",
     "flake8",
+]
+# Archived upstream (github.com/EIGSEP/eigsep_corr). Nothing in src/
+# imports it — only the deployment-1/2/3 notebooks, which predate
+# eigsep_observing.io and still do `from eigsep_corr import io, gain_cal`.
+# Install .[legacy] only to re-run those. Deliberately NOT in `all`, so a
+# routine dev setup doesn't pull an archived package.
+legacy = [
+    "eigsep_corr",
 ]
 all = ["eigsep_data[vis, dev]"]
 
