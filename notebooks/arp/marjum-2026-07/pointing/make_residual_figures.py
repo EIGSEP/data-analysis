@@ -140,7 +140,7 @@ def fig_achieved_vs_commanded(z, outdir):
     ep1 = dt.datetime(2026, 7, 17, 20, 57, 30, tzinfo=dt.timezone.utc)
 
     fig, (ax1, ax2) = plt.subplots(
-        2, 1, figsize=(8.2, 6.4), dpi=200, facecolor=SURFACE, sharex=True,
+        2, 1, figsize=(8.2, 7.8), dpi=200, facecolor=SURFACE, sharex=True,
         gridspec_kw={"height_ratios": [2.0, 1.25], "hspace": 0.18})
 
     for ax in (ax1, ax2):
@@ -170,7 +170,7 @@ def fig_achieved_vs_commanded(z, outdir):
     style(ax2, "", "time (UTC)", "achieved $-$ commanded  (deg)")
     ax2.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M", tz=dt.timezone.utc))
 
-    fig.subplots_adjust(left=0.11, right=0.97, top=0.88, bottom=0.24)
+    fig.subplots_adjust(left=0.11, right=0.97, top=0.90, bottom=0.30)
     caption(fig,
             f"HELD-OUT: the commanded scan grid is external information the fusion never consumes. Both traces are "
             f"PER-SAMPLE (n={idx.size:,}),\n"
@@ -181,9 +181,13 @@ def fig_achieved_vs_commanded(z, outdir):
             f"{div[-1]:+.2f}$\\degree$. A least-squares slope\n"
             f"through this step reads ~34$\\degree$/hr and describes neither phase. Per-step medians: 5.0018$\\degree$ commanded "
             f"vs 4.435$\\degree$ achieved.\n"
-            f"REDUCTION-DEPENDENT: the endpoint is -28.91$\\degree$ from fused per-sample az, -28.19$\\degree$ from summed "
-            f"plateau-median steps, -24.41$\\degree$ from\n"
-            f"raw pot. Quote the first for consumers of az_deg. Scope: 07-17/18 beam-scan window only.")
+            f"QUOTE THE EPISODE LOSS, NOT THE ENDPOINT. Cumulative divergence is measured from an epoch, and the "
+            f"platform is already slewing\n"
+            f"at scan start (166$\\degree$ in the 30 s before 20:26:30), so the endpoint moves with the epoch chosen: "
+            f"-21.36$\\degree$ from 20:20:00, -22.58$\\degree$ from\n"
+            f"20:26:00, -28.91$\\degree$ from 20:26:30, -32.64$\\degree$ from 20:35:00. The episode loss (-27.35$\\degree$) and the "
+            f"post-episode scatter (1.89$\\degree$) are\n"
+            f"invariant under all of those. Scope: 07-17/18 beam-scan window only.")
     path = os.path.join(outdir, "fig2_achieved_vs_commanded.png")
     fig.savefig(path, facecolor=SURFACE)
     plt.close(fig)
