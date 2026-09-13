@@ -172,14 +172,18 @@ def fig_achieved_vs_commanded(z, outdir):
 
     fig.subplots_adjust(left=0.11, right=0.97, top=0.88, bottom=0.24)
     caption(fig,
-            f"HELD-OUT: the commanded scan grid is external information the fusion never consumes.\n"
+            f"HELD-OUT: the commanded scan grid is external information the fusion never consumes. Both traces are "
+            f"PER-SAMPLE (n={idx.size:,}),\n"
+            f"unwrapped, not plateau medians; 'achieved' is the product's fused az_deg, not the raw potentiometer.\n"
             f"The slip is a DISCRETE EPISODE, not continuous drift: divergence holds within +0.0 to +4.7$\\degree$ until 20:41, "
             f"loses 27.4$\\degree$ in 12.3 min\n"
             f"(20:41:24-20:53:43, -133$\\degree$/hr), then holds a roughly constant offset (std 1.8$\\degree$) to scan end at "
-            f"{div[-1]:+.1f}$\\degree$. A least-squares slope through\n"
-            f"this step reads ~34$\\degree$/hr and describes neither phase. Per-step medians: 5.0018$\\degree$ commanded vs "
-            f"4.435$\\degree$ achieved, and 51 steps x 0.567$\\degree$\n"
-            f"deficit = 28.9$\\degree$, matching the endpoint independently. Scope: 07-17/18 beam-scan window only.")
+            f"{div[-1]:+.2f}$\\degree$. A least-squares slope\n"
+            f"through this step reads ~34$\\degree$/hr and describes neither phase. Per-step medians: 5.0018$\\degree$ commanded "
+            f"vs 4.435$\\degree$ achieved.\n"
+            f"REDUCTION-DEPENDENT: the endpoint is -28.91$\\degree$ from fused per-sample az, -28.19$\\degree$ from summed "
+            f"plateau-median steps, -24.41$\\degree$ from\n"
+            f"raw pot. Quote the first for consumers of az_deg. Scope: 07-17/18 beam-scan window only.")
     path = os.path.join(outdir, "fig2_achieved_vs_commanded.png")
     fig.savefig(path, facecolor=SURFACE)
     plt.close(fig)
