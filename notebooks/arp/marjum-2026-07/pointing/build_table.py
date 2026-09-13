@@ -1,21 +1,34 @@
-"""Build the Marjum 2026-07 pointing table (v0) for the beam-scan window.
+"""Build the Marjum 2026-07 pointing table.
 
-Product: one row per correlator sample, keyed on ``header/times`` (UTC), with
-fused azimuth/elevation, height, per-sample uncertainties, per-sensor raw
-values for audit, and a quality bitmask.
+Product: one row per correlator sample with fused azimuth/elevation, height,
+per-sample uncertainties, the raw per-sensor values for audit, and quality
+flags.  Written as Parquet with the provenance block in the file's key-value
+metadata, per the registry in ``marjum-2026-07/INDEX.md``.
+
+Version history
+---------------
+v0  beam-scan window only (07-17 18:50 -> 07-18 03:22), npz + csv.
+v1  **meaning changes** -- whole campaign; join key is ``t_utc`` in int64 ns;
+    adds ``hdr_time_bad`` and ``t_utc_sigma_s`` because 646 files (12.6%)
+    have untrustworthy header clocks and their timestamps are filename
+    anchors good to ~10 min, not to a second; adds ``quality``,
+    ``height_era`` and ``phase``; height now varies by era instead of being
+    a single nominal.
 
 Run::
 
     /home/aparsons/.local/share/mamba/envs/arp/bin/python3 build_table.py \
-        --data ~/projects/eigsep/marjum-2026-07/data --out pointing_table_v0
-
-Writes ``<out>.npz`` (arrays + header) and ``<out>.csv`` (decimated preview).
+        --data ~/projects/eigsep/marjum-2026-07/data \
+        --out ~/projects/eigsep/marjum-2026-07/curation/pointing_table
+    # or one era at a time:
+    ... --era '~30m/C'
 """
 
 from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hashlib
 import importlib.util
 import json
 import os
@@ -25,18 +38,20 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-VERSION = "v0"
-SCHEMA_VERSION = 1
+VERSION = "v1"
+SCHEMA_VERSION = 2
 
-# Beam-scan window. End is the last *data* sample on disk (03:08:49), not the
-# 03:22 figure in CAMPAIGN.md, which is the close time of a buffered burst.
-WINDOW_START = dt.datetime(2026, 7, 17, 18, 50, tzinfo=dt.timezone.utc)
-WINDOW_STOP = dt.datetime(2026, 7, 18, 3, 22, 59, tzinfo=dt.timezone.utc)
+# Nominal platform height per curation height_era, and its uncertainty.
+# geometer owns the absolute values; these are the campaign-note figures the
+# table declares so a consumer can see exactly what was assumed.
+ERA_HEIGHT_M = {
+    "~2m": (2.0, 1.0),
+    "~30m": (30.0, 3.0),
+    "~87.5m": (87.5, 2.0),
+    "~91m": (91.0, 1.5),
+}
 
-# Nominal platform height after the 07-17 18:50 lift, from CAMPAIGN.md.
-# geometer owns the absolute value; this is a placeholder the table declares.
-NOMINAL_HEIGHT_M = 91.0
-NOMINAL_HEIGHT_SIGMA_M = 1.5
+QUALITY_OK, QUALITY_SUSPECT, QUALITY_GAP = "ok", "suspect", "gap"
 
 
 def _load(name, filename):
@@ -51,10 +66,9 @@ fuse = _load("fuse", "fuse.py")
 
 
 def git_describe(repo):
-    """Short SHA of ``repo`` at generation time; ``-dirty`` if the tree is not clean.
+    """Short SHA at generation time; ``-dirty`` if the tree is not clean.
 
-    Per the marjum-2026-07 provenance rules, a dirty stamp is not citable in a
-    result -- commit the generator before producing a product you intend to cite.
+    Per the campaign provenance rules a dirty stamp is not citable.
     """
     try:
         sha = subprocess.check_output(
@@ -72,7 +86,6 @@ def git_describe(repo):
 
 
 def sha256(path, chunk=1 << 20):
-    import hashlib
     h = hashlib.sha256()
     with open(path, "rb") as fh:
         for block in iter(lambda: fh.read(chunk), b""):
@@ -80,9 +93,38 @@ def sha256(path, chunk=1 << 20):
     return h.hexdigest()
 
 
-def build(data_dir):
-    t0, t1 = WINDOW_START.timestamp(), WINDOW_STOP.timestamp()
-    d = extract.load_window(data_dir, t0, t1)
+def load_eras(campaign_dir):
+    """Era/phase intervals from data-archivist's mode table."""
+    path = os.path.join(campaign_dir, "curation", "mode_table.jsonl")
+    if not os.path.exists(path):
+        return []
+    out = []
+    for line in open(path):
+        r = json.loads(line)
+        out.append((
+            dt.datetime.strptime(r["t_start_utc"], "%Y-%m-%dT%H:%M:%SZ").replace(
+                tzinfo=dt.timezone.utc).timestamp(),
+            dt.datetime.strptime(r["t_end_utc"], "%Y-%m-%dT%H:%M:%SZ").replace(
+                tzinfo=dt.timezone.utc).timestamp(),
+            r.get("height_era"), r.get("phase")))
+    return out
+
+
+def label_eras(times, eras):
+    """Per-sample height_era / phase, from the mode table's intervals."""
+    n = times.size
+    era = np.array([""] * n, dtype=object)
+    phase = np.array([""] * n, dtype=object)
+    for t0, t1, h, p in eras:
+        sel = (times >= t0) & (times <= t1)
+        if sel.any():
+            era[sel] = h or ""
+            phase[sel] = p or ""
+    return era, phase
+
+
+def build(data_dir, t_start, t_stop, campaign_dir, index=None):
+    d = extract.load_window(data_dir, t_start, t_stop, index=index)
     n = d["time"].size
 
     az, sigma_az, flags_az, az_offset = fuse.fuse_azimuth(
@@ -91,52 +133,92 @@ def build(data_dir):
         d["imu_el_el_deg"], d["motor_el_pos"])
 
     flags = flags_az | flags_el
-    no_meta = d["motor_status"] == "absent"
-    flags[no_meta] |= fuse.FLAG_NO_METADATA
+    flags[d["motor_status"] == "absent"] |= fuse.FLAG_NO_METADATA
 
     # Unvalidated motor-only elevation: quote the measured motor-vs-IMU
-    # disagreement where both existed, rather than a fit residual.
+    # disagreement where both existed, not a fit residual.
     both = np.isfinite(d["imu_el_el_deg"]) & np.isfinite(d["motor_el_pos"])
-    resid = fuse.wrap180(fuse.MOTOR_DEG_PER_STEP * d["motor_el_pos"][both]
-                         - d["imu_el_el_deg"][both])
-    motor_el_sigma = float(1.4826 * np.median(np.abs(resid - np.median(resid))))
-    fallback = ~np.isfinite(sigma_el) & np.isfinite(el)
-    sigma_el[fallback] = motor_el_sigma
+    if both.sum() > 100:
+        resid = fuse.wrap180(fuse.MOTOR_DEG_PER_STEP * d["motor_el_pos"][both]
+                             - d["imu_el_el_deg"][both])
+        motor_el_sigma = float(1.4826 * np.median(np.abs(resid - np.median(resid))))
+    else:
+        motor_el_sigma = float("nan")
+    sigma_el[~np.isfinite(sigma_el) & np.isfinite(el)] = motor_el_sigma
 
-    # Samples with no usable sensor at all. v0 leaves these NaN by design.
     flags[~np.isfinite(az)] |= fuse.FLAG_NO_ESTIMATE
     flags[~np.isfinite(el)] |= fuse.FLAG_NO_ESTIMATE
 
-    # Height: LIDAR ground returns where geometry allows, nominal elsewhere.
+    eras = load_eras(campaign_dir)
+    era, phase = label_eras(d["time"], eras)
+
+    # Height: era nominal, overridden by LIDAR ground returns where geometry
+    # allows the rangefinder to actually see the ground.
+    height = np.full(n, np.nan)
+    sigma_h = np.full(n, np.nan)
+    for key, (h, s) in ERA_HEIGHT_M.items():
+        sel = era == key
+        height[sel], sigma_h[sel] = h, s
     lidar_h = fuse.lidar_height(d["lidar_distance_m"], d["imu_el_el_deg"])
-    height = np.full(n, NOMINAL_HEIGHT_M)
-    sigma_h = np.full(n, NOMINAL_HEIGHT_SIGMA_M)
     measured = np.isfinite(lidar_h)
     height[measured] = lidar_h[measured]
-    # Spread of the ground returns is the honest per-sample LIDAR error.
     if measured.sum() > 10:
         sigma_h[measured] = float(1.4826 * np.median(
             np.abs(lidar_h[measured] - np.median(lidar_h[measured]))))
     flags[~measured] |= fuse.FLAG_HEIGHT_ASSUMED
 
+    hdr_bad = d["hdr_time_bad"].astype(bool)
+    t_sigma = np.where(hdr_bad, extract.FNAME_ANCHOR_SIGMA_S, 0.0)
+
+    # quality describes confidence in the reported az/el VALUES, and nothing
+    # else.  Drive state is a separate axis and lives in `flags`.
+    #
+    # This distinction matters: when the EL drive stalls and is then left
+    # uncommanded, the antenna is genuinely parked and the gravity-referenced
+    # IMU measures where it points perfectly well.  The pointing is sound; it
+    # simply is not *scanning*.  Folding EL_STUCK / EL_POST_FAILURE into
+    # `quality` conflated "we don't know where it pointed" with "it wasn't
+    # doing anything interesting", and discarded hours of good pointing.
+    # A consumer selecting *scanning* data filters the flags; a consumer
+    # asking "where was it pointing at time t" uses `quality`.
+    #
+    # 'interp' is never emitted -- this product does not interpolate; absent
+    # pointing is a gap, not a smoothed value.
+    quality = np.full(n, QUALITY_OK, dtype=object)
+    value_suspect = (
+        hdr_bad                                        # t_utc only ~+/-10 min
+        | ((flags & (fuse.FLAG_EL_NO_IMU               # el from motor alone
+                     | fuse.FLAG_AZ_NO_POT             # az has no absolute ref
+                     | fuse.FLAG_UNCOMMANDED)) != 0))  # swinging within a sample
+    quality[value_suspect] = QUALITY_SUSPECT
+    quality[(flags & fuse.FLAG_NO_ESTIMATE) != 0] = QUALITY_GAP
+
     table = {
-        "time_utc": d["time"],
+        "t_utc": (d["time"] * 1e9).astype("int64"),
+        "t_utc_s": d["time"],
+        "t_utc_sigma_s": t_sigma,
+        "file": d["file_name"],
+        "sample_idx": d["sample_idx"].astype("int32"),
+        "hdr_time_bad": hdr_bad,
         "az_deg": az,
         "el_deg": el,
+        "az_sigma_deg": sigma_az,
+        "el_sigma_deg": sigma_el,
         "height_m": height,
-        "sigma_az_deg": sigma_az,
-        "sigma_el_deg": sigma_el,
-        "sigma_height_m": sigma_h,
-        "flags": flags,
-        # Raw streams retained for audit / re-fusion by consumers.
+        "height_sigma_m": sigma_h,
+        "quality": quality,
+        "flags": flags.astype("int32"),
+        "height_era": era,
+        "phase": phase,
+        # Raw per-sensor values, retained so a consumer can re-fuse.
         "motor_az_deg": fuse.MOTOR_DEG_PER_STEP * d["motor_az_pos"],
         "motor_el_deg": fuse.wrap180(fuse.MOTOR_DEG_PER_STEP * d["motor_el_pos"]),
         "pot_az_deg": d["potmon_pot_az_angle"],
         "imu_el_deg": d["imu_el_el_deg"],
+        "imu_az_yaw_deg": d["imu_az_yaw"],
         "lidar_dist_m": d["lidar_distance_m"],
         "az_motor_pot_offset_deg": az_offset,
-        "file_index": d["file_index"],
-        "file_close_time": d["file_close_time"],
+        "file_close_time_s": d["file_close_time"],
     }
     return table, d["_files"], motor_el_sigma
 
@@ -144,62 +226,69 @@ def build(data_dir):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", required=True)
-    ap.add_argument("--out", default="pointing_table_v0")
+    ap.add_argument("--out", required=True, help="output path without extension")
+    ap.add_argument("--era", default=None,
+                    help="restrict to one height_era, e.g. '~30m'")
+    ap.add_argument("--phase", default=None, help="restrict to one phase")
+    ap.add_argument("--start", default=None, help="UTC ISO start override")
+    ap.add_argument("--stop", default=None, help="UTC ISO stop override")
     args = ap.parse_args()
 
-    table, files, motor_el_sigma = build(os.path.expanduser(args.data))
-    n = table["time_utc"].size
+    import pyarrow as pa
+    import pyarrow.parquet as pq
 
+    data_dir = os.path.expanduser(args.data)
+    campaign_dir = os.path.dirname(data_dir.rstrip("/"))
+
+    eras = load_eras(campaign_dir)
+    if args.start or args.stop:
+        t0 = dt.datetime.fromisoformat(args.start).replace(
+            tzinfo=dt.timezone.utc).timestamp() if args.start else 0.0
+        t1 = dt.datetime.fromisoformat(args.stop).replace(
+            tzinfo=dt.timezone.utc).timestamp() if args.stop else 2e9
+    elif args.era:
+        sel = [e for e in eras if e[2] == args.era
+               and (args.phase is None or e[3] == args.phase)]
+        if not sel:
+            raise SystemExit(f"no mode-table blocks for era {args.era!r}")
+        t0, t1 = min(e[0] for e in sel), max(e[1] for e in sel)
+    else:
+        t0, t1 = 0.0, 2e9
+
+    print(f"indexing {data_dir} ...")
+    index = extract.file_time_index(data_dir)
+    print(f"  {len(index)} files, "
+          f"{sum(r['hdr_time_bad'] for r in index)} with bad header clocks")
+
+    table, files, motor_el_sigma = build(data_dir, t0, t1, campaign_dir, index=index)
+    n = table["t_utc"].size
     commit = git_describe(os.path.join(HERE, "..", "..", "..", ".."))
-    generated = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+    compact = f"marjum-2026-07/pointing_table@{VERSION}+{commit}"
+    generated = dt.datetime.now(dt.timezone.utc).isoformat(
+        timespec="seconds").replace("+00:00", "Z")
+
     provenance = {
         "product": "pointing_table",
         "campaign": "marjum-2026-07",
         "version": VERSION,
-        "generated_utc": generated.replace("+00:00", "Z"),
+        "schema_version": SCHEMA_VERSION,
+        "generated_utc": generated,
+        "generated_by": "pointing-analyst",
         "generator": "eigsep_data/notebooks/arp/marjum-2026-07/pointing/build_table.py",
         "generator_commit": commit,
         "generator_repo": "eigsep_data",
-        "inputs": [{"path": f"marjum-2026-07/data/{os.path.basename(f)}",
-                    "sha256": sha256(f)} for f in files],
-        "params": {
-            "window_start_utc": WINDOW_START.isoformat().replace("+00:00", "Z"),
-            "window_stop_utc": WINDOW_STOP.isoformat().replace("+00:00", "Z"),
-            "az_half_window_samples": 56,
-            "az_slip_jump_deg": 1.0,
-            "el_stuck_imu_ptp_deg": 3.0,
-            "el_stuck_motor_ptp_deg": 30.0,
-            "lidar_valid_m": [fuse.LIDAR_MIN_VALID, fuse.LIDAR_MAX_VALID],
-            "nominal_height_m": NOMINAL_HEIGHT_M,
-        },
-    }
-    compact = f"marjum-2026-07/pointing_table@{VERSION}+{commit}"
-
-    header = {
-        "product": "marjum-2026-07 pointing table",
-        "provenance": provenance,
-        "provenance_compact": compact,
-        "version": VERSION,
-        "schema_version": SCHEMA_VERSION,
-        "generated_utc": generated,
-        "generated_by": "pointing-analyst (B9)",
-        "code_commit": commit,
-        "window_start_utc": extract.utc(table["time_utc"][0]),
-        "window_stop_utc": extract.utc(table["time_utc"][-1]),
+        "compact": compact,
         "n_samples": int(n),
         "n_files": len(files),
-        "cadence_s": float(np.median(np.diff(table["time_utc"]))),
-        "time_key": ("header/times, UTC epoch seconds. Correlator FILENAMES are "
-                     "file CLOSE times (median fname - times[-1] = -0.94 s); "
-                     "do not use them as sample times."),
-        "frame": ("az: degrees, 0-360, topocentric convention inherited from the "
-                  "potentiometer calibration; absolute zero point NOT yet tied to "
-                  "true north -- awaiting geometer. el: degrees, -180..180, "
-                  "gravity-referenced via imu_elevation_deg convention "
-                  "(R = R_el @ R_az maps receiver -> topocentric)."),
-        "height_note": (f"Nominal {NOMINAL_HEIGHT_M} m from CAMPAIGN.md 07-17 18:50 "
-                        "lift; LIDAR ground returns override where available. "
-                        "geometer owns the absolute height."),
+        "join_key": "t_utc (int64 UTC nanoseconds)",
+        "time_note": (
+            "t_utc comes from header/times where the header clock is sound. "
+            "For hdr_time_bad rows it is a FILENAME anchor: the filename is the "
+            "file close time, and its write lag is not constant across the "
+            "campaign (sub-second on 07-16..07-18, median ~625-631 s on 07-12 "
+            "and 07-15), so those rows carry t_utc_sigma_s=600. Filter on "
+            "hdr_time_bad for time-critical work."),
+        "extrapolation_policy": fuse.EXTRAPOLATION_POLICY,
         "sensor_sigmas_deg": {
             "pot_az": fuse.POT_AZ_SIGMA,
             "imu_el": fuse.IMU_EL_SIGMA,
@@ -208,47 +297,69 @@ def main():
             "az_floor_sway": round(fuse.AZ_FLOOR_SIGMA, 3),
         },
         "flag_bits": {int(k): v for k, v in fuse.FLAG_NAMES.items()},
-        "extrapolation_policy": fuse.EXTRAPOLATION_POLICY,
         "caveats": [
-            "imu_az returns status='error' for 100% of samples in this window; "
-            "azimuth rests entirely on the potentiometer.",
-            "Azimuth zero point is uncalibrated against true north.",
-            "Motor counts are relative and slip; never use them as absolute angles.",
-            "The commanded 5 deg scan grid is NOT the achieved grid: measured "
-            "steps are 4.435 deg median against 5.0018 deg commanded, because "
-            "azimuth slips ~34 deg/hr during the scan. Do not assume the plan.",
-            "EL_POST_FAILURE marks everything from the first proven EL stall; "
-            "elevation there is parked, not scanned.",
+            "imu_az is dead from 07-16 onward (0% finite) and intermittent "
+            "before; where dead, azimuth has no independent cross-check.",
+            "imu_az yaw, where alive, drifts (+188 deg/hr vs pot -71 deg/hr) "
+            "and is NOT an absolute azimuth reference.",
+            "Azimuth zero point is not tied to true north; awaiting geometer.",
+            "Motor counts are relative and slip; never use as absolute angles.",
+            "Achieved azimuth steps are smaller than commanded (4.435 vs "
+            "5.0018 deg in the 07-17 scan). Do not assume the scan plan.",
         ],
-        "files": [os.path.basename(f) for f in files],
+        "params": {
+            "window_start_utc": extract.utc(table["t_utc_s"][0]),
+            "window_stop_utc": extract.utc(table["t_utc_s"][-1]),
+            "era_filter": args.era,
+            "phase_filter": args.phase,
+            "az_half_window_samples": 56,
+            "az_slip_jump_deg": 1.0,
+            "el_stuck_imu_ptp_deg": 3.0,
+            "el_stuck_motor_ptp_deg": 30.0,
+            "lidar_valid_m": [fuse.LIDAR_MIN_VALID, fuse.LIDAR_MAX_VALID],
+            "hdr_time_tol_s": extract.HDR_TIME_TOL_S,
+            "era_height_m": {k: v[0] for k, v in ERA_HEIGHT_M.items()},
+        },
+        "inputs": [{"path": f"marjum-2026-07/data/{os.path.basename(f)}",
+                    "sha256": sha256(f)} for f in files],
     }
 
-    out = args.out
-    np.savez_compressed(out + ".npz", header=json.dumps(header, indent=2), **table)
+    arrays = {k: pa.array(v) for k, v in table.items()}
+    at = pa.table(arrays)
+    at = at.replace_schema_metadata({
+        "eigsep_provenance": json.dumps(provenance),
+        "eigsep_provenance_compact": compact,
+    })
+    out = args.out + ".parquet"
+    pq.write_table(at, out, compression="zstd")
 
-    # Decimated CSV preview (every 20th sample) for eyeballing.
-    step = 20
-    cols = ["time_utc", "az_deg", "el_deg", "height_m",
-            "sigma_az_deg", "sigma_el_deg", "flags"]
-    with open(out + ".csv", "w") as fh:
-        fh.write("# " + compact + "\n")
-        fh.write("# " + json.dumps({k: header[k] for k in
-                 ("product", "version", "schema_version", "generated_utc",
-                  "window_start_utc", "window_stop_utc", "n_samples")}) + "\n")
-        fh.write("utc_iso," + ",".join(cols) + "\n")
-        for i in range(0, n, step):
-            vals = [extract.utc(table["time_utc"][i])]
-            for c in cols:
-                v = table[c][i]
-                vals.append(f"{v:.0f}" if c == "flags" else f"{v:.4f}")
-            fh.write(",".join(vals) + "\n")
+    schema_path = args.out + ".schema.json"
+    with open(schema_path, "w") as fh:
+        json.dump({
+            "product": "pointing_table",
+            "version": VERSION,
+            "schema_version": SCHEMA_VERSION,
+            "join_key": "t_utc",
+            "columns": {name: str(at.schema.field(name).type)
+                        for name in at.schema.names},
+            "quality_values": [QUALITY_OK, QUALITY_SUSPECT, QUALITY_GAP],
+            "quality_note": (
+                "quality rates confidence in the az/el VALUES only. Drive "
+                "state (EL_STUCK, EL_POST_FAILURE) is separate and lives in "
+                "flags: a parked-but-IMU-measured antenna is quality='ok' with "
+                "EL_POST_FAILURE set, because we know exactly where it pointed "
+                "even though it was not scanning. Select scanning data via "
+                "flags, not via quality. 'interp' is never emitted: this "
+                "product does not interpolate; absent pointing is a gap."),
+            "flag_bits": {int(k): v for k, v in fuse.FLAG_NAMES.items()},
+        }, fh, indent=2)
 
-    print(f"wrote {out}.npz  ({n} samples, {len(files)} files)")
-    print(f"wrote {out}.csv  (every {step}th sample)")
+    print(f"wrote {out}  ({n} rows, {len(files)} files, "
+          f"{os.path.getsize(out)/1e6:.1f} MB)")
+    print(f"wrote {schema_path}")
     print(f"provenance: {compact}")
     if commit.endswith("-dirty"):
         print("  WARNING: generator tree is dirty -- this stamp is not citable.")
-    return table, header
 
 
 if __name__ == "__main__":
