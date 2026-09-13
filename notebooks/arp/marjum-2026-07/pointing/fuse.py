@@ -77,6 +77,7 @@ FLAG_UNCOMMANDED = 1 << 5       # antenna moving with no motor command
 FLAG_NO_ESTIMATE = 1 << 6       # no sensor available; value is NaN, NOT filled
 FLAG_HEIGHT_ASSUMED = 1 << 7    # height nominal, not measured at this sample
 FLAG_EL_POST_FAILURE = 1 << 8   # at/after the EL drive failure; el is parked
+FLAG_AZ_SLIP_RAMP = 1 << 9      # sustained az slip: platform losing ground to motor
 
 FLAG_NAMES = {
     FLAG_NO_METADATA: "NO_METADATA",
@@ -88,7 +89,18 @@ FLAG_NAMES = {
     FLAG_NO_ESTIMATE: "NO_ESTIMATE",
     FLAG_HEIGHT_ASSUMED: "HEIGHT_ASSUMED",
     FLAG_EL_POST_FAILURE: "EL_POST_FAILURE",
+    FLAG_AZ_SLIP_RAMP: "AZ_SLIP_RAMP",
 }
+
+# Sustained-slip detector. AZ_SLIP_EVENT catches *steps* in the motor-vs-pot
+# offset and is blind to *ramps* -- which is how it missed both events that
+# actually moved the 07-17 scan off its commanded grid (a ~70 s startup
+# transient worth +8.7 deg, and the 12.3-min episode worth -27.4 deg).
+# A +/-60 s window separates the episode (median 133 deg/hr) from the quiet
+# phase (p95 50 deg/hr) by 2.6x; shorter windows are swamped by the
+# platform's per-step lag behind the motor, longer ones blur the episode.
+SLIP_RAMP_HALF_S = 60.0
+SLIP_RAMP_DEG_PER_HR = 90.0
 
 # v0 never extrapolates: where no sensor supports a sample the value is NaN
 # and FLAG_NO_ESTIMATE is set.  A gap flag is preferable to a smooth fit
@@ -254,6 +266,56 @@ def detect_el_stuck(imu_el_deg, motor_el_steps, window=200, imu_ptp_deg=3.0,
         if np.ptp(seg_i[gi]) < imu_ptp_deg and np.ptp(seg_m[gm]) > motor_ptp_deg:
             stuck[lo:hi] = True
     return stuck
+
+
+def detect_az_slip_ramp(az_deg, motor_az_steps, times,
+                        half_s=SLIP_RAMP_HALF_S,
+                        thresh_deg_per_hr=SLIP_RAMP_DEG_PER_HR,
+                        gap_s=5.0):
+    """Flag sustained azimuth slip -- the platform losing ground to the motor.
+
+    Measures the rate of change of (fused azimuth - motor azimuth) over a
+    +/-``half_s`` window and thresholds it.  Complements
+    :func:`detect_az_slip`, which sees steps but not ramps.
+
+    Operates per contiguous time segment so a data gap is never differenced
+    across, and shrinks the window at segment edges so a transient in the
+    first minute is still visible -- the 07-17 startup transient sits
+    entirely inside one window half-width of the scan start.
+    """
+    az = np.asarray(az_deg, float)
+    motor = MOTOR_DEG_PER_STEP * np.asarray(motor_az_steps, float)
+    times = np.asarray(times, float)
+    n = az.size
+    out = np.zeros(n, bool)
+
+    ok = np.isfinite(az) & np.isfinite(motor)
+    if not ok.any():
+        return out
+    idx = np.flatnonzero(ok)
+    # Split into contiguous runs; unwrapping across a gap is meaningless.
+    breaks = np.flatnonzero(np.diff(times[idx]) > gap_s)
+    starts = np.concatenate(([0], breaks + 1))
+    stops = np.concatenate((breaks + 1, [idx.size]))
+
+    for s, e in zip(starts, stops):
+        sub = idx[s:e]
+        if sub.size < 20:
+            continue
+        t_sub = times[sub]
+        div = (np.rad2deg(np.unwrap(np.deg2rad(az[sub])))
+               - np.rad2deg(np.unwrap(np.deg2rad(motor[sub]))))
+        # Window edges by time, clipped to the segment -- this is what keeps
+        # the detector alive within half_s of a segment boundary.
+        lo = np.searchsorted(t_sub, t_sub - half_s, "left")
+        hi = np.searchsorted(t_sub, t_sub + half_s, "right") - 1
+        dt_win = t_sub[hi] - t_sub[lo]
+        valid = dt_win > max(half_s * 0.5, 1.0)
+        rate = np.zeros(sub.size)
+        rate[valid] = ((div[hi[valid]] - div[lo[valid]])
+                       / (dt_win[valid] / 3600.0))
+        out[sub[valid & (np.abs(rate) > thresh_deg_per_hr)]] = True
+    return out
 
 
 def detect_el_motion(imu_el_deg, window=100, ptp_deg=3.0):

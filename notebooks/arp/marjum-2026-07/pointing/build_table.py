@@ -14,6 +14,11 @@ v1  **meaning changes** -- whole campaign; join key is ``t_utc`` in int64 ns;
     anchors good to ~10 min, not to a second; adds ``quality``,
     ``height_era`` and ``phase``; height now varies by era instead of being
     a single nominal.
+v1.1 adds flag bit 9 ``AZ_SLIP_RAMP``.  ``AZ_SLIP_EVENT`` detects *steps* in
+    the motor-vs-pot offset and is blind to *ramps*, so it flagged neither of
+    the two events that actually moved the 07-17 scan off its commanded grid.
+    Purely additive: every other column and flag bit is unchanged, so a v1
+    consumer reading columns by name is unaffected.
 
 Run::
 
@@ -38,8 +43,8 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-VERSION = "v1"
-SCHEMA_VERSION = 2
+VERSION = "v1.1"
+SCHEMA_VERSION = 3
 
 # Nominal platform height per curation height_era, and its uncertainty.
 # geometer owns the absolute values; these are the campaign-note figures the
@@ -134,6 +139,8 @@ def build(data_dir, t_start, t_stop, campaign_dir, index=None):
 
     flags = flags_az | flags_el
     flags[d["motor_status"] == "absent"] |= fuse.FLAG_NO_METADATA
+    flags[fuse.detect_az_slip_ramp(az, d["motor_az_pos"], d["time"])] |= \
+        fuse.FLAG_AZ_SLIP_RAMP
 
     # Unvalidated motor-only elevation: quote the measured motor-vs-IMU
     # disagreement where both existed, not a fit residual.
