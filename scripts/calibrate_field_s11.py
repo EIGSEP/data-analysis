@@ -118,11 +118,7 @@ def calibrate_field_s11(datadir, switchpaths, osldata, pattern="*.h5"):
     # across every file processed in this run.
     osl_model = dict(np.load(osldata))
     freqs = osl_model.pop("freqs")
-    #     osl_model = np.array(list(osl_model.values()))
-    try:
-        osl_model = np.array([osl_model["O"], osl_model["S"], osl_model["L"]])
-    except KeyError as e:
-        raise ValueError(f"OSL model data missing key: {e}")
+    osl_model = np.array(list(osl_model.values()))
 
     sparam_dict = dict(np.load(switchpaths))
 
@@ -138,25 +134,12 @@ def calibrate_field_s11(datadir, switchpaths, osldata, pattern="*.h5"):
             uncaled_s11s.setdefault(key, {})
             caled_s11s.setdefault(key, {})
             uncaled_s11s[key][hdr["metadata_snapshot_unix"]] = s11
-            caled_s11s[key][hdr["metadata_snapshot_unix"]] = {"raw": s11}
-        try:
-            osl = np.array(
-                [cal_data["VNAO"], cal_data["VNAS"], cal_data["VNAL"]]
-            )
-        except KeyError as e:
-            # Unlike the osl_model check above (a one-time, whole-run
-            # input), this is per-file: a file with no internal-OSL
-            # capture (e.g. pre-OSL-fix vna_state_loop data) should be
-            # skipped, not abort every other file in the directory.
-            print(f"{path.name}: no internal-OSL data ({e}); skipping")
-            continue
+            caled_s11s[key][hdr["metadata_snapshot_unix"]] = {'raw': s11}
+        osl = np.array([cal_data["VNAO"], cal_data["VNAS"], cal_data["VNAL"]])
         if np.any(osl == 0):
             continue  # unmeasured/invalid internal OSL set
-        try:
-            osls[hdr["mode"]][hdr["metadata_snapshot_unix"]] = osl
-        except KeyError as e:
-            print(f"OSL mode missing key: {e}")
-            continue
+        osls[hdr["mode"]][hdr["metadata_snapshot_unix"]] = osl
+
     # Calibrate every capture, walking as far down the chain
     # (vna -> dut -> lna) as that DUT's switch topology allows.
     for key, s11s in uncaled_s11s.items():

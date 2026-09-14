@@ -1,0 +1,26 @@
+# Strip notebook outputs on commit.
+#
+# Notebook outputs are embedded PNGs and dominate this repo: several of
+# christian's notebooks are >99% output by bytes (virA_fringes.ipynb is 37.8 MB
+# of which 24 kB is source). Stripping keeps future commits small.
+#
+# Scoped to notebooks/christian/ only -- other people's notebooks are left alone.
+#
+# The exclude list is the notebooks whose figures ARE the deliverable. They carry
+# captions written against the rendered plots, so stripping them would leave the
+# captions pointing at nothing.
+#
+# Setup, once per clone:   pre-commit install
+repos:
+  - repo: https://github.com/kynan/nbstripout
+    rev: 0.9.1
+    hooks:
+      - id: nbstripout
+        files: ^notebooks/christian/.*\.ipynb$
+        exclude: |
+          (?x)^notebooks/christian/(
+              beam_modulation/beam_modulation\.ipynb
+            | selfrfi_2025_2026/selfrfi_2025_2026\.ipynb
+            | deployment4/noise_dropouts_selfRFI\.ipynb
+            | deployment4/radiated_selfRFI_lines\.ipynb
+          )$
