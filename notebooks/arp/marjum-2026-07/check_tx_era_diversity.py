@@ -21,8 +21,10 @@ from eigsep_observing import io
 
 from eigsep_data.beam_mapping.diagnostics import MOTOR_CAL, _records_to_array
 
-TX_PRESENCE = ("/home/aparsons/projects/eigsep/marjum-2026-07/"
-               "curation/tx_presence.jsonl")
+# notebooks/arp/marjum-2026-07/ -> notebooks/arp/ -> notebooks/ -> eigsep_data/
+# -> the parent eigsep checkout, sibling to marjum-2026-07/.
+EIGSEP_ROOT = Path(__file__).resolve().parents[4]
+TX_PRESENCE = EIGSEP_ROOT / "marjum-2026-07" / "curation" / "tx_presence.jsonl"
 
 
 def load_tx_on(path):
