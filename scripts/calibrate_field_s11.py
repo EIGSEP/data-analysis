@@ -32,10 +32,12 @@ Usage::
 
     python scripts/calibrate_field_s11.py DATADIR SWITCHPATHS OSLDATA
     python scripts/calibrate_field_s11.py DATADIR SWITCHPATHS OSLDATA \\
-        --save-dir ./calibrated --pattern "ants11_*.h5"
+        --save-dir ./calibrated --pattern "ants11_*.h5" --year 2026
 """
 
+import re
 from argparse import ArgumentParser
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import numpy as np
@@ -44,12 +46,36 @@ from eigsep_observing import io
 
 from eigsep_data.s11 import write_dut_calibration_h5
 
+# 2025-system files carry no "metadata_snapshot_unix" in their header
+# -- the capture time is only in the filename, e.g.
+# "ants11_20250719_102527.h5" -> "20250719_102527", local Mountain
+# Standard Time (fixed UTC-7, not the DST-shifting "Mountain Time").
+_MST = timezone(timedelta(hours=-7))
+_FNAME_TIMESTAMP_RE = re.compile(r"(\d{8}_\d{6})")
+
+
+def _timestamp_from_filename(path):
+    """Parse the ``YYYYMMDD_HHMMSS`` timestamp embedded in a 2025-era
+    filename (e.g. ``ants11_20250719_102527.h5``), interpreted as
+    Mountain Standard Time, and return it as a Unix timestamp -- the
+    same units as the 2026 header's ``metadata_snapshot_unix``."""
+    match = _FNAME_TIMESTAMP_RE.search(path.stem)
+    if not match:
+        raise ValueError(
+            f"{path.name}: no YYYYMMDD_HHMMSS timestamp found in "
+            "filename (expected for 2025-system data)"
+        )
+    dt = datetime.strptime(match.group(1), "%Y%m%d_%H%M%S")
+    return dt.replace(tzinfo=_MST).timestamp()
+
+
+# +
 # Which switch path(s) must be de-embedded (VNA leg) / embedded (RF or
 # LNA leg) to get from the VNA's internal-OSL reference plane to each
 # DUT's physical location and on to the LNA input. An empty list means
 # that DUT sits at the previous plane already -- nothing to de-embed
 # or embed.
-DEEMBED_DICT = {
+DEEMBED_DICT26 = {
     "amb": ["VNAAMB"],
     "ant": ["VNAANT"],
     "load": [],
@@ -59,7 +85,15 @@ DEEMBED_DICT = {
     "sp1": ["VNASP1"],
     "rec": ["VNARF"],
 }
-EMBED_DICT = {
+
+DEEMBED_DICT25 = {
+    "ant": ["VNAANT"],
+    "load": ["VNAN"],
+    "noise": ["VNAN"],
+    "rec": ["VNARF"],
+}
+
+EMBED_DICT26 = {
     "amb": ["RFAMB"],
     "ant": ["RFANT"],
     "load": [],
@@ -70,19 +104,38 @@ EMBED_DICT = {
     "rec": [],
 }
 
+EMBED_DICT25 = {
+    "ant": ["RFANT"],
+    "noise": ["RFN"],
+    "load": ["RFN"],
+    "rec": [],
+}
 
-def _deepest_plane(key):
+# Lookup-by-year, used to select the DUT->switch-path dicts above.
+# 2026 is the current system and stays the default everywhere below.
+DEEMBED_DICTS = {2025: DEEMBED_DICT25, 2026: DEEMBED_DICT26}
+EMBED_DICTS = {2025: EMBED_DICT25, 2026: EMBED_DICT26}
+
+
+# -
+
+
+def _deepest_plane(key, year=2026):
     """Deepest calibration plane actually reached for ``key``, given
-    DEEMBED_DICT/EMBED_DICT -- used to pick each DUT's "default"
-    alias in the output file."""
-    if EMBED_DICT.get(key):
+    the ``year``-appropriate DEEMBED_DICT/EMBED_DICT -- used to pick
+    each DUT's "default" alias in the output file."""
+    embed_dict = EMBED_DICTS[year]
+    deembed_dict = DEEMBED_DICTS[year]
+    if embed_dict.get(key):
         return "lna"
-    if DEEMBED_DICT.get(key):
+    if deembed_dict.get(key):
         return "dut"
     return "vna"
 
 
-def calibrate_field_s11(datadir, switchpaths, osldata, pattern="*.h5"):
+def calibrate_field_s11(
+    datadir, switchpaths, osldata, pattern="*.h5", year=2026
+):
     """Calibrate every raw S11 h5 file in ``datadir``.
 
     Parameters
@@ -101,6 +154,13 @@ def calibrate_field_s11(datadir, switchpaths, osldata, pattern="*.h5"):
     pattern : str, optional
         Glob pattern (relative to ``datadir``) selecting input files.
         Default ``"*.h5"``.
+    year : int, optional
+        Which system's DEEMBED_DICT/EMBED_DICT to calibrate against
+        -- 2025 or 2026. Default 2026 (the current system). 2025
+        files also have no ``metadata_snapshot_unix`` in their
+        header, so with ``year=2025`` the capture timestamp is parsed
+        from the filename instead (see
+        ``_timestamp_from_filename``).
 
     Returns
     -------
@@ -108,7 +168,19 @@ def calibrate_field_s11(datadir, switchpaths, osldata, pattern="*.h5"):
         ``{dut: {timestamp: {cal_plane: s11_array}}}``.
     freqs : np.ndarray
         Frequency axis (Hz), from ``osldata``.
+
+    Notes
+    -----
+    A capture whose frequency-point count doesn't match ``osldata``'s
+    (e.g. some datasets sweep to 500 MHz instead of the usual 250
+    MHz) is skipped entirely -- there's no matching calibration data
+    for that span yet, so it isn't written out at all, not even under
+    "raw". The same applies to a file's own internal-OSL capture, so
+    a mismatched-span one is never used to (mis)calibrate another
+    file's ordinary capture.
     """
+    deembed_dict = DEEMBED_DICTS[year]
+    embed_dict = EMBED_DICTS[year]
     paths = sorted(datadir.glob(pattern))
     if not paths:
         raise ValueError(f"no files matching {pattern!r} in {datadir}")
@@ -132,13 +204,33 @@ def calibrate_field_s11(datadir, switchpaths, osldata, pattern="*.h5"):
     osls = {"ant": {}, "rec": {}}
     for path in paths:
         data, cal_data, hdr, meta = io.read_s11_file(path)
+        # 2025-system files have no metadata_snapshot_unix in the
+        # header -- the capture time only lives in the filename.
+        if year == 2025:
+            timestamp = _timestamp_from_filename(path)
+        else:
+            timestamp = hdr["metadata_snapshot_unix"]
         for key, s11 in data.items():
             if np.any(s11 == 0):
                 continue  # unmeasured/invalid capture
+            if len(s11) != len(freqs):
+                # e.g. some datasets sweep to 500 MHz instead of the
+                # usual 250 MHz (roughly double the points of the
+                # osl_model/switchpaths characterization data, which
+                # only covers the 250 MHz span). There's no matching
+                # calibration data for that wider span yet, so skip
+                # this capture entirely -- it isn't written out at
+                # all, not even under "raw".
+                print(
+                    f"{path.name}: {key!r} has {len(s11)} freq points "
+                    f"(osl model has {len(freqs)}) -- different "
+                    "sweep span, skipping entirely"
+                )
+                continue
             uncaled_s11s.setdefault(key, {})
             caled_s11s.setdefault(key, {})
-            uncaled_s11s[key][hdr["metadata_snapshot_unix"]] = s11
-            caled_s11s[key][hdr["metadata_snapshot_unix"]] = {"raw": s11}
+            uncaled_s11s[key][timestamp] = s11
+            caled_s11s[key][timestamp] = {"raw": s11}
         try:
             osl = np.array(
                 [cal_data["VNAO"], cal_data["VNAS"], cal_data["VNAL"]]
@@ -152,8 +244,21 @@ def calibrate_field_s11(datadir, switchpaths, osldata, pattern="*.h5"):
             continue
         if np.any(osl == 0):
             continue  # unmeasured/invalid internal OSL set
+        if osl.shape[-1] != len(freqs):
+            # Same wider-span issue as above, but for the file's own
+            # internal-OSL capture: an internal-OSL set from a 500
+            # MHz sweep must never enter the bank below, or it could
+            # later get picked (by nearest-in-time) to "calibrate" an
+            # ordinary 250 MHz capture from another file and blow up
+            # the same way.
+            print(
+                f"{path.name}: internal-OSL has {osl.shape[-1]} freq "
+                f"points (osl model has {len(freqs)}) -- different "
+                "sweep span, excluding from internal-OSL bank"
+            )
+            continue
         try:
-            osls[hdr["mode"]][hdr["metadata_snapshot_unix"]] = osl
+            osls[hdr["mode"]][timestamp] = osl
         except KeyError as e:
             print(f"OSL mode missing key: {e}")
             continue
@@ -180,9 +285,14 @@ def calibrate_field_s11(datadir, switchpaths, osldata, pattern="*.h5"):
 
             dut_port = None
             try:
-                # de-embed the VNA-leg switch path from vna to dut
+                # de-embed the VNA-leg switch path from vna to dut.
+                # .get(key, []) rather than [key]: a DUT key entirely
+                # absent from this year's dict should behave the same
+                # as an explicitly-empty list (nothing to de-embed),
+                # not raise a KeyError -- e.g. a stray/mislabeled DUT
+                # key that isn't one of this year's real switch paths.
                 dut_port = calkit.de_embed_sparams(
-                    sparams=sparam_dict[DEEMBED_DICT[key][0]],
+                    sparams=sparam_dict[deembed_dict.get(key, [])[0]],
                     gamma_prime=vna_port,
                 )
                 caled_s11s[key][time]["dut"] = dut_port
@@ -191,7 +301,7 @@ def calibrate_field_s11(datadir, switchpaths, osldata, pattern="*.h5"):
             try:
                 # embed the RF/LNA-leg switch path from dut to lna
                 lna_port = calkit.embed_sparams(
-                    sparams=sparam_dict[EMBED_DICT[key][0]],
+                    sparams=sparam_dict[embed_dict.get(key, [])[0]],
                     gamma=dut_port,
                 )
                 caled_s11s[key][time]["lna"] = lna_port
@@ -235,6 +345,14 @@ def main(argv=None):
         help="glob pattern (relative to datadir) selecting input "
         "files (default: '*.h5')",
     )
+    parser.add_argument(
+        "--year",
+        type=int,
+        choices=[2025, 2026],
+        default=2026,
+        help="which system's switch paths the S11s were taken with "
+        "-- 2025 or 2026 (default: 2026, the current system)",
+    )
     args = parser.parse_args(argv)
 
     args.save_dir.mkdir(parents=True, exist_ok=True)
@@ -244,6 +362,7 @@ def main(argv=None):
         args.switchpaths,
         args.osldata,
         pattern=args.pattern,
+        year=args.year,
     )
 
     # Each DUT's "default" alias should point at the deepest plane it
@@ -252,9 +371,9 @@ def main(argv=None):
     # deepest plane and call it once per group.
     by_final_plane = {}
     for key in caled_s11s:
-        by_final_plane.setdefault(_deepest_plane(key), {})[key] = caled_s11s[
+        by_final_plane.setdefault(_deepest_plane(key, year=args.year), {})[
             key
-        ]
+        ] = caled_s11s[key]
 
     written = {}
     for final_plane, group in by_final_plane.items():
