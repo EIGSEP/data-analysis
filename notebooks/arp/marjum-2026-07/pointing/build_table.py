@@ -19,6 +19,18 @@ v1.1 adds flag bit 9 ``AZ_SLIP_RAMP``.  ``AZ_SLIP_EVENT`` detects *steps* in
     the two events that actually moved the 07-17 scan off its commanded grid.
     Purely additive: every other column and flag bit is unchanged, so a v1
     consumer reading columns by name is unaffected.
+v1.2 adds flag bit 10 ``EL_SOLUTION_GLITCH`` (beam-analyst finding, via
+    ``beam_metric_outliers_checkpoint.ipynb``): in the post-EL-failure wrap
+    cluster the antenna is parked at el ~ +/-180 and the IMU elevation
+    solver intermittently emits one spurious sample at |el| ~ 0 or ~59-60
+    before returning to the park -- all previously passed as
+    ``quality == "ok"`` with no flag set.  Criterion is an adjacent in-file
+    elevation slew > 20 deg/s (~4x the ~5 deg/s commanded scan rate); see
+    ``fuse.detect_el_solution_glitch``.  The wrap-park *mechanism* is
+    established only for the post-EL-failure era -- campaign-wide, pre-
+    failure firings of the same criterion are a different, less-understood
+    population (most already ``quality == "suspect"`` for other reasons), so
+    the bit is defined by its criterion, not the mechanism.  Purely additive.
 
 Run::
 
@@ -43,8 +55,8 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-VERSION = "v1.1"
-SCHEMA_VERSION = 3
+VERSION = "v1.2"
+SCHEMA_VERSION = 4
 
 # Nominal platform height per curation height_era, and its uncertainty.
 # geometer owns the absolute values; these are the campaign-note figures the
@@ -154,6 +166,8 @@ def build(data_dir, t_start, t_stop, campaign_dir, index=None):
     flags[d["motor_status"] == "absent"] |= fuse.FLAG_NO_METADATA
     flags[fuse.detect_az_slip_ramp(az, d["motor_az_pos"], d["time"])] |= \
         fuse.FLAG_AZ_SLIP_RAMP
+    flags[fuse.detect_el_solution_glitch(el, d["time"], d["file_index"])] |= \
+        fuse.FLAG_EL_SOLUTION_GLITCH
 
     # Unvalidated motor-only elevation: quote the measured motor-vs-IMU
     # disagreement where both existed, not a fit residual.
@@ -338,6 +352,11 @@ def main():
             "That slip is a discrete episode, not continuous drift: 27.4 deg "
             "lost in 12.3 min (07-17 20:41:24-20:53:43, -133 deg/hr), with "
             "the command tracked to within a few degrees either side.",
+            "EL_SOLUTION_GLITCH's wrap-park mechanism (spurious sample "
+            "escaping an el ~ +/-180 park) is established for the "
+            "post-EL-failure era only; pre-failure firings of the same "
+            ">20 deg/s slew criterion are a different, less-understood "
+            "population and should not be assumed to be the same glitch.",
         ],
         "params": {
             "window_start_utc": extract.utc(table["t_utc_s"][0]),

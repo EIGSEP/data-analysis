@@ -78,6 +78,7 @@ FLAG_NO_ESTIMATE = 1 << 6       # no sensor available; value is NaN, NOT filled
 FLAG_HEIGHT_ASSUMED = 1 << 7    # height nominal, not measured at this sample
 FLAG_EL_POST_FAILURE = 1 << 8   # at/after the EL drive failure; el is parked
 FLAG_AZ_SLIP_RAMP = 1 << 9      # sustained az slip: platform losing ground to motor
+FLAG_EL_SOLUTION_GLITCH = 1 << 10  # elevation slew faster than the drive can move
 
 FLAG_NAMES = {
     FLAG_NO_METADATA: "NO_METADATA",
@@ -90,6 +91,7 @@ FLAG_NAMES = {
     FLAG_HEIGHT_ASSUMED: "HEIGHT_ASSUMED",
     FLAG_EL_POST_FAILURE: "EL_POST_FAILURE",
     FLAG_AZ_SLIP_RAMP: "AZ_SLIP_RAMP",
+    FLAG_EL_SOLUTION_GLITCH: "EL_SOLUTION_GLITCH",
 }
 
 # Sustained-slip detector. AZ_SLIP_EVENT catches *steps* in the motor-vs-pot
@@ -101,6 +103,31 @@ FLAG_NAMES = {
 # platform's per-step lag behind the motor, longer ones blur the episode.
 SLIP_RAMP_HALF_S = 60.0
 SLIP_RAMP_DEG_PER_HR = 90.0
+
+# Unphysical-elevation-slew detector (beam-analyst, beam_metric_outliers_
+# checkpoint.ipynb / detect_el_slew_glitch.py). In the post-EL-failure wrap
+# cluster the antenna is parked at el ~ +/-180 and the IMU elevation solver
+# intermittently emits a single spurious sample at |el| ~ 59-60 (or ~0) before
+# returning to the park -- 42 of 45 such samples in the 07-17/18 beam-scan
+# window have an immediate same-file neighbour at |el| > 150, and the
+# implied slew rate (p90 ~220 deg/s) is far beyond anything the drive can
+# do. Commanded scan slew is ~5 deg/s (campaign p99 of the
+# in-file rate); 20 deg/s is 4x that and sits in a sparse valley between real
+# motion and the glitch population (counts barely move between the 20, 30
+# and 50 deg/s thresholds). None of the existing flags catch these: they pass
+# as quality=="ok" with no UNCOMMANDED_MOTION.
+#
+# Scope caveat: the wrap-cluster mechanism is established for the
+# post-EL-failure era. Applied campaign-wide, pre-failure firings of this
+# same criterion are a different, less-understood population (they rarely
+# show the |el|~59 signature and are mostly already quality=="suspect" for
+# other reasons) -- so this flag is named and thresholded by its criterion
+# ("elevation solution moved faster than the drive can"), not by the park
+# mechanism, and consumers working pre-failure data should not assume it
+# means the specific wrap-park glitch.
+EL_SLEW_MAX_DEG_S = 20.0
+EL_SLEW_DT_MIN_S = 0.1
+EL_SLEW_DT_MAX_S = 2.0
 
 # v0 never extrapolates: where no sensor supports a sample the value is NaN
 # and FLAG_NO_ESTIMATE is set.  A gap flag is preferable to a smooth fit
@@ -315,6 +342,44 @@ def detect_az_slip_ramp(az_deg, motor_az_steps, times,
         rate[valid] = ((div[hi[valid]] - div[lo[valid]])
                        / (dt_win[valid] / 3600.0))
         out[sub[valid & (np.abs(rate) > thresh_deg_per_hr)]] = True
+    return out
+
+
+def detect_el_solution_glitch(el_deg, times, file_index,
+                              thresh_deg_per_s=EL_SLEW_MAX_DEG_S,
+                              dt_min=EL_SLEW_DT_MIN_S, dt_max=EL_SLEW_DT_MAX_S):
+    """Flag samples adjacent to an unphysical elevation slew.
+
+    For each pair of temporally adjacent samples (i, i+1) in the same file
+    with ``dt_min < dt < dt_max`` and both elevations finite, computes
+    ``|el[i+1] - el[i]| / dt`` and flags **both** i and i+1 if it exceeds
+    ``thresh_deg_per_s`` -- the transition identifies a bad pair; which
+    member is the bad one is not determined by the rate alone.
+
+    Reference implementation: beam-analyst's
+    ``notebooks/arp/marjum-2026-07/detect_el_slew_glitch.py``, which this
+    reproduces exactly (verified against ``disc_mask.npy``, 604/604 agree
+    over the 07-17/18 beam-scan window). Do not substitute a "differs from
+    both neighbours" test: it misses glitch runs of 2-3 consecutive samples
+    and only partially heals the affected elevation bands.
+    """
+    el = np.asarray(el_deg, float)
+    t = np.asarray(times, float)
+    fi = np.asarray(file_index)
+    n = el.size
+
+    same_file = fi[1:] == fi[:-1]
+    dt = np.diff(t)
+    d_el = np.abs(np.diff(el))
+    testable = (same_file & np.isfinite(d_el) & np.isfinite(dt)
+                & (dt > dt_min) & (dt < dt_max))
+
+    bad = np.zeros(n - 1, bool)
+    bad[testable] = (d_el[testable] / dt[testable]) > thresh_deg_per_s
+
+    out = np.zeros(n, bool)
+    out[:-1] |= bad
+    out[1:] |= bad
     return out
 
 
