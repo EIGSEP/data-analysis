@@ -29,6 +29,24 @@ a notebook:
 | `hpm.py` (1) | Local HPM copy; imported by `sim.py`. |
 | `sim.py` | Chain-of-imports helper on top of `hpm.py`. |
 
+Data-integrity checks (added 2026-09-13, answering MEMO-001 and the
+comb-spacing question):
+
+| Script | Question it answers |
+|---|---|
+| `check_wrap_impact.py` | Which fit samples are corrupted by int32 accumulator wrap, and by how much. |
+| `check_wrap_survives_flagging.py` | Whether `gross_power_time_flags` already rejects them. |
+| `check_rescore_repaired.py` | How much the fitted geometry and per-channel gains move once wrap is repaired. |
+| `check_comb_eras.py` | The TX comb spacing per campaign era, measured on raw spectra. |
+| `check_comb_presence_scan.py` | Per-file TX comb on/off map across the beam-scan window → `comb_presence_beam_scan.json`. |
+| `check_comb_off_in_fit.py` | Impact of the comb-off files that leak into the hardcoded `load_v007_data` slice. |
+
+The last two found the load-bearing problem: **the TX comb is off for 65 of the
+227 beam-scan files**, and three of them sit inside `files[-185:-150]`, the
+slice `load_v007_data` hardcodes. They were not flagged, and they biased the
+fitted TX heading by 10.6°. `load_v007_data` now gates on `comb_present()`;
+pass `require_comb=False` to reproduce pre-2026-09-13 results.
+
 Entry points: `compare_real_tx.py`, `cv_ridge.py`, `demo_*`, `explore_basis*`,
 `fit_v007_multichannel_consensus.py`, `grow_v007_beam_consensus.py`,
 `make_*`, `plot_real_tx_beam.py`, `screen_v007_tx_channels.py`,
