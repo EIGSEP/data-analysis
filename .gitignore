@@ -15,3 +15,6 @@ ripple_plots/
 **.h5
 !notebooks/christian/rfsoc_lab_test/noise_floor_15db.h5
 switch_measurement_061426/
+
+# macOS Finder metadata -- never commit
+.DS_Store
