@@ -12,7 +12,9 @@ Sensor roles for this campaign (established empirically, see MEMO):
 ``motor.az_pos`` / ``motor.el_pos``
     Smooth and finely quantised (0.0159 deg/step) but **relative** and
     unreliable open-loop: the motor-vs-pot offset jumps by up to 45 deg at
-    discrete slip/re-home events and drifts ~34 deg/hr during the scan.
+    discrete slip/re-home events, and loses 27.4 deg in a single 12.3-min
+    episode during the 07-17 scan (20:41:24-20:53:43, -133 deg/hr) while
+    tracking the command to within a few degrees either side of it.
     Used for short-term motion only, never as an absolute angle.
 
 ``imu_el.el_deg``
@@ -75,6 +77,8 @@ FLAG_UNCOMMANDED = 1 << 5       # antenna moving with no motor command
 FLAG_NO_ESTIMATE = 1 << 6       # no sensor available; value is NaN, NOT filled
 FLAG_HEIGHT_ASSUMED = 1 << 7    # height nominal, not measured at this sample
 FLAG_EL_POST_FAILURE = 1 << 8   # at/after the EL drive failure; el is parked
+FLAG_AZ_SLIP_RAMP = 1 << 9      # sustained az slip: platform losing ground to motor
+FLAG_EL_SOLUTION_GLITCH = 1 << 10  # elevation slew faster than the drive can move
 
 FLAG_NAMES = {
     FLAG_NO_METADATA: "NO_METADATA",
@@ -86,7 +90,44 @@ FLAG_NAMES = {
     FLAG_NO_ESTIMATE: "NO_ESTIMATE",
     FLAG_HEIGHT_ASSUMED: "HEIGHT_ASSUMED",
     FLAG_EL_POST_FAILURE: "EL_POST_FAILURE",
+    FLAG_AZ_SLIP_RAMP: "AZ_SLIP_RAMP",
+    FLAG_EL_SOLUTION_GLITCH: "EL_SOLUTION_GLITCH",
 }
+
+# Sustained-slip detector. AZ_SLIP_EVENT catches *steps* in the motor-vs-pot
+# offset and is blind to *ramps* -- which is how it missed both events that
+# actually moved the 07-17 scan off its commanded grid (a ~70 s startup
+# transient worth +8.7 deg, and the 12.3-min episode worth -27.4 deg).
+# A +/-60 s window separates the episode (median 133 deg/hr) from the quiet
+# phase (p95 50 deg/hr) by 2.6x; shorter windows are swamped by the
+# platform's per-step lag behind the motor, longer ones blur the episode.
+SLIP_RAMP_HALF_S = 60.0
+SLIP_RAMP_DEG_PER_HR = 90.0
+
+# Unphysical-elevation-slew detector (beam-analyst, beam_metric_outliers_
+# checkpoint.ipynb / detect_el_slew_glitch.py). In the post-EL-failure wrap
+# cluster the antenna is parked at el ~ +/-180 and the IMU elevation solver
+# intermittently emits a single spurious sample at |el| ~ 59-60 (or ~0) before
+# returning to the park -- 42 of 45 such samples in the 07-17/18 beam-scan
+# window have an immediate same-file neighbour at |el| > 150, and the
+# implied slew rate (p90 ~220 deg/s) is far beyond anything the drive can
+# do. Commanded scan slew is ~5 deg/s (campaign p99 of the
+# in-file rate); 20 deg/s is 4x that and sits in a sparse valley between real
+# motion and the glitch population (counts barely move between the 20, 30
+# and 50 deg/s thresholds). None of the existing flags catch these: they pass
+# as quality=="ok" with no UNCOMMANDED_MOTION.
+#
+# Scope caveat: the wrap-cluster mechanism is established for the
+# post-EL-failure era. Applied campaign-wide, pre-failure firings of this
+# same criterion are a different, less-understood population (they rarely
+# show the |el|~59 signature and are mostly already quality=="suspect" for
+# other reasons) -- so this flag is named and thresholded by its criterion
+# ("elevation solution moved faster than the drive can"), not by the park
+# mechanism, and consumers working pre-failure data should not assume it
+# means the specific wrap-park glitch.
+EL_SLEW_MAX_DEG_S = 20.0
+EL_SLEW_DT_MIN_S = 0.1
+EL_SLEW_DT_MAX_S = 2.0
 
 # v0 never extrapolates: where no sensor supports a sample the value is NaN
 # and FLAG_NO_ESTIMATE is set.  A gap flag is preferable to a smooth fit
@@ -166,8 +207,11 @@ def fuse_azimuth(motor_az_steps, pot_az_deg, half_window=56):
     """Complementary-filter azimuth: motor motion anchored to pot level.
 
     ``half_window`` of 56 samples is +/-30 s at the 0.537 s cadence, which
-    cuts the 1.73 deg pot noise to ~0.23 deg while limiting smeared slip
-    drift (~34 deg/hr during the scan) to a comparable ~0.28 deg.
+    cuts the 1.73 deg pot noise to ~0.23 deg.  Slip smeared into that window
+    is negligible outside slip episodes and reaches ~1.1 deg at the peak
+    episode rate (-133 deg/hr); those samples carry AZ_SLIP_EVENT, and the
+    segment-wise offset estimate keeps the episode from contaminating the
+    quiet phases either side of it.
     """
     motor_deg = MOTOR_DEG_PER_STEP * np.asarray(motor_az_steps, float)
     pot = np.asarray(pot_az_deg, float)
@@ -249,6 +293,94 @@ def detect_el_stuck(imu_el_deg, motor_el_steps, window=200, imu_ptp_deg=3.0,
         if np.ptp(seg_i[gi]) < imu_ptp_deg and np.ptp(seg_m[gm]) > motor_ptp_deg:
             stuck[lo:hi] = True
     return stuck
+
+
+def detect_az_slip_ramp(az_deg, motor_az_steps, times,
+                        half_s=SLIP_RAMP_HALF_S,
+                        thresh_deg_per_hr=SLIP_RAMP_DEG_PER_HR,
+                        gap_s=5.0):
+    """Flag sustained azimuth slip -- the platform losing ground to the motor.
+
+    Measures the rate of change of (fused azimuth - motor azimuth) over a
+    +/-``half_s`` window and thresholds it.  Complements
+    :func:`detect_az_slip`, which sees steps but not ramps.
+
+    Operates per contiguous time segment so a data gap is never differenced
+    across, and shrinks the window at segment edges so a transient in the
+    first minute is still visible -- the 07-17 startup transient sits
+    entirely inside one window half-width of the scan start.
+    """
+    az = np.asarray(az_deg, float)
+    motor = MOTOR_DEG_PER_STEP * np.asarray(motor_az_steps, float)
+    times = np.asarray(times, float)
+    n = az.size
+    out = np.zeros(n, bool)
+
+    ok = np.isfinite(az) & np.isfinite(motor)
+    if not ok.any():
+        return out
+    idx = np.flatnonzero(ok)
+    # Split into contiguous runs; unwrapping across a gap is meaningless.
+    breaks = np.flatnonzero(np.diff(times[idx]) > gap_s)
+    starts = np.concatenate(([0], breaks + 1))
+    stops = np.concatenate((breaks + 1, [idx.size]))
+
+    for s, e in zip(starts, stops):
+        sub = idx[s:e]
+        if sub.size < 20:
+            continue
+        t_sub = times[sub]
+        div = (np.rad2deg(np.unwrap(np.deg2rad(az[sub])))
+               - np.rad2deg(np.unwrap(np.deg2rad(motor[sub]))))
+        # Window edges by time, clipped to the segment -- this is what keeps
+        # the detector alive within half_s of a segment boundary.
+        lo = np.searchsorted(t_sub, t_sub - half_s, "left")
+        hi = np.searchsorted(t_sub, t_sub + half_s, "right") - 1
+        dt_win = t_sub[hi] - t_sub[lo]
+        valid = dt_win > max(half_s * 0.5, 1.0)
+        rate = np.zeros(sub.size)
+        rate[valid] = ((div[hi[valid]] - div[lo[valid]])
+                       / (dt_win[valid] / 3600.0))
+        out[sub[valid & (np.abs(rate) > thresh_deg_per_hr)]] = True
+    return out
+
+
+def detect_el_solution_glitch(el_deg, times, file_index,
+                              thresh_deg_per_s=EL_SLEW_MAX_DEG_S,
+                              dt_min=EL_SLEW_DT_MIN_S, dt_max=EL_SLEW_DT_MAX_S):
+    """Flag samples adjacent to an unphysical elevation slew.
+
+    For each pair of temporally adjacent samples (i, i+1) in the same file
+    with ``dt_min < dt < dt_max`` and both elevations finite, computes
+    ``|el[i+1] - el[i]| / dt`` and flags **both** i and i+1 if it exceeds
+    ``thresh_deg_per_s`` -- the transition identifies a bad pair; which
+    member is the bad one is not determined by the rate alone.
+
+    Reference implementation: beam-analyst's
+    ``notebooks/arp/marjum-2026-07/detect_el_slew_glitch.py``, which this
+    reproduces exactly (verified against ``disc_mask.npy``, 604/604 agree
+    over the 07-17/18 beam-scan window). Do not substitute a "differs from
+    both neighbours" test: it misses glitch runs of 2-3 consecutive samples
+    and only partially heals the affected elevation bands.
+    """
+    el = np.asarray(el_deg, float)
+    t = np.asarray(times, float)
+    fi = np.asarray(file_index)
+    n = el.size
+
+    same_file = fi[1:] == fi[:-1]
+    dt = np.diff(t)
+    d_el = np.abs(np.diff(el))
+    testable = (same_file & np.isfinite(d_el) & np.isfinite(dt)
+                & (dt > dt_min) & (dt < dt_max))
+
+    bad = np.zeros(n - 1, bool)
+    bad[testable] = (d_el[testable] / dt[testable]) > thresh_deg_per_s
+
+    out = np.zeros(n, bool)
+    out[:-1] |= bad
+    out[1:] |= bad
+    return out
 
 
 def detect_el_motion(imu_el_deg, window=100, ptp_deg=3.0):

@@ -14,6 +14,23 @@ v1  **meaning changes** -- whole campaign; join key is ``t_utc`` in int64 ns;
     anchors good to ~10 min, not to a second; adds ``quality``,
     ``height_era`` and ``phase``; height now varies by era instead of being
     a single nominal.
+v1.1 adds flag bit 9 ``AZ_SLIP_RAMP``.  ``AZ_SLIP_EVENT`` detects *steps* in
+    the motor-vs-pot offset and is blind to *ramps*, so it flagged neither of
+    the two events that actually moved the 07-17 scan off its commanded grid.
+    Purely additive: every other column and flag bit is unchanged, so a v1
+    consumer reading columns by name is unaffected.
+v1.2 adds flag bit 10 ``EL_SOLUTION_GLITCH`` (beam-analyst finding, via
+    ``beam_metric_outliers_checkpoint.ipynb``): in the post-EL-failure wrap
+    cluster the antenna is parked at el ~ +/-180 and the IMU elevation
+    solver intermittently emits one spurious sample at |el| ~ 0 or ~59-60
+    before returning to the park -- all previously passed as
+    ``quality == "ok"`` with no flag set.  Criterion is an adjacent in-file
+    elevation slew > 20 deg/s (~4x the ~5 deg/s commanded scan rate); see
+    ``fuse.detect_el_solution_glitch``.  The wrap-park *mechanism* is
+    established only for the post-EL-failure era -- campaign-wide, pre-
+    failure firings of the same criterion are a different, less-understood
+    population (most already ``quality == "suspect"`` for other reasons), so
+    the bit is defined by its criterion, not the mechanism.  Purely additive.
 
 Run::
 
@@ -38,8 +55,8 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-VERSION = "v1"
-SCHEMA_VERSION = 2
+VERSION = "v1.2"
+SCHEMA_VERSION = 4
 
 # Nominal platform height per curation height_era, and its uncertainty.
 # geometer owns the absolute values; these are the campaign-note figures the
@@ -65,24 +82,37 @@ extract = _load("extract", "extract.py")
 fuse = _load("fuse", "fuse.py")
 
 
-def git_describe(repo):
-    """Short SHA at generation time; ``-dirty`` if the tree is not clean.
+def git_describe(repo, scope=None):
+    """Short SHA at generation time; ``-dirty`` if the generator is not clean.
 
-    Per the campaign provenance rules a dirty stamp is not citable.
+    Per the campaign provenance rules a dirty stamp is not citable.  The
+    dirtiness test is scoped to ``scope`` (the generator's own directory)
+    rather than the whole repository, because this is a **shared** repo:
+    other agents have unrelated work in flight, their uncommitted files
+    cannot affect this generator -- it imports only its own ``extract.py``
+    and ``fuse.py`` -- and committing them to clean the tree would sweep in
+    someone else's work.  Dirt elsewhere is reported separately in the
+    provenance block rather than silently dropped, so the weaker test is
+    visible to anyone auditing the stamp.
     """
     try:
         sha = subprocess.check_output(
             ["git", "-C", repo, "rev-parse", "--short", "HEAD"],
             stderr=subprocess.DEVNULL).decode().strip()
     except Exception:
-        return "unknown"
-    try:
-        dirty = subprocess.check_output(
-            ["git", "-C", repo, "status", "--porcelain"],
-            stderr=subprocess.DEVNULL).decode().strip()
-    except Exception:
-        dirty = ""
-    return f"{sha}-dirty" if dirty else sha
+        return "unknown", []
+    def porcelain(*paths):
+        try:
+            return subprocess.check_output(
+                ["git", "-C", repo, "status", "--porcelain", "--"] + list(paths),
+                stderr=subprocess.DEVNULL).decode().strip()
+        except Exception:
+            return ""
+    scoped = porcelain(scope) if scope else porcelain()
+    whole = porcelain()
+    outside = [ln.strip() for ln in whole.splitlines()
+               if ln.strip() and ln.strip() not in scoped.splitlines()]
+    return (f"{sha}-dirty" if scoped else sha), outside
 
 
 def sha256(path, chunk=1 << 20):
@@ -134,6 +164,10 @@ def build(data_dir, t_start, t_stop, campaign_dir, index=None):
 
     flags = flags_az | flags_el
     flags[d["motor_status"] == "absent"] |= fuse.FLAG_NO_METADATA
+    flags[fuse.detect_az_slip_ramp(az, d["motor_az_pos"], d["time"])] |= \
+        fuse.FLAG_AZ_SLIP_RAMP
+    flags[fuse.detect_el_solution_glitch(el, d["time"], d["file_index"])] |= \
+        fuse.FLAG_EL_SOLUTION_GLITCH
 
     # Unvalidated motor-only elevation: quote the measured motor-vs-IMU
     # disagreement where both existed, not a fit residual.
@@ -262,7 +296,8 @@ def main():
 
     table, files, motor_el_sigma = build(data_dir, t0, t1, campaign_dir, index=index)
     n = table["t_utc"].size
-    commit = git_describe(os.path.join(HERE, "..", "..", "..", ".."))
+    commit, dirt_outside = git_describe(
+        os.path.join(HERE, "..", "..", "..", ".."), scope=HERE)
     compact = f"marjum-2026-07/pointing_table@{VERSION}+{commit}"
     generated = dt.datetime.now(dt.timezone.utc).isoformat(
         timespec="seconds").replace("+00:00", "Z")
@@ -277,6 +312,13 @@ def main():
         "generator": "eigsep_data/notebooks/arp/marjum-2026-07/pointing/build_table.py",
         "generator_commit": commit,
         "generator_repo": "eigsep_data",
+        "generator_clean_scope": (
+            "notebooks/arp/marjum-2026-07/pointing -- the '-dirty' suffix "
+            "reflects this generator's own files, not the whole shared repo. "
+            "Uncommitted work elsewhere belongs to other agents and cannot "
+            "affect this product: the generator imports only its own "
+            "extract.py and fuse.py."),
+        "repo_dirty_outside_generator": dirt_outside,
         "compact": compact,
         "n_samples": int(n),
         "n_files": len(files),
@@ -305,7 +347,16 @@ def main():
             "Azimuth zero point is not tied to true north; awaiting geometer.",
             "Motor counts are relative and slip; never use as absolute angles.",
             "Achieved azimuth steps are smaller than commanded (4.435 vs "
-            "5.0018 deg in the 07-17 scan). Do not assume the scan plan.",
+            "5.0018 deg in the 07-17 scan), accumulating 28.9 deg over the "
+            "62-min block. Do not assume the scan plan.",
+            "That slip is a discrete episode, not continuous drift: 27.4 deg "
+            "lost in 12.3 min (07-17 20:41:24-20:53:43, -133 deg/hr), with "
+            "the command tracked to within a few degrees either side.",
+            "EL_SOLUTION_GLITCH's wrap-park mechanism (spurious sample "
+            "escaping an el ~ +/-180 park) is established for the "
+            "post-EL-failure era only; pre-failure firings of the same "
+            ">20 deg/s slew criterion are a different, less-understood "
+            "population and should not be assumed to be the same glitch.",
         ],
         "params": {
             "window_start_utc": extract.utc(table["t_utc_s"][0]),
