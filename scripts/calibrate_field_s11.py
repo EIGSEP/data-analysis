@@ -190,7 +190,10 @@ def calibrate_field_s11(
     # across every file processed in this run.
     osl_model = dict(np.load(osldata))
     freqs = osl_model.pop("freqs")
-    osl_model = np.array(list(osl_model.values()))
+    try:
+        osl_model = np.array([osl_model["O"], osl_model["S"], osl_model["L"]])
+    except KeyError as e:
+        raise ValueError(f"OSL model data missing key: {e}")
 
     sparam_dict = dict(np.load(switchpaths))
 
@@ -225,7 +228,6 @@ def calibrate_field_s11(
                 continue
             uncaled_s11s.setdefault(key, {})
             caled_s11s.setdefault(key, {})
-<<<<<<< HEAD
             uncaled_s11s[key][timestamp] = s11
             caled_s11s[key][timestamp] = {"raw": s11}
         try:
@@ -259,15 +261,6 @@ def calibrate_field_s11(
         except KeyError as e:
             print(f"OSL mode missing key: {e}")
             continue
-=======
-            uncaled_s11s[key][hdr["metadata_snapshot_unix"]] = s11
-            caled_s11s[key][hdr["metadata_snapshot_unix"]] = {'raw': s11}
-        osl = np.array([cal_data["VNAO"], cal_data["VNAS"], cal_data["VNAL"]])
-        if np.any(osl == 0):
-            continue  # unmeasured/invalid internal OSL set
-        osls[hdr["mode"]][hdr["metadata_snapshot_unix"]] = osl
-
->>>>>>> e2334fa9482f78f4ece701f327a2a0dc45996771
     # Calibrate every capture, walking as far down the chain
     # (vna -> dut -> lna) as that DUT's switch topology allows.
     for key, s11s in uncaled_s11s.items():
