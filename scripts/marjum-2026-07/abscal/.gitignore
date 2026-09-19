@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+# Derived products: regenerate with run_window.py / scan_switch.py.
+# Kept out of git because they are large and reproducible from the raw
+# campaign data plus the committed code.
+*.npz
+scan_*.jsonl
