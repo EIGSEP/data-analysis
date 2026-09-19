@@ -9,6 +9,7 @@ Run:  LD_LIBRARY_PATH=$MAMBA/envs/arp/lib $MAMBA/envs/arp/bin/python3 build_expl
 """
 import glob as _glob
 import json
+import os
 import re
 import sys
 import time
@@ -60,13 +61,30 @@ from eigsep_data.beam_mapping.diagnostics import (
 )
 import fit_v007_pca_beam as v007
 import fit_beam_v2 as v2
+import explorer_loader
+
+# The beam-scan window, named by its endpoints rather than by a negative slice
+# into a `*.h5` glob. The old form silently re-pointed whenever a file landed
+# in the data directory -- which happened on 2026-09-15.
+explorer_loader_FIRST = "corr_20260717_185100Z.h5"
+explorer_loader_LAST = "corr_20260718_032126Z.h5"
 
 CUR = Path("/mnt/data02/eigsep/marjum-2026-07/curation")
-OUT = HERE / "beam_explorer_cache.npz"
+# Overridable so a migration can build to a scratch path and diff against the
+# live cache before replacing it (B42, 2026-09-19).
+OUT = Path(os.environ.get("BEAM_EXPLORER_CACHE_OUT",
+                          str(HERE / "beam_explorer_cache.npz")))
 
 t0 = time.time()
-data = load_v007_data(v2.DATA_DIR, start=v2.FILES_SLICE[0], stop=v2.FILES_SLICE[1])
-data = v2.attach_pointing_v1(data, data["files"])
+# B42 (2026-09-19): data access is eigsep_data's canonical path now --
+# MetadataIndex/Selection.load_bundle, with the pointing product version
+# *asserted* rather than whatever parquet happens to be on disk. Proven
+# bit-identical to the old load_v007_data + attach_pointing_v1 pair over the
+# full 226-file window (see verify_explorer_loader.py: every field max|d| = 0,
+# zero NaN-pattern differences). load_v007_data stays frozen as a historical
+# loader per its own docstring; this is its live consumer moving off it.
+data = explorer_loader.load_window(
+    v2.DATA_DIR, explorer_loader_FIRST, explorer_loader_LAST, key="4")
 beam = HFSSBeamSet.from_npz(v2.BEAM_FILE)
 pca = compute_beam_pca(beam, n_components=4)
 clean = data_space_rfi_mask(v2.DATA_DIR, beam.freqs_mhz.min(), beam.freqs_mhz.max(),
