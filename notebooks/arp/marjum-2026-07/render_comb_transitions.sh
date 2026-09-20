@@ -15,7 +15,7 @@ export LD_LIBRARY_PATH=$MAMBA/lib
 PY=$MAMBA/bin/python3
 NB=comb_transition_waterfalls
 
-$PY verify_notebook.py "$NB.ipynb" 3
+$PY verify_notebook.py "$NB.ipynb" 4
 
 $PY -m jupyter nbconvert --to html --template lab --no-input "$NB.ipynb"
 

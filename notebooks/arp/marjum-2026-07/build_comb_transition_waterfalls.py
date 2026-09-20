@@ -31,23 +31,29 @@ md(r"""
 
 ## What this is
 
-Six files that bracket the three *genuine* on/off transitions of the
+Eight files bracketing the three *genuine* on/off transitions of the
 **digital self-comb** (1.953125 MHz = exactly 8.000 channels,
-channel-locked, residue 0 mod 8) in the early part of its
-07-17/18 era. Each pair is an `ON -> off` file followed by the
-`off -> ON` file that recovers:
+channel-locked, residue 0 mod 8) in the early part of its 07-17/18 era.
 
-| # | ON → off | off → ON |
-|---|---|---|
-| 1 | `corr_20260717_154410Z.h5` (15:44:10) | `corr_20260717_154619Z.h5` (15:46:19) |
-| 2 | `corr_20260717_155704Z.h5` (15:57:04) | `corr_20260717_155912Z.h5` (15:59:12) |
-| 3 | `corr_20260717_161623Z.h5` (16:16:23) | `corr_20260717_162916Z.h5` (16:29:16) |
+| # | ON → off | off → ON | extra context |
+|---|---|---|---|
+| 1 | `corr_20260717_154410Z.h5` (15:44:10) | `corr_20260717_154619Z.h5` (15:46:19) | — |
+| 2 | `corr_20260717_155704Z.h5` (15:57:04) | `corr_20260717_155912Z.h5` (15:59:12) | — |
+| 3 | `corr_20260717_161623Z.h5` (16:16:23) | `corr_20260717_162916Z.h5` (16:29:16) | `…162707Z` before, `…163125Z` after |
 
 These are the three transitions attributed to the comb itself. The other
 17 box-air boundaries in the era are daemon transitions, a daemon
 outage, or rfswitch/VNA states where the antenna was not connected —
 i.e. the instrument stopped looking, not the comb stopping. Those are
 deliberately excluded.
+
+**Transition 3 is bracketed with two extra files** because a
+per-integration check (see "Where transition 3 actually happens")
+showed the file-level label is misleading there: `…162916Z` is an
+*isolated single file* — off on both inputs immediately before and
+immediately after it — and the step inside it is at the very end, not
+the start. `…162707Z` and `…163125Z` are its contiguous neighbours
+(129 s file cadence, verified, no gap).
 
 **Purpose:** visually confirm and characterise what actually changes at
 these boundaries. This notebook *shows* the data; it does not settle the
@@ -72,6 +78,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.colors import TwoSlopeNorm
 from datetime import datetime, timezone
+from pathlib import Path
 
 from eigsep_data.index import MetadataIndex
 from eigsep_data.bundle import load_bundle
@@ -79,16 +86,29 @@ from eigsep_data.flagging.detectors import overflow_mask
 
 DATA_DIR = "/mnt/data02/eigsep/marjum-2026-07/data"
 
-# The six boundary files, in time order. Each (ON->off, off->ON) pair.
+# Boundary files, in time order. Transitions 1 and 2 are (ON->off,
+# off->ON) pairs; transition 3 is bracketed with a before and an after
+# file (see the per-integration section for why).
 FILES = [
     "corr_20260717_154410Z.h5",   # ON  -> off   (transition 1)
     "corr_20260717_154619Z.h5",   # off -> ON
     "corr_20260717_155704Z.h5",   # ON  -> off   (transition 2)
     "corr_20260717_155912Z.h5",   # off -> ON
     "corr_20260717_161623Z.h5",   # ON  -> off   (transition 3)
-    "corr_20260717_162916Z.h5",   # off -> ON
+    "corr_20260717_162707Z.h5",   #   before  (contiguous predecessor)
+    "corr_20260717_162916Z.h5",   # off -> ON  (isolated single file)
+    "corr_20260717_163125Z.h5",   #   after   (contiguous successor)
 ]
-ROLE = dict(zip(FILES, ["ON->off", "off->ON"] * 3))
+ROLE = {
+    "corr_20260717_154410Z.h5": "ON->off",
+    "corr_20260717_154619Z.h5": "off->ON",
+    "corr_20260717_155704Z.h5": "ON->off",
+    "corr_20260717_155912Z.h5": "off->ON",
+    "corr_20260717_161623Z.h5": "ON->off",
+    "corr_20260717_162707Z.h5": "before",
+    "corr_20260717_162916Z.h5": "off->ON",
+    "corr_20260717_163125Z.h5": "after",
+}
 
 # lock8 as measured by the campaign comb inventory, box-air (input 4).
 LOCK8_BOX_AIR = {
@@ -97,7 +117,20 @@ LOCK8_BOX_AIR = {
     "corr_20260717_155704Z.h5": 19.9,
     "corr_20260717_155912Z.h5": 136.2,
     "corr_20260717_161623Z.h5": 0.0,
+    "corr_20260717_162707Z.h5": 0.0,
     "corr_20260717_162916Z.h5": 64.6,
+    "corr_20260717_163125Z.h5": 0.0,
+}
+# Same, box-gnd (input 0) -- it disagrees with box-air at transition 3.
+LOCK8_BOX_GND = {
+    "corr_20260717_154410Z.h5": 0.0,
+    "corr_20260717_154619Z.h5": 399.5,
+    "corr_20260717_155704Z.h5": 4.4,
+    "corr_20260717_155912Z.h5": 362.2,
+    "corr_20260717_161623Z.h5": 0.0,
+    "corr_20260717_162707Z.h5": 0.0,
+    "corr_20260717_162916Z.h5": 212.4,
+    "corr_20260717_163125Z.h5": 0.0,
 }
 
 plt.rcParams.update({"figure.dpi": 110, "font.size": 9})
@@ -158,7 +191,9 @@ tsummary["utc_end"] = [datetime.fromtimestamp(t, timezone.utc).strftime("%H:%M:%
                        for t in tsummary.t_end]
 tsummary["role"] = [ROLE[f] for f in tsummary.index]
 tsummary["lock8_box_air"] = [LOCK8_BOX_AIR[f] for f in tsummary.index]
-display(tsummary[["role", "n_int", "sync_ok", "utc_start", "utc_end", "lock8_box_air"]])
+tsummary["lock8_box_gnd"] = [LOCK8_BOX_GND[f] for f in tsummary.index]
+display(tsummary[["role", "n_int", "sync_ok", "utc_start", "utc_end",
+                  "lock8_box_air", "lock8_box_gnd"]])
 
 assert bool(tsummary.sync_ok.all()), "a file has inconsistent sync; do not trust time_best"
 print("all six files: sync_consistent = True")
@@ -317,7 +352,8 @@ ylabels = []
 for f in FILES:
     utc = datetime.fromtimestamp(tsummary.loc[f, "t_start"],
                                  timezone.utc).strftime("%H:%M:%S")
-    ylabels.append(f"{f[5:-3]}\n{ROLE[f]}  {utc}Z\nlock8={LOCK8_BOX_AIR[f]:g}")
+    ylabels.append(f"{f[5:-3]}\n{ROLE[f]}  {utc}Z\n"
+                   f"lock8 air={LOCK8_BOX_AIR[f]:g} gnd={LOCK8_BOX_GND[f]:g}")
 
 fig, axes = plt.subplots(1, 3, figsize=(15, 8.5), sharex=True, sharey=True)
 waterfall(axes,
@@ -395,6 +431,160 @@ plt.show()
 """)
 
 md(r"""
+## Where transition 3 actually happens
+
+The file-level label says the comb returns at `corr_20260717_162916Z.h5`
+(16:29:16). A file is 240 integrations over ~129 s, so that label
+localises the step no better than to the file. The question worth asking
+directly is *where inside the file* it happens — and the answer decides
+whether the notebook is even showing the transition.
+
+Below, `lock8` is recomputed per 8-integration block using
+`comb_inventory.py`'s own `tooth_contrast_locked` — imported from the
+script, not reimplemented, so the statistic cannot silently drift from
+the one that produced the published boundary list. Two traces per input:
+
+* **all** — every integration in the block, whatever the receiver state.
+* **antenna-only** — restricted to `RFANT` integrations, which is what
+  `comb_inventory.process()` itself does.
+""")
+
+code(r"""
+import importlib.util
+from scipy.ndimage import median_filter
+
+_ci_path = (Path.cwd().resolve().parents[2]
+            / "scripts/marjum-2026-07/flagging/comb_inventory.py")
+_spec = importlib.util.spec_from_file_location("comb_inventory", _ci_path)
+CI = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(CI)
+DET = CI.D
+print(f"tooth statistic imported from {_ci_path}")
+
+
+def lock8_trace(fname, key, block=8):
+    # Per-block lock8 for one file/input, both all-integration and
+    # antenna-only, using comb_inventory's own statistic.
+    import h5py
+    with h5py.File(f"{DATA_DIR}/{fname}", "r") as h:
+        freqs_f = h["header/freqs"][:]
+        raw = h["data/" + key][:]
+        rfsw = (h["metadata/rfswitch"][()]
+                if ("metadata" in h and "rfswitch" in h["metadata"]) else None)
+    ant = DET.antenna_mask(rfsw, raw.shape[0])
+    val = raw.astype(np.float64)
+    ovf = DET.overflow_mask(raw)
+    if ovf.any():
+        val = np.where(ovf, val + 2.0 ** 32, val)
+    logp = np.log10(np.maximum(val, 1.0))
+    chans = np.arange(logp.shape[1])
+    in_band = (freqs_f >= CI.BAND[0]) & (freqs_f <= CI.BAND[1])
+
+    rows = []
+    for s in range(0, raw.shape[0], block):
+        sl = slice(s, s + block)
+        med = np.median(logp[sl], axis=0)
+        c_all, _ = CI.tooth_contrast_locked(
+            med - median_filter(med, size=17, mode="nearest"),
+            chans, in_band, 8)
+        m = ant[sl]
+        if m.sum() >= 2:
+            med2 = np.median(logp[sl][m], axis=0)
+            c_ant, _ = CI.tooth_contrast_locked(
+                med2 - median_filter(med2, size=17, mode="nearest"),
+                chans, in_band, 8)
+        else:
+            c_ant = np.nan
+        rows.append((s, int(m.sum()), c_all, c_ant))
+    return pd.DataFrame(rows, columns=["int0", "n_ant", "lock8_all",
+                                       "lock8_ant_only"])
+
+
+TRIO = ["corr_20260717_162707Z.h5", "corr_20260717_162916Z.h5",
+        "corr_20260717_163125Z.h5"]
+traces = {(f, k): lock8_trace(f, k) for f in TRIO for k in ("4", "0")}
+print("traces computed")
+""")
+
+code(r"""
+fig, axes = plt.subplots(1, 3, figsize=(15, 4.2), sharey=True)
+for ax, f in zip(axes, TRIO):
+    for k, colour, lab in (("4", "tab:blue", "box-air (input 4)"),
+                           ("0", "tab:red", "box-gnd (input 0)")):
+        tr = traces[(f, k)]
+        ax.plot(tr.int0, tr.lock8_all, color=colour, lw=1.2, label=f"{lab} all")
+        ax.plot(tr.int0, tr.lock8_ant_only, color=colour, lw=0, marker="o",
+                ms=4, label=f"{lab} antenna-only")
+    tr4 = traces[(f, "4")]
+    ax.fill_between(tr4.int0, 0, 1, where=(tr4.n_ant.values > 0),
+                    transform=ax.get_xaxis_transform(), color="green",
+                    alpha=0.10, step="post")
+    ax.axhline(30, color="k", ls=":", lw=1)
+    ax.set_yscale("symlog", linthresh=1)
+    ax.set_xlabel("integration index within file")
+    ax.set_title(f"{f[5:-3]}  ({ROLE[f]})", fontsize=9)
+axes[0].set_ylabel("lock8 (tooth contrast at 8.000 ch)")
+axes[0].legend(fontsize=6.5, loc="upper left")
+fig.suptitle("Transition 3, per-integration: where the comb actually appears\n"
+             "dotted line = lock8 = 30 operating point; green shading = "
+             "antenna (RFANT) integrations", fontsize=10)
+fig.tight_layout(rect=[0, 0, 1, 0.86])
+plt.show()
+
+for f in TRIO:
+    t4, t0 = traces[(f, "4")], traces[(f, "0")]
+    print(f"{f[5:-3]}  RFANT ints {int(t4.n_ant.sum())}/240   "
+          f"box-air lock8 max {np.nanmax(t4.lock8_all):7.1f}   "
+          f"box-gnd lock8 max {np.nanmax(t0.lock8_all):7.1f}")
+""")
+
+md(r"""
+### What the trace shows — the file-level label is wrong three ways
+
+**1. On box-air the step is at the very *end* of `…162916Z`, not the
+front.** `lock8` sits at ~0.1 for integrations 0–207 and only rises at
+**integration 208 of 240 (87% into the file, 16:29:00)**, reaching
+49–72 for the final 32. Those final integrations are *exactly* the
+file's only `RFANT` integrations. So what box-air records is not the
+comb switching on — it is the **antenna being reconnected** at the end
+of a VNA sweep, revealing a comb box-air could not see while the
+antenna was disconnected. The file-level `lock8 = 64.6` is computed
+entirely from those 29 integrations.
+
+**2. On box-gnd the comb turns on in the *previous* file.** `…162707Z`
+box-gnd is flat at 0.0 for integrations 0–191, then jumps to 233/240/225
+at integrations 192–215 — onset **16:26:43**, some 2.5 minutes before
+the file-level boundary. Box-gnd is conducted and does not need the
+antenna connected, so it can date the onset and box-air cannot.
+
+**3. It turns off in the *following* file, and the file-level statistic
+misses that entirely.** `…163125Z` is published as `lock8 = 0.0` on both
+inputs. Per block it is nothing of the kind: the comb is **present for
+integrations 0–71 on both inputs** (box-gnd 130–239, box-air 43–57),
+then stops hard at **integration 72, 16:29:56**, and stays off for the
+remaining 168. The published 0.0 is a **median artefact** — `lock8` is
+computed from a median over all 240 integrations, so a feature with
+~30% duty cycle within a file washes out completely and the file reads
+as clean.
+
+Putting the three together, transition 3 is not a single-file event at
+16:29:16 at all. The actual episode is
+
+> **16:26:43 → 16:29:56 UTC, about 3 min 13 s, spanning three files.**
+
+The boundary list compresses that to one file and dates its start 2.5
+minutes late. This is a **systematic** property, not a one-off: any
+comb episode shorter than roughly half a file is liable to be missed
+outright, and any episode whose start falls in a cal-heavy stretch will
+be dated to whenever the antenna next comes back. Short episodes
+elsewhere in the era should be assumed to be under-counted until
+checked per-integration.
+
+Adding the two neighbouring files is what makes all of this visible;
+with the original six it was invisible by construction.
+""")
+
+md(r"""
 ## Read this before interpreting the panels: the rfswitch confound
 
 The receiver switches between the antenna (`RFANT`), an ambient load
@@ -423,16 +613,34 @@ for f in FILES:
 """)
 
 md(r"""
-**All three `ON -> off` files are 100% `RFANT`. All three `off -> ON`
-files contain calibration or VNA states.** In this sample the split is
-perfect, 3/3 and 3/3.
+**Every `ON -> off` file is 100% `RFANT`; every `off -> ON` file
+contains calibration or VNA states.** In the original six-file
+selection the split was perfect, 3/3 and 3/3.
 
-That is a confound, and it has to be stated plainly: within *these six
-files alone*, "comb detected" and "calibration cadence running" are not
-separable, so nothing in the figures above can by itself distinguish
+That is a confound, and it has to be stated plainly: within those six
+files alone, "comb detected" and "calibration cadence running" are not
+separable, so nothing in the waterfalls above can by itself distinguish
 the comb switching on from the calibration hardware switching on.
 
-It is, however, a property of this small selection and **not** of the
+**The two files added for transition 3 partly break that degeneracy**,
+which is the main reason they earn their place beyond bracketing:
+
+* `…163125Z` is **240/240 `RFANT`, 100% on sky** and shows the comb
+  present on the antenna for its first 72 integrations and absent for
+  the remaining 168 — an on *and* an off, both with the antenna
+  connected throughout and no switch anywhere near either. That is the
+  control the original six lacked entirely, and it rules out the
+  reading that the comb is merely "whatever the VNA sweep puts into the
+  band".
+* `…162707Z` is 70.3% on sky and carries the box-gnd onset at
+  integration ~192, i.e. the comb starts while the antenna is still
+  connected, not at a switch edge.
+
+So for transition 3 the confound is now **broken**, not merely
+testable: the episode both starts and ends inside antenna-connected
+data. It remains total for transitions 1 and 2.
+
+It is in any case a property of this small selection and **not** of the
 era. Across the full 07-17 15:37 → 07-18 03:00 era on box-air, at the
 same `lock8 >= 30` operating point, the association runs the other way:
 
@@ -457,12 +665,24 @@ md(r"""
 1. Does the characterisation above match what you expect a genuine comb
    on/off boundary to look like, or do the panels instead read as
    calibration switching to you?
-2. If the rfswitch confound is the dominant concern, the natural next
-   step is to re-pick boundary files **matched on cal state** (both
-   sides of a transition pure-`RFANT`) and repeat this figure. Era-wide
-   there are 49 pure-`RFANT` comb-off files to draw from. That is a new
-   selection and a new milestone, so I have not done it here.
-3. `lock8 >= 30` is the operating point used to call these transitions;
+2. **The boundary list needs re-deriving per-integration, and this is
+   now the biggest open item.** Transition 3 should read
+   **16:26:43 → 16:29:56** across three files, not a single-file event
+   at 16:29:16. Two distinct failure modes are demonstrated above: the
+   file-level `lock8` median **misses** episodes with less than roughly
+   half-file duty cycle (`…163125Z` publishes 0.0 while carrying the
+   comb for 72 integrations), and where the antenna is disconnected it
+   dates the *antenna returning* rather than the comb starting. Both
+   bias the era's episode count and durations. I have not edited the
+   boundary list. Re-deriving it per-integration on **box-gnd** — the
+   input that sees through a cal cycle — is the fix, and it is a new
+   milestone.
+3. If the rfswitch confound is the dominant concern for transitions 1
+   and 2, the natural next step is to re-pick boundary files **matched
+   on cal state** (both sides pure-`RFANT`) and repeat this figure.
+   Era-wide there are 49 pure-`RFANT` comb-off files to draw from. That
+   is a new selection and a new milestone, so I have not done it here.
+4. `lock8 >= 30` is the operating point used to call these transitions;
    it is defensible (a stable plateau, and 216/220 agreement with
    beam-analyst's independent detector) but it is a choice, and
    transition *counts* move with it.
