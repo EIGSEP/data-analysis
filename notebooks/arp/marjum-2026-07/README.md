@@ -56,6 +56,38 @@ Entry points: `compare_real_tx.py`, `cv_ridge.py`, `demo_*`, `explore_basis*`,
 `regen/` and `regen2/` are Aaron's manual output directories from successive
 `fit_v007_multichannel_consensus.py` runs.
 
+## Notebooks
+
+Two kinds of thing live here, and the distinction is the point of the
+2026-09-21 tidy-up:
+
+**Maintained viewers.** General-purpose interfaces to the campaign data. Each
+reads `marjum-2026-07/` and the installed packages at run time and caches
+nothing — no local `.npz`, no local `.json`. Retargeting one is an edit to its
+first section. Figures are slide-ready: each carries a `TALK` / `SAVE_FIGURES`
+style block near the top and a `save(fig, name)` helper that writes
+`figures/<name>.{png,pdf}`.
+
+| Notebook | Shows | Reads |
+|---|---|---|
+| `rfi_dev_v2.1.ipynb` | Supported-DPSS RFI flagger: waterfalls, band summary, residual against the radiometer limit | `marjum-2026-07/data/`, `curation/antenna_resolution.json`, `eigsep_data.rfi_supported` |
+| `lidar_explorer.ipynb` | Platform-LIDAR constraint on the antenna position: range profile, ray footprint, plumb line, interactive fit | `marjum-2026-07/pointing/`, `marjum-2026-07/imgs/fits/vNNNN_marjum_geometry/`, `terrain/` |
+
+Not yet converted: `beam_explorer.ipynb`, `geometry_explorer.ipynb` and
+`EIGSEP_data_explore_v007_beammap.ipynb` still read local caches
+(`beam_explorer_cache.npz`, `cal_gain.npz`, `combined.npz`, `fit_result.npz`)
+and in places hardcode `/mnt/data02/...`. Treat their output as stale until
+they are given the same treatment.
+
+**Frozen checkpoints.** `beam_cal_toggle_checkpoint`,
+`beam_fits_v2_review_checkpoint`, `beam_metric_outliers_checkpoint`,
+`comb_transition_waterfalls` and `Marjum 2026-07 LIDAR Antenna Constraint` are
+review-gate evidence, kept with their rendered `.html`/`.pdf`. They record a
+result at a moment; they are not interfaces and are not re-run.
+
+**`debug/`** holds superseded and single-question notebooks. See
+`debug/README.md`. Nothing there is expected to run.
+
 ## Paths
 
 - Beam maps: `BEAM_FILE = "../../../hfss_beam_maps/bowtie_beam.npz"` — three

@@ -21,3 +21,9 @@ Moved here 2026-09-21 when the `arp/marjum-2026-07` set was tidied:
 | `rfi_dev_v2.1_delay_scratch.ipynb` | — | In-painting / delay-transform exploration split out of `rfi_dev_v2.1`. Needs that notebook's sections 1–3 run first. |
 | `beam_explorer_bak.ipynb` | `../beam_explorer.ipynb` | Backup copy. |
 | `geometry_explorer_bak.ipynb` | `../geometry_explorer.ipynb` | Backup copy. |
+
+Also here:
+
+| File | Why |
+|---|---|
+| `build_lidar_explorer_cache.py` | Built `lidar_explorer_cache.npz` for the pre-2026-09-21 `lidar_explorer.ipynb`. That notebook now reads the DEM and the pointing table directly, so there is no cache to build. Kept because it documents the verification that the notebook's old hand-rolled ray march reproduced `marjum_lidar_constraint.march` exactly. |
