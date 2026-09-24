@@ -27,3 +27,22 @@ Also here:
 | File | Why |
 |---|---|
 | `build_lidar_explorer_cache.py` | Built `lidar_explorer_cache.npz` for the pre-2026-09-21 `lidar_explorer.ipynb`. That notebook now reads the DEM and the pointing table directly, so there is no cache to build. Kept because it documents the verification that the notebook's old hand-rolled ray march reproduced `marjum_lidar_constraint.march` exactly. |
+
+Moved here 2026-09-24, when `scripts/marjum-2026-07/fit_beam.py` became the
+beam-fit generator. Nothing in the directory above imports any of these. They
+import each other by bare module name, so they are kept together:
+
+| Files | What they were |
+|---|---|
+| `fit_v007_pca_beam.py`, `fit_v007_multichannel_consensus.py`, `grow_v007_beam_consensus.py`, `screen_v007_tx_channels.py` | v007 PCA / consensus beam fits on the hardcoded `files[-185:-150]` slice and motor pointing. |
+| `fit_beam_v2.py`, `run_fit_beam_v2_pointingv1geom.py`, `beam_fits_v2_report.json`, `beam_fits_v2_pointingv1geom_report.json`, `build_antenna_mask.py` | Beam fits v2: the wide 226-file window on `pointing_table@v1` pot azimuth. |
+| `explore_basis.py`, `explore_basis_v2.py`, `explore_basis_v3.py`, `cv_ridge.py` | Basis and ridge studies on the v007 fit. |
+| `make_all_freq_comparison.py`, `make_aug_beammap.py`, `make_azel_comparison.py`, `make_beammap_style.py`, `make_combined_comparison.py`, `fast_mollview.py` | Figures from the v007 PCA fit. |
+| `explorer_loader.py`, `explorer_model.py`, `build_explorer_cache.py`, `verify_explorer_loader.py`, `build_cal_gain.py`, `patch_explorer_*.py` | Cache, model and patches for the pre-2026-09-22 `beam_explorer.ipynb`. |
+| `build_outlier_checkpoint.py`, `build_cal_toggle_checkpoint.py`, `patch_v2_checkpoint_stage{1,2}.py`, `render_{cal,outlier,v2}_checkpoint.sh`, `detect_el_slew_glitch.py`, `build_sample_sidecar.py` | Builders of the three `beam_*_checkpoint` notebooks here. |
+| `check_comb_off_in_fit.py`, `check_rescore_repaired.py` | Checks on the v007 fit (comb-off files in the slice; wrap repair). |
+| `plot_real_tx_beam.py`, `compare_real_tx.py` | Measured-vs-HFSS TX comparisons against the 92.5 m model. |
+
+Superseded by `../../../../scripts/marjum-2026-07/fit_beam.py` (fits) and
+`../beam_explorer.ipynb` (viewing).
+
