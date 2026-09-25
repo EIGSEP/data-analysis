@@ -1,0 +1,49 @@
+JAX is not using 64-bit precision. This will dramatically affect numerical precision at even moderate L.
+JAX is not using 64-bit precision. Results will diverge from healpy even at moderate nside and can overflow for nside > 8192. See the README on numerical precision.
+=== stage 1: geometry refit against pointing_table@v1 ===
+WARNING:root:Running without casperfpga installed
+WARNING:eigsep_observing.fpga:Running without casperfpga installed
+load_v007_data: dropped 64 comb-off file(s) of 226: corr_20260717_191105Z.h5, corr_20260717_202157Z.h5, corr_20260717_214419Z.h5, corr_20260717_214628Z.h5, corr_20260717_214837Z.h5, corr_20260717_215053Z.h5, corr_20260717_215307Z.h5, corr_20260717_215520Z.h5, corr_20260717_215712Z.h5, corr_20260717_215921Z.h5, corr_20260717_220130Z.h5, corr_20260717_220341Z.h5, corr_20260717_220547Z.h5, corr_20260717_220757Z.h5, corr_20260717_221005Z.h5, corr_20260717_221214Z.h5, corr_20260717_221423Z.h5, corr_20260717_221632Z.h5, corr_20260717_221844Z.h5, corr_20260717_222056Z.h5, corr_20260717_222301Z.h5, corr_20260717_222512Z.h5, corr_20260717_222716Z.h5, corr_20260717_222935Z.h5, corr_20260717_223148Z.h5, corr_20260717_223343Z.h5, corr_20260717_223551Z.h5, corr_20260717_223805Z.h5, corr_20260717_224018Z.h5, corr_20260717_224233Z.h5, corr_20260717_224427Z.h5, corr_20260717_224638Z.h5, corr_20260717_224846Z.h5, corr_20260717_225053Z.h5, corr_20260717_225302Z.h5, corr_20260717_225511Z.h5, corr_20260717_225720Z.h5, corr_20260717_225929Z.h5, corr_20260717_230138Z.h5, corr_20260717_230353Z.h5, corr_20260717_230555Z.h5, corr_20260717_230804Z.h5, corr_20260717_231013Z.h5, corr_20260717_231222Z.h5, corr_20260717_231431Z.h5, corr_20260717_231653Z.h5, corr_20260717_231848Z.h5, corr_20260717_232057Z.h5, corr_20260717_232306Z.h5, corr_20260717_232515Z.h5, corr_20260717_232724Z.h5, corr_20260717_232933Z.h5, corr_20260717_233141Z.h5, corr_20260717_233350Z.h5, corr_20260717_233559Z.h5, corr_20260717_233808Z.h5, corr_20260717_234017Z.h5, corr_20260717_234226Z.h5, corr_20260718_021925Z.h5, corr_20260718_025347Z.h5, corr_20260718_030013Z.h5, corr_20260718_030222Z.h5, corr_20260718_032003Z.h5, corr_20260718_032126Z.h5
+[refit-geometry] 28038/54240 samples pass pointing_table@v1 quality=='ok' and are finite
+[refit-geometry] heading=[ 0.90538157 -0.41813462 -0.07380814], alpha_deg=10.07321436695408, joint_normalized_rms=0.3247178109318184, n_kept=73/73, rejected=0
+[refit-geometry] old heading=[0.14791641938383918, 0.14408385182833355, -0.9784480448746243], old alpha_deg=45.09055692512781, old joint_normalized_rms=0.41454188060837494
+[refit-geometry] wrote /mnt/data02/eigsep/eigsep_data/notebooks/arp/marjum-2026-07/v007_multichannel_consensus_pointingv1.json
+[refit-geometry] DONE
+=== stage 2: beam fit against corrected geometry ===
+[beam-fits-v2] window: 226 files, corr_20260717_185100Z.h5 .. corr_20260718_032126Z.h5
+load_v007_data: dropped 64 comb-off file(s) of 226: corr_20260717_191105Z.h5, corr_20260717_202157Z.h5, corr_20260717_214419Z.h5, corr_20260717_214628Z.h5, corr_20260717_214837Z.h5, corr_20260717_215053Z.h5, corr_20260717_215307Z.h5, corr_20260717_215520Z.h5, corr_20260717_215712Z.h5, corr_20260717_215921Z.h5, corr_20260717_220130Z.h5, corr_20260717_220341Z.h5, corr_20260717_220547Z.h5, corr_20260717_220757Z.h5, corr_20260717_221005Z.h5, corr_20260717_221214Z.h5, corr_20260717_221423Z.h5, corr_20260717_221632Z.h5, corr_20260717_221844Z.h5, corr_20260717_222056Z.h5, corr_20260717_222301Z.h5, corr_20260717_222512Z.h5, corr_20260717_222716Z.h5, corr_20260717_222935Z.h5, corr_20260717_223148Z.h5, corr_20260717_223343Z.h5, corr_20260717_223551Z.h5, corr_20260717_223805Z.h5, corr_20260717_224018Z.h5, corr_20260717_224233Z.h5, corr_20260717_224427Z.h5, corr_20260717_224638Z.h5, corr_20260717_224846Z.h5, corr_20260717_225053Z.h5, corr_20260717_225302Z.h5, corr_20260717_225511Z.h5, corr_20260717_225720Z.h5, corr_20260717_225929Z.h5, corr_20260717_230138Z.h5, corr_20260717_230353Z.h5, corr_20260717_230555Z.h5, corr_20260717_230804Z.h5, corr_20260717_231013Z.h5, corr_20260717_231222Z.h5, corr_20260717_231431Z.h5, corr_20260717_231653Z.h5, corr_20260717_231848Z.h5, corr_20260717_232057Z.h5, corr_20260717_232306Z.h5, corr_20260717_232515Z.h5, corr_20260717_232724Z.h5, corr_20260717_232933Z.h5, corr_20260717_233141Z.h5, corr_20260717_233350Z.h5, corr_20260717_233559Z.h5, corr_20260717_233808Z.h5, corr_20260717_234017Z.h5, corr_20260717_234226Z.h5, corr_20260718_021925Z.h5, corr_20260718_025347Z.h5, corr_20260718_030013Z.h5, corr_20260718_030222Z.h5, corr_20260718_032003Z.h5, corr_20260718_032126Z.h5
+[beam-fits-v2] coverage map: {
+  "cell_deg": 5.0,
+  "el_post_failure_fraction": 1.0,
+  "core_coverage_excl_wrap_cluster": {
+    "n_samples": 18415,
+    "n_cells": 2869,
+    "n_eff": 8.039082161933996,
+    "az_range_deg": [
+      0.07826952960286349,
+      359.99749518518706
+    ],
+    "el_range_deg": [
+      -159.9354377793782,
+      159.9516138982841
+    ]
+  },
+  "wrap_cluster_near_180_footnote": {
+    "n_samples": 9623,
+    "n_cells": 380,
+    "n_eff": 2.373547097691542,
+    "az_range_deg": [
+      1.531330514126239e-05,
+      359.9565330266935
+    ],
+    "el_range_deg": [
+      -179.81687319530056,
+      179.88216895017013
+    ],
+    "note": "Samples with |el|~180 deg excluded from the coverage claim pending geometer's read on whether this is a real second elevation or an angle-wrap artifact. If real, this is an upward revision to coverage, not an overclaim risk."
+  }
+}
+[beam-fits-v2] fit 101/101 candidate channels
+[beam-fits-v2] wrote /mnt/data02/eigsep/eigsep_data/notebooks/arp/marjum-2026-07/beam_fits_v2_pointingv1geom_report.json
+[beam-fits-v2] DONE
+=== ALL DONE ===
