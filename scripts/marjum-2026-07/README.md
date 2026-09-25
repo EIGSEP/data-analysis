@@ -50,3 +50,19 @@ deliberately. The product's own manifest says "not validated for
 production use as-is", refinement made the fit worse for nearly every
 file (1/28, 0/28 improved), and its output bit in `flags/v2` has a known
 uncentred-threshold defect. See `marjum-2026-07/flags/v2/README.md`.
+
+## Beam fits (top level)
+
+| Script | Role |
+|---|---|
+| `fit_beam.py` | Thin driver on `eigsep_data.beam_mapping`; generator of `derived/beam/empirical_raster_v0012` onward. Campaign choices (raster window, pointing, flags, site geometry) live here, the method in the package. `--concentration-min legacy` uses the v0009–v0011 background (15 DPSS modes, which cannot represent a constant); the default 1e-6 keeps 21. |
+| `build_tooth_selection.py` | Thin driver on `beam_mapping.tx_teeth.select_teeth`; builds `derived/beam/tooth_selection_vNNNN.{json,csv}`. With `--concentration-min legacy` it reproduces `tooth_selection_v0002` exactly; the corrected background selects the same 64 teeth. |
+| `build_raster_flags.py` | Builds `derived/beam/raster_flags_v0001.npz`. |
+
+The generators of v0008–v0011 and `tooth_selection_v0001/v0002` (`fit_beam_legacy.py`,
+`empirical_beam.py`, `empirical_beam_spectral_no_el0.py`, `tooth_background.py`,
+`build_tooth_selection_legacy.py`) are frozen in `debug/`, byte-identical to the hashes
+those products record.
+
+Superseded generators are in `debug/` (see `debug/README.md`).
+
