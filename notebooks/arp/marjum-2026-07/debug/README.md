@@ -46,3 +46,11 @@ import each other by bare module name, so they are kept together:
 Superseded by `../../../../scripts/marjum-2026-07/fit_beam.py` (fits) and
 `../beam_explorer.ipynb` (viewing).
 
+Added 2026-09-24, the tooth background and tooth selection for beam fit v0009. These are live diagnostics that do run:
+
+| File | What it answers |
+|---|---|
+| `tooth_background_debug.ipynb` (+ `.html`) | Why the v3-beta smooth model undershoots (it rejects positive excess); gap differencing against local DPSS on a transmitter-off control; delay spectra. Aaron approved replacing gap differencing with DPSS. |
+| `tooth_background_basis_debug.ipynb` (+ `.html`) | Choice of DPSS basis: 150 ns smooth, no reflection modes. |
+| `tooth_selection_debug.ipynb` (+ `.html`) | How `tooth_selection_v0001` fared in v0009; the neighbour-coherence test proposed for v0002. |
+
