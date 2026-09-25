@@ -1,246 +1,295 @@
-"""HFSS, DPSS and PCA beam fits to the 07-17 transmitter raster, on commanded pointing.
+"""HFSS, DPSS and PCA beam fits to the Marjum 07-17 transmitter raster.
 
-Exploratory, single-study code. It repeats the v0001 geometry fit and the v0003
-DPSS/PCA joint fits with one change of input. Pointing comes from the campaign
-pointing table, marjum-2026-07/curation/pointing_table.parquet at v2.x, whose
-az_deg is commanded azimuth and el_deg the IMU elevation. pointing_table@v1.2
-azimuth carried a potentiometer slip.
+A thin driver on eigsep_data.beam_mapping. The steps and model live in the
+package; this script holds the campaign choices (raster window, pointing,
+flags, tooth selection, site geometry) and writes the product in the layout of
+derived/beam/empirical_raster_v0008-v0011:
 
-Until 2026-09-24 this script was empirical_beam_commanded.py and read the
-raster-only point_table_v2-beta.npz; that version, which generated
-derived/beam/empirical_raster_v0006 and v0007, is kept in debug/. On the raster
-the campaign table's az_deg is v2-beta's minus a constant 0.313 deg, which the
-fitted az offset absorbs. The 12 deg stripes are cut on az_deg, so a few
-samples at stripe edges change split.
+1. Data: the elevation-sweep raster (07-17 20:26:00-21:28:40 UTC), box-air,
+   RFANT rows with pointing_table v2.x quality 'ok' (commanded azimuth, IMU
+   elevation), with isolated elevation glitches dropped.
+2. Background under each tooth: tx_background.tooth_background (local DPSS,
+   150 ns, FM excluded). Broadband dropouts are masked by the gap-ratio test;
+   raster flags (sample flags and tooth spikes) are applied.
+3. Geometry: highline pointing convention (psi = 142.164 deg), antenna from the
+   v0001 geometry release, transmitter from curation. A joint scan finds the az
+   offset and polarization centre, then fit_geometry refines the corrections.
+4. Beams: ell_max and a spectral basis (PCA or DPSS) from the normalized HFSS
+   fields; JointBeamFit at prior weights 1e-2, 1e-3, 1e-4, chosen on the
+   validation stripes, then refitted on all samples and exported.
 
-Consequences:
-- The 12 deg train/validation/test stripes are recomputed from commanded
-  azimuth, so held-out sets differ from v0003's.
-- Azimuth zero is not tied to the beam frame, so a coarse az offset is chosen
-  first by the HFSS beam on training samples; the v0001 geometry fit then
-  refines polarization, az/el zero and transmitter position within its bounds.
-With --flags, raster_flags sample flags and tooth spikes are also excluded.
-Everything else follows v0003: the no-slew mask, 42 fitting teeth with
-explicit joint gains, the HFSS-selected lmax and spectral bases, penalty
-selection on validation stripes, all-sample refit and export.
+--concentration-min legacy uses the floor(2NW)+1 DPSS background of
+v0009-v0011. The default (1e-6) represents smooth backgrounds correctly. The
+generator of v0008-v0011 itself is kept as debug/fit_beam_legacy.py.
 """
 from pathlib import Path
 import argparse
+import hashlib
 import json
-import runpy
+import logging
+import os
+import subprocess
+from datetime import datetime, timezone
 
+os.environ.setdefault('JAX_PLATFORMS', 'cpu')
 import numpy as np
 import pandas as pd
 
-
 SOURCE = Path(__file__).resolve()
-STUDY_SOURCE = SOURCE.with_name('empirical_beam_spectral_no_el0.py')
-study = runpy.run_path(str(STUDY_SOURCE))
-legacy = study['legacy']
-ROOT, CAMPAIGN, BAND = study['ROOT'], study['CAMPAIGN'], study['BAND']
+ROOT = next(p for p in SOURCE.parents if (p / 'marjum-2026-07/data').is_dir())
+CAMPAIGN = ROOT / 'marjum-2026-07'
 POINT_TABLE = CAMPAIGN / 'curation/pointing_table.parquet'
-DF = legacy['DF']
-log, digest, metrics = legacy['log'], legacy['digest'], legacy['metrics']
+RELEASE = CAMPAIGN / 'imgs/fits/v0001_marjum_geometry/shared.json'
+TRANSMITTER = CAMPAIGN / 'curation/transmitter_position.json'
+RASTER = ('2026-07-17 20:26:00', '2026-07-17 21:28:40')
+PSI_DEG = 142.164                 # highline direction, deg ccw from East (known_quantities v0001)
+DF = 250.0 / 1024
+FM_MHZ = (87.0, 108.5)
+BACKGROUND_LIMITS_MHZ = (40.0, 249.5)
+PENALTIES = (1e-2, 1e-3, 1e-4)
+log = logging.getLogger('fit_beam')
 
 
-def load_data():
-    """legacy load_data with commanded pointing and commanded-az stripes."""
+def digest(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def revision(repo):
+    git = lambda *a: subprocess.run(['git', '-C', str(repo), *a], capture_output=True, text=True).stdout.strip()
+    return dict(commit=git('rev-parse', '--short', 'HEAD'), branch=git('branch', '--show-current'),
+                dirty=bool(git('status', '--porcelain', '--untracked-files=no')))
+
+
+def reversal_glitches(el_deg, tol=15.0):
+    """Isolated solved-elevation faults: a sample is good if at least 3 of its 4
+    neighbours (+/-1, +/-2) lie within `tol` deg across the +/-180 wrap."""
+    el = np.asarray(el_deg, float)
+    close = np.zeros(el.size, int)
+    for k in (-2, -1, 1, 2):
+        d = np.abs((el - np.roll(el, k) + 180.0) % 360.0 - 180.0)
+        d[slice(0, -k) if k < 0 else slice(-k, None)] = 0.0
+        close += d <= tol
+    return close < 3
+
+
+def load_data(teeth, concentration_min):
+    """Raster spectra, pointing and the background-subtracted teeth."""
     import eigsep_data
+    import pyarrow.parquet as pq
     from eigsep_data import AntennaResolutionPolicy, MetadataIndex
+    from eigsep_data.beam_mapping import tooth_background
+
     eigsep_data.set_campaign_root(CAMPAIGN)
-    t0, t1 = [pd.Timestamp(s, tz='UTC').timestamp() for s in legacy['RASTER']]
+    t0, t1 = [pd.Timestamp(s, tz='UTC').timestamp() for s in RASTER]
     policy = AntennaResolutionPolicy.load(CAMPAIGN / 'curation/antenna_resolution.json')
     bundle = MetadataIndex(CAMPAIGN / 'data').select(time=(t0, t1)).load_bundle(
         antenna='box-air', missing='skip', resolution_policy=policy)
-    import pyarrow.parquet as pq
-    table = pq.read_table(POINT_TABLE, columns=['t_utc_s', 'az_deg', 'el_deg', 'quality', 'az_fused_deg'],
-                          filters=[('t_utc_s', '>=', t0 - 60), ('t_utc_s', '<=', t1 + 60)])
-    point_provenance = json.loads(pq.read_schema(POINT_TABLE).metadata[b'eigsep_provenance'])
-    # v2.x is where az_deg became commanded azimuth; v1.x az_deg is the pot-fused value.
-    assert point_provenance['version'].startswith('v2.'), point_provenance['version']
-    pointing = table.to_pandas().rename(columns={'az_fused_deg': 'az_deg_v1'})
+    freq = np.asarray(bundle.freqs_mhz, float)
+    assert np.allclose(freq, np.arange(1024) * DF)
+    point_prov = json.loads(pq.read_schema(POINT_TABLE).metadata[b'eigsep_provenance'])
+    assert point_prov['version'].startswith('v2.'), point_prov['version']
+    pointing = pq.read_table(POINT_TABLE, columns=['t_utc_s', 'az_deg', 'el_deg', 'quality', 'az_fused_deg'],
+                             filters=[('t_utc_s', '>=', t0 - 60), ('t_utc_s', '<=', t1 + 60)]).to_pandas()
     meta = bundle.meta.reset_index(drop=True).assign(t=lambda x: x.time_best.astype(float))
-    j = pd.merge_asof(meta.sort_values('t').reset_index(names='bundle_row'),
-                      pointing.sort_values('t_utc_s'),
+    j = pd.merge_asof(meta.sort_values('t').reset_index(names='bundle_row'), pointing.sort_values('t_utc_s'),
                       left_on='t', right_on='t_utc_s', direction='nearest', tolerance=.35)
     j = j[(j.quality == 'ok') & (j.rfswitch == 'RFANT')].reset_index(drop=True)
-    glitch = legacy['glitches'](j.el_deg.to_numpy())
+    glitch = reversal_glitches(j.el_deg.to_numpy())
     j = j[~glitch].reset_index(drop=True)
-    channels = np.arange(8, 1020, 8)
-    channels = channels[(channels*DF >= BAND[0]) & (channels*DF <= BAND[1])]
-    col = {round(f/DF): i for i, f in enumerate(bundle.freqs_mhz)}
     raw = np.asarray(bundle.data[j.bundle_row.to_numpy()], float)
-    tooth = raw[:, [col[c] for c in channels]].T
-    gap = .5*(raw[:, [col[c-4] for c in channels]] + raw[:, [col[c+4] for c in channels]]).T
+    channels = np.asarray(sorted(teeth))
+    fm = (freq > FM_MHZ[0]) & (freq < FM_MHZ[1])
+    background = tooth_background(raw, freq, channels, exclude=fm, limits_mhz=BACKGROUND_LIMITS_MHZ,
+                                  concentration_min=concentration_min).T
+    tooth = raw[:, channels].T
+    gap = 0.5 * (raw[:, channels - 4] + raw[:, channels + 4]).T
     ratio = gap / np.nanmedian(gap, axis=1)[:, None]
-    az = j.az_deg.to_numpy()
-    assert np.isfinite(az).all()
-    # Entire 12-degree stripes of commanded azimuth are held out.
-    azbin = np.floor(((az+180) % 360) / 12).astype(int)
-    split = np.where(azbin % 5 == 1, 1, np.where(azbin % 5 == 3, 2, 0))
-    return dict(data=tooth-gap, good=(ratio > 1/1.5) & (ratio < 1.5) & np.isfinite(tooth-gap),
-                gap=gap, channels=channels, freqs=channels*DF, arms=(channels//8) % 2,
-                az=az, az_table=az.copy(), az_pointing_table_v1=j.az_deg_v1.to_numpy(),
-                el=j.el_deg.to_numpy(), t=j.t.to_numpy(), split=split,
-                files=sorted(set(j.file.astype(str))), n_glitches=int(glitch.sum()),
-                fit_channels=~np.isin(channels, legacy['SUSPECT_CHANNELS']),
-                point_provenance=point_provenance)
+    good = (ratio > 1 / 1.5) & (ratio < 1.5) & np.isfinite(tooth - background)
+    return dict(t=j.t.to_numpy(), az=j.az_deg.to_numpy(), el=j.el_deg.to_numpy(),
+                az_v1=j.az_fused_deg.to_numpy(), data=tooth - background, good=good, channels=channels,
+                files=sorted(set(j.file.astype(str))), n_glitches=int(glitch.sum()), point_prov=point_prov)
 
 
-def coarse_az_offset(d, h, offsets=np.arange(-60., 60.01, 1.)):
-    """HFSS-only, zero-geometry scan of a constant azimuth offset on training samples."""
-    idx = np.flatnonzero(d['split'] == 0)[::4]
-    usef = np.flatnonzero(d['fit_channels'])
-    scale = np.sqrt(np.mean(d['data'][:, idx]**2, axis=1))
-    base = d['az'].copy()
-    scores = []
-    for offset in offsets:
-        d['az'] = base + offset
-        p = legacy['sample_hfss'](d, h, np.zeros(5), idx)
-        g = legacy['gains'](p, d['data'][:, idx], d['good'][:, idx], np.ones(len(idx), bool))
-        r = ((g[:, None]*p - d['data'][:, idx])/scale[:, None])*d['good'][:, idx]
-        scores.append(float(np.sqrt(np.mean(r[usef]**2))))
-    d['az'] = base
-    best = float(offsets[int(np.argmin(scores))])
-    return best, pd.DataFrame(dict(az_offset_deg=offsets, normalized_rms=scores))
+def apply_flags(raw, flags):
+    """Sample flags and tooth spikes from a raster_flags npz, aligned on time and channel."""
+    with np.load(flags) as f:
+        order = np.argsort(f['t'])
+        pos = np.clip(np.searchsorted(f['t'][order], raw['t']), 0, len(order) - 1)
+        near = order[np.where(abs(f['t'][order][pos] - raw['t']) <= 1e-5, pos, 0)]
+        assert np.all(abs(f['t'][near] - raw['t']) <= 1e-5), 'samples missing from flags'
+        sample_flag = f['sample_flag'][near].astype(bool)
+        tooth_flag = np.zeros_like(raw['good'])
+        fcol = {int(c): i for i, c in enumerate(f['channels'])}
+        for i, c in enumerate(raw['channels']):
+            if int(c) in fcol:
+                tooth_flag[i] = f['tooth_flag'][fcol[int(c)], near].astype(bool)
+        return sample_flag, tooth_flag, json.loads(str(f['provenance']))
 
 
-def main(output, maxiter=3000, bases=('dpss', 'pca'), flags=None):
+def main(output, teeth_path, flags, bases, maxiter, concentration_min):
+    import healpy as hp
+
+    import eigsep_data.beam_mapping as bm
+    from eigsep_data.beam_sim import DEFAULT_BEAM_PATH, read_beam
+
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
-    d, h = load_data(), legacy['load_hfss']()
-    # The opening near-zero-elevation azimuth slew (56 samples, masked here through
-    # v0007) is quality='suspect' (AZ_SLEW) in pointing_table v2.0, so load_data never
-    # returns it. The rule is kept as a check that none of it came back.
-    el0_slew = (d['t']-d['t'].min() <= 30.) & (np.abs(d['el']) < 3.)
-    assert not el0_slew.any(), el0_slew.sum()
-    d['el0_slew'] = el0_slew
-    d['good'][:, el0_slew] = False
-    sample_flag = np.zeros(len(d['t']), bool)
-    tooth_flag = np.zeros_like(d['good'])
-    flag_provenance = None
-    if flags is not None:
-        with np.load(flags) as f:
-            # Align on time: the flags may cover samples this table drops (e.g. the v2-beta-era
-            # flags include the 56-sample opening slew), but every loaded sample must be flagged.
-            assert np.array_equal(f['channels'], d['channels'])
-            order = np.argsort(f['t'])
-            pos = np.clip(np.searchsorted(f['t'][order], d['t']), 0, len(order) - 1)
-            near = order[np.where(abs(f['t'][order][pos] - d['t']) <= 1e-5, pos, 0)]
-            assert np.all(abs(f['t'][near] - d['t']) <= 1e-5), 'samples missing from flags'
-            sample_flag, tooth_flag = f['sample_flag'][near].astype(bool), f['tooth_flag'][:, near].astype(bool)
-            flag_provenance = json.loads(str(f['provenance']))
-        d['good'] &= ~sample_flag[None, :] & ~tooth_flag
-        log('flags', flags, 'samples', int(sample_flag.sum()), 'tooth spikes', int(tooth_flag.sum()))
-    log('data', d['data'].shape, 'split counts', np.bincount(d['split']))
+    selection = json.loads(Path(teeth_path).read_text())
+    raw = load_data(selection['channels'], concentration_min)
+    sample_flag, tooth_flag, flag_prov = apply_flags(raw, flags)
+    good = raw['good'] & ~sample_flag[None, :] & ~tooth_flag
+    freqs = raw['channels'] * DF
+    data = bm.ToothData(t=raw['t'], az_deg=raw['az'], el_deg=raw['el'], data=raw['data'], good=good,
+                        channels=raw['channels'], freqs_mhz=freqs, split=bm.stripe_split(raw['az']))
+    log.info('data %s teeth x %s samples; flags: %d samples, %d tooth spikes', *data.data.shape,
+             sample_flag.sum(), tooth_flag.sum())
 
-    az_offset, scan = coarse_az_offset(d, h)
-    scan.to_csv(output/'az_offset_scan.csv', index=False)
-    d['az'] = d['az_table'] + az_offset
-    log('coarse az offset', az_offset)
-    params, best_geometry, geometry, geometry_records, _ = legacy['geometry_fits'](d, h)
-    geometry.to_csv(output/'geometry_comparison.csv', index=False)
-    log('geometry', best_geometry, dict(zip(legacy['PARAM_NAMES'], params)))
+    ant = np.asarray(json.loads(RELEASE.read_text())['antenna_91m_era']['position_enu_m'], float)
+    tx = np.asarray(json.loads(TRANSMITTER.read_text())['best_estimate_enu_m'], float)
+    hfields, _, hfreqs = read_beam(drop_last=False)
+    hnorm, _, _ = bm.normalize_fields(hfields, hfreqs)
+    fields_teeth = bm.interpolate_fields(hnorm, hfreqs, freqs)
 
-    native_f, native_fields = study['hfss_samples'](h)
-    lmax, angular_coefficients, angular_errors = study['spatial_expansion'](h, native_fields)
-    pd.DataFrame(angular_errors).to_csv(output/'spatial_order.csv', index=False)
-    train = d['split'] == 0
-    baseline_power = legacy['sample_hfss'](d, h, params)
-    baseline = legacy['gains'](baseline_power, d['data'], d['good'], train)[:, None]*baseline_power
-    all_metrics = metrics(d, baseline, 'hfss')
+    model, scan = bm.coarse_offset_alpha(data, fields_teeth, bm.TxGeometryModel(PSI_DEG, ant, tx))
+    pd.DataFrame(scan).to_csv(output / 'az_offset_alpha_scan.csv', index=False)
+    at_zero = min(r['normalized_rms'] for r in scan if r['az_offset_deg'] == 0.0)
+    log.info('coarse az offset %+.0f, alpha %.0f (best at offset 0: %.4f)',
+             model.az_offset_deg, model.alpha0_deg, at_zero)
+    params, best_geometry, geometry_table, _ = bm.fit_geometry(data, fields_teeth, model)
+    pd.DataFrame(geometry_table).to_csv(output / 'geometry_comparison.csv', index=False)
+
+    band = (float(freqs.min()) - DF, float(freqs.max()) + DF)
+    first = max(0, np.searchsorted(hfreqs, band[0]) - 1)
+    last = min(len(hfreqs), np.searchsorted(hfreqs, band[1]) + 1)
+    native_f, native_fields = hfreqs[first:last], hnorm[first:last]
+    lmax, sh, lmax_records = bm.select_lmax(native_fields)
+    pd.DataFrame(lmax_records).to_csv(output / 'spatial_order.csv', index=False)
+    train = data.split == 0
+    baseline_power = bm.hfss_power(fields_teeth, data, model, params)
+    baseline = bm.tooth_gains(baseline_power, data.data, data.good, train)[:, None] * baseline_power
+    all_metrics = bm.score(data, baseline, 'hfss')
     descriptions, optimizations = {}, []
+    theta, phi, _ = model.frame(data, params)
+    coverage = np.bincount(hp.ang2pix(hp.npix2nside(hfields.shape[-1]), theta, phi),
+                           minlength=hfields.shape[-1])
     for kind in bases:
-        directory = output/kind
+        directory = output / kind
         directory.mkdir(exist_ok=True)
-        basis = study['SpectralBasis'](kind, native_f, native_fields, d['freqs'])
-        descriptions[kind] = basis.description
-        pd.DataFrame(basis.records).to_csv(directory/'basis_selection.csv', index=False)
-        basis.save(directory/'spectral_basis.npz')
-        c0 = np.linalg.lstsq(basis.native_modes, angular_coefficients, rcond=None)[0]
-        fit = study['JointFit'](d, params, lmax, basis, c0)
+        if kind == 'pca':
+            basis = bm.pca_basis(native_f, native_fields)
+            np.savez_compressed(directory / 'spectral_basis.npz', kind=np.array('pca'), native_freqs=native_f,
+                                native_modes=basis.A, singular_values=basis.singular_values)
+            description = dict(kind='pca', modes=basis.nmodes,
+                               construction='uncentered complex SVD; left singular vectors across frequency')
+        else:
+            basis = bm.DPSSSpectralBasis.from_fields(native_f, native_fields, freqs)
+            basis.save(directory / 'spectral_basis.npz')
+            description = dict(kind='dpss', modes=basis.nmodes, delay_half_width_ns=basis.delay_halfwidth_ns,
+                               grid_limits_mhz=[float(basis.grid[0]), float(basis.grid[-1])])
+        pd.DataFrame(basis.records or []).to_csv(directory / 'basis_selection.csv', index=False)
+        c0 = bm.initial_coefficients(basis, sh)
+        fit = bm.JointBeamFit(data, model, params, lmax, basis, c0)
         trials = []
-        for penalty in (1e-2, 1e-3, 1e-4):
+        for penalty in PENALTIES:
             coeff, gain, prediction, info = fit.fit(train, penalty, maxiter=maxiter)
-            records = metrics(d, prediction, f'{kind}_lambda_{penalty:g}')
-            scores = pd.DataFrame(records)
-            validation = float(scores.loc[(scores.split == 'validation') & scores.used_for_beam_fit,
-                                          'fractional_rms'].median())
-            info.update(stage='train', validation_median_rms=validation)
+            records = bm.score(data, prediction, f'{kind}_lambda_{penalty:g}')
+            validation = float(np.median([r['fractional_rms'] for r in records
+                                          if r['split'] == 'validation' and r['used_for_beam_fit']]))
+            info.update(basis=kind, stage='train', validation_median_rms=validation)
             trials.append((validation, coeff, gain, prediction, info))
             all_metrics.extend(records)
             optimizations.append(info)
-            log(kind, 'validation', penalty, validation)
+            log.info('%s penalty %g: validation %.4f', kind, penalty, validation)
         _, coeff, gain, heldout, selected = min(trials, key=lambda entry: entry[0])
-        all_metrics.extend(metrics(d, heldout, kind+'_heldout'))
+        all_metrics.extend(bm.score(data, heldout, kind + '_heldout'))
         final_coeff, final_gain, final_prediction, final_info = fit.fit(
-            np.ones(len(d['t']), bool), selected['penalty'], initial=coeff,
-            initial_gain=gain, maxiter=maxiter)
-        final_info.update(stage='all_sample_refit')
+            np.ones(len(data.t), bool), selected['penalty'], initial=coeff, initial_gain=gain, maxiter=maxiter)
+        final_info.update(basis=kind, stage='all_sample_refit')
         optimizations.append(final_info)
-        all_metrics.extend(metrics(d, final_prediction, kind+'_refit'))
-        export_gain, exported = study['export_beam'](directory/'empirical_beam.npz', h, fit,
-                                                     final_coeff, final_gain)
-        all_metrics.extend(metrics(d, exported, kind+'_exported'))
-        export_error = np.sqrt(np.sum((exported-final_prediction)**2*d['good'], axis=1) /
-                               np.sum(d['data']**2*d['good'], axis=1))
-        assert np.max(export_error[d['fit_channels']]) < .01, export_error
-        descriptions[kind].update(selected_penalty=selected['penalty'], lmax=lmax,
-            max_export_prediction_error_relative_to_data=float(export_error[d['fit_channels']].max()))
-        np.savez_compressed(directory/'diagnostics.npz',
-            **{k: d[k] for k in ('az', 'az_table', 'az_pointing_table_v1', 'el', 't', 'data', 'good',
-                                 'split', 'channels', 'freqs', 'arms', 'fit_channels')},
-            el0_slew=el0_slew, sample_flag=sample_flag, tooth_flag=tooth_flag, az_offset_deg=az_offset,
-            hfss=baseline, empirical_heldout=heldout, empirical_refit=final_prediction,
-            empirical_exported=exported, initial_coeff=c0, heldout_coeff=coeff,
-            coeff=final_coeff, heldout_gain=gain, final_gain=final_gain,
-            exported_gain=export_gain, params=params,
-            spectral_at_teeth=basis.evaluate(d['freqs']),
-            spectral_at_hfss=basis.native_modes, native_hfss_freqs=native_f)
-        pd.DataFrame(all_metrics).to_csv(output/'metrics.csv', index=False)
-        (output/'optimization.json').write_text(json.dumps(optimizations, indent=2)+'\n')
-    pd.DataFrame(geometry_records).to_csv(output/'geometry_metrics.csv', index=False)
+        all_metrics.extend(bm.score(data, final_prediction, kind + '_refit'))
+        export_gain, export_fields, export_freqs = bm.export_beam(
+            directory / 'empirical_beam.npz', hfreqs, hnorm, basis, final_coeff, lmax, band, freqs, final_gain,
+            sample_count=coverage,
+            metadata=dict(geometry_parameters=params, geometry_parameter_names=np.array(bm.PARAM_NAMES),
+                          status='exploratory; power-only phase ambiguity; unsampled directions prior-dependent'))
+        idx = np.searchsorted(export_freqs, freqs)
+        exported = export_gain[:, None] * bm.hfss_power(export_fields[idx], data, model, params)
+        all_metrics.extend(bm.score(data, exported, kind + '_exported'))
+        export_error = np.sqrt(np.sum(np.where(data.good, (exported - final_prediction) ** 2, 0), axis=1)
+                               / np.sum(np.where(data.good, data.data ** 2, 0), axis=1))
+        assert np.max(export_error[data.fit_channels]) < .01, export_error
+        description.update(selected_penalty=selected['penalty'], lmax=lmax,
+                           max_export_prediction_error_relative_to_data=float(export_error.max()))
+        descriptions[kind] = description
+        np.savez_compressed(
+            directory / 'diagnostics.npz', az=data.az_deg + model.az_offset_deg, az_table=data.az_deg,
+            az_pointing_table_v1=raw['az_v1'], el=data.el_deg, t=data.t, data=data.data, good=data.good,
+            split=data.split, channels=data.channels, freqs=freqs, arms=data.arms,
+            fit_channels=data.fit_channels, el0_slew=np.zeros(len(data.t), bool), sample_flag=sample_flag,
+            tooth_flag=tooth_flag, az_offset_deg=model.az_offset_deg, alpha0_deg=model.alpha0_deg,
+            convention=np.array('highline'), psi_deg=PSI_DEG, hfss=baseline, empirical_heldout=heldout,
+            empirical_refit=final_prediction, empirical_exported=exported, initial_coeff=c0, heldout_coeff=coeff,
+            coeff=final_coeff, heldout_gain=gain, final_gain=final_gain, exported_gain=export_gain,
+            params=params, spectral_at_teeth=basis.evaluate(freqs), spectral_at_hfss=basis.A,
+            native_hfss_freqs=native_f)
+        pd.DataFrame(all_metrics).to_csv(output / 'metrics.csv', index=False)
+        (output / 'optimization.json').write_text(json.dumps(optimizations, indent=2) + '\n')
 
-    inputs = [SOURCE, STUDY_SOURCE, study['PREVIOUS_SOURCE'], POINT_TABLE, h['path']]
-    inputs += [CAMPAIGN/'curation'/f for f in ('antenna_resolution.json', 'horizon_profiles.json',
-                                               'transmitter_position.json')]
-    inputs += [CAMPAIGN/'data'/Path(f).name for f in d['files']]
-    inputs += [Path(flags).resolve()] if flags is not None else []
+    import eigsep_base
+    import eigsep_data
+    inputs = [SOURCE, POINT_TABLE, DEFAULT_BEAM_PATH, RELEASE, TRANSMITTER, Path(teeth_path).resolve(),
+              Path(flags).resolve(), CAMPAIGN / 'curation/antenna_resolution.json']
+    inputs += [CAMPAIGN / 'data' / Path(f).name for f in raw['files']]
     artifacts = {str(p.relative_to(output)): digest(p) for p in output.rglob('*')
                  if p.is_file() and p.name not in ('provenance.json', 'README.md')}
+    geometry = dict(zip(bm.PARAM_NAMES, map(float, params)))
     provenance = dict(
-        status='exploratory', pointing=d['point_provenance']['compact'],
+        status='exploratory', generator=str(SOURCE.relative_to(ROOT)),
+        pipeline='eigsep_data.beam_mapping (tx_background, tx_fit, beam_basis, tx_export)',
+        pointing=raw['point_prov']['compact'],
         pointing_rule='az_deg: commanded azimuth (motor counts plus one pot offset per anchor segment); el_deg: IMU',
-        az_offset_deg=az_offset,
-        az_frame='fit az = pointing_table az_deg + az_offset_deg; the geometry az_zero_delta_deg is added on top',
-        geometry=dict(zip(legacy['PARAM_NAMES'], params)), geometry_model=best_geometry,
-        geometry_source='v0001 HFSS geometry fit, repeated on commanded pointing',
-        spectral_bases=descriptions, lmax=lmax, band_mhz=BAND, raster_utc=legacy['RASTER'],
-        split='12 deg stripes of commanded azimuth (differs from v0001-v0005)',
-        flags=None if flags is None else dict(path=str(Path(flags).resolve().relative_to(ROOT)), version=flag_provenance['version'],
-                                              summary=flag_provenance['summary'], bits=flag_provenance['bits']),
-        excluded_trajectory='opening near-zero-elevation azimuth slew (56 samples): quality=suspect (AZ_SLEW) in pointing_table v2.0, not loaded',
-        maxiter=maxiter, excluded_fit_channels=legacy['SUSPECT_CHANNELS'],
-        repositories={name: legacy['revision'](ROOT/name) for name in ('data-analysis', 'eigsep_data')},
-        input_sha256={str(p.relative_to(ROOT)): digest(p) for p in inputs}, artifact_sha256=artifacts,
+        convention='highline',
+        rotation='v_ENU = Rz(psi) Rx(el + el_zero_delta) Rz(az + az_offset + az_zero_delta) v_body, psi = %.3f deg '
+                 '(eigsep_base.rotations.mount_rotation)' % PSI_DEG,
+        az_offset_deg=model.az_offset_deg, alpha0_deg=model.alpha0_deg,
+        table_az_zero_from_highline_deg=model.az_offset_deg + geometry['az_zero_delta_deg'],
+        geometry=geometry, geometry_model=best_geometry,
+        background=dict(method='local DPSS (eigsep_data.beam_mapping.tx_background)', halfwidth_ns=150.0,
+                        window_mhz=48.0, excluded_mhz=list(FM_MHZ), limits_mhz=list(BACKGROUND_LIMITS_MHZ),
+                        concentration_min=concentration_min if concentration_min is not None
+                        else 'legacy floor(2NW)+1 modes (v0009-v0011)'),
+        tooth_selection=dict(path=str(Path(teeth_path).resolve().relative_to(ROOT)), version=selection['version'],
+                             channels=len(selection['channels'])),
+        flags=dict(path=str(Path(flags).resolve().relative_to(ROOT)), version=flag_prov['version'],
+                   samples=int(sample_flag.sum()), tooth_spikes=int(tooth_flag.sum())),
+        spectral_bases=descriptions, lmax=lmax, band_mhz=list(band), raster_utc=list(RASTER),
+        split='12 deg stripes of pointing-table azimuth (tx_fit.stripe_split)', maxiter=maxiter,
+        n_glitches=raw['n_glitches'],
+        repositories={name: revision(ROOT / name) for name in ('data-analysis', 'eigsep_data', 'eigsep_base')},
+        package_versions=dict(eigsep_data=getattr(eigsep_data, '__version__', None),
+                              eigsep_base=eigsep_base.__version__),
+        input_sha256={str(Path(p).resolve().relative_to(ROOT)): digest(p) for p in inputs},
+        artifact_sha256=artifacts,
         caveats=['Power-only phase and circular-polarization ambiguities remain; coefficients are HFSS-regularized.',
-                 'Commanded azimuth assumes the platform followed the motor; see curation/pointing_table.README.md (v2.0).',
-                 'The pot/motor offset also jumped by about 10 deg during the opening slew, which is excluded.',
-                 'Validation/test stripes are recomputed from commanded azimuth; not a new blind test.',
-                 'Only 145-235 MHz is fitted. Other exported slices are normalized HFSS.',
+                 'Commanded azimuth assumes the platform followed the motor; see curation/pointing_table.README.md.',
+                 'Validation/test stripes are recomputed from commanded azimuth; not a fresh blind test.',
+                 'Only %.1f-%.1f MHz is fitted. Other exported slices are normalized HFSS.' % band,
                  'All-sample refit/export scores are not independent validation.'])
-    (output/'provenance.json').write_text(json.dumps(provenance, indent=2)+'\n')
-    log('completed', output)
+    (output / 'provenance.json').write_text(json.dumps(provenance, indent=2) + '\n')
+    log.info('completed %s', output)
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description=__doc__)
-    # No default: the old default named an existing product and would have overwritten it.
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--output', type=Path, required=True,
-                        help='new product directory, e.g. marjum-2026-07/derived/beam/empirical_raster_v0008')
-    parser.add_argument('--maxiter', type=int, default=3000)
+                        help='new product directory, e.g. marjum-2026-07/derived/beam/empirical_raster_v0012')
+    parser.add_argument('--teeth', default=str(CAMPAIGN / 'derived/beam/tooth_selection_v0002.json'))
+    parser.add_argument('--flags', default=str(CAMPAIGN / 'derived/beam/raster_flags_v0001.npz'))
     parser.add_argument('--bases', nargs='+', choices=['dpss', 'pca'], default=['dpss', 'pca'])
-    parser.add_argument('--flags', type=Path, default=None,
-                        help='raster_flags npz; flagged samples and tooth spikes are excluded')
+    parser.add_argument('--maxiter', type=int, default=3000)
+    parser.add_argument('--concentration-min', default='1e-6',
+                        help="DPSS background mode cutoff; 'legacy' for the floor(2NW)+1 modes of v0009-v0011")
     args = parser.parse_args()
-    main(args.output, args.maxiter, tuple(args.bases), args.flags)
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(name)s %(message)s')
+    cmin = None if args.concentration_min == 'legacy' else float(args.concentration_min)
+    main(args.output, args.teeth, args.flags, tuple(args.bases), args.maxiter, cmin)
