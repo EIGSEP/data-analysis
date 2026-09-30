@@ -56,6 +56,25 @@ Entry points: `compare_real_tx.py`, `cv_ridge.py`, `demo_*`, `explore_basis*`,
 `regen/` and `regen2/` are Aaron's manual output directories from successive
 `fit_v007_multichannel_consensus.py` runs.
 
+## Receiver calibration
+
+`yfactor_calibration_replication.ipynb` (rendered `.html`/`.pdf` alongside)
+reproduces Christian's minimal three-state Y-factor calibration of the
+16/17 Jul night (his `T12_yfactor_minimal.ipynb`, received 2026-09-25): T\*,
+then the antenna and the antenna + load + receiver S11 corrections. It matches
+every number his notebook prints, and uses `eigsep_cal.S11` for Γ at plane P,
+which agrees with his own S11 chain to ~1e-15.
+
+- `d5_yfactor.py` is Christian's helper module, **vendored unchanged** (sha256
+  `2471b6fab712…`). Don't edit it here; changes belong in his copy.
+- `SWITCH` in § 0 picks the switch-path S-parameters: `'christian'` (default,
+  `marjum-2026-07/data/s11/cal_materials/switch_sparams.npz`) or
+  `'eigsep_cal'` (the file packaged in `eigsep_cal`). The two characterizations
+  disagree by ~0.06 in port reflection and shift calibrated T by ±6 %; which is
+  current is being settled.
+- Diagnostic only: T_NS is the 917 K nameplate value, with no noise-wave,
+  loss or RFI treatment.
+
 ## Paths
 
 - Beam maps: `BEAM_FILE = "../../../hfss_beam_maps/bowtie_beam.npz"` — three
@@ -82,3 +101,10 @@ lib-shaped modules here (`rotation_beam`, `tx_beam_sim`, `beam_pca`,
 `fit_v007_pca_beam`, etc.) are candidates for eventual promotion into an
 `eigsep_data.beam_mapping/` subpackage. This flat layout is an intentional
 intermediate state — not the endpoint.
+
+## Recent changes
+
+- 2026-09-30: Added `yfactor_calibration_replication.ipynb` and a vendored
+  `d5_yfactor.py`. The notebook reproduces Christian's Y-factor calibration
+  from the campaign archive, and flags that the two switch S-parameter files in
+  circulation give calibrated temperatures differing by ±6 %.
