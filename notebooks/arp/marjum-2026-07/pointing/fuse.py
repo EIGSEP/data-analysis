@@ -79,6 +79,9 @@ FLAG_HEIGHT_ASSUMED = 1 << 7    # height nominal, not measured at this sample
 FLAG_EL_POST_FAILURE = 1 << 8   # at/after the EL drive failure; el is parked
 FLAG_AZ_SLIP_RAMP = 1 << 9      # sustained az slip: platform losing ground to motor
 FLAG_EL_SOLUTION_GLITCH = 1 << 10  # elevation slew faster than the drive can move
+FLAG_AZ_POT_DIVERGES = 1 << 11  # pot disagrees with commanded az by > AZ_DIVERGE_DEG
+FLAG_AZ_SLEW = 1 << 12          # inside a large az slew; platform may lag or slip
+FLAG_AZ_FUSED_FALLBACK = 1 << 13  # no commanded az (no motor / no anchor); v1 fused az used
 
 FLAG_NAMES = {
     FLAG_NO_METADATA: "NO_METADATA",
@@ -92,7 +95,31 @@ FLAG_NAMES = {
     FLAG_EL_POST_FAILURE: "EL_POST_FAILURE",
     FLAG_AZ_SLIP_RAMP: "AZ_SLIP_RAMP",
     FLAG_EL_SOLUTION_GLITCH: "EL_SOLUTION_GLITCH",
+    FLAG_AZ_POT_DIVERGES: "AZ_POT_DIVERGES",
+    FLAG_AZ_SLEW: "AZ_SLEW",
+    FLAG_AZ_FUSED_FALLBACK: "AZ_FUSED_FALLBACK",
 }
+
+# Commanded azimuth (v2). The az and el drives never run together and are
+# locked when idle, and on 07-17 the platform followed the motor through a
+# 27 deg potentiometer slip (beam fits: unfitted HFSS held-out test RMS 0.071
+# with commanded az against 0.197 with the fused az). Motor counts give the
+# motion; the pot sets one absolute offset per anchor segment.
+#   - A stretch is a run of motor samples with no gap > STRETCH_GAP_S and no
+#     count jump > REHOME_JUMP_DEG between samples (re-homes).
+#   - A big slew is a run of consecutive moving samples spanning more than
+#     BIG_SLEW_DEG. The 5 deg scan steps never qualify. The platform can slip
+#     during a big slew, so each one starts a new anchor segment; its own rows
+#     belong to that segment and carry AZ_SLEW.
+#   - The segment's offset is the median of pot - motor over its first
+#     ANCHOR_WINDOW_S after the slew (slew rows excluded), falling back to the
+#     whole segment when that window holds fewer than ANCHOR_MIN_SAMPLES.
+STRETCH_GAP_S = 5.0
+REHOME_JUMP_DEG = 10.0
+BIG_SLEW_DEG = 20.0
+ANCHOR_WINDOW_S = 600.0
+ANCHOR_MIN_SAMPLES = 20
+AZ_DIVERGE_DEG = 6.0
 
 # Sustained-slip detector. AZ_SLIP_EVENT catches *steps* in the motor-vs-pot
 # offset and is blind to *ramps* -- which is how it missed both events that
@@ -266,6 +293,87 @@ def fuse_azimuth(motor_az_steps, pot_az_deg, half_window=56):
     sigma_az[pot_only] = np.hypot(POT_AZ_SIGMA, AZ_FLOOR_SIGMA)
     sigma_az[~np.isfinite(az)] = np.nan
     return az, sigma_az, flags, offset
+
+
+def commanded_azimuth(motor_az_steps, pot_az_deg, times, fused_az_deg):
+    """Commanded azimuth: motor motion plus one pot-anchored offset per segment.
+
+    Returns ``az`` (deg, 0-360), ``sigma`` (deg), ``flags`` (AZ_SLEW,
+    AZ_POT_DIVERGES, AZ_FUSED_FALLBACK), the per-row ``offset`` (deg, NaN where
+    not commanded) and an integer ``segment`` id (-1 where not commanded).
+    Rows with no motor, or in a segment with no usable anchor, get the v1
+    fused azimuth and AZ_FUSED_FALLBACK.
+    """
+    motor = MOTOR_DEG_PER_STEP * np.asarray(motor_az_steps, float)
+    pot = np.asarray(pot_az_deg, float)
+    t = np.asarray(times, float)
+    fused = np.asarray(fused_az_deg, float)
+    n = motor.size
+    az = np.full(n, np.nan)
+    sigma = np.full(n, np.nan)
+    offset = np.full(n, np.nan)
+    segment = np.full(n, -1, dtype=np.int64)
+    flags = np.zeros(n, dtype=np.int32)
+
+    rows = np.flatnonzero(np.isfinite(motor) & np.isfinite(t))
+    rows = rows[np.argsort(t[rows], kind='stable')]
+    next_id = 0
+    if rows.size:
+        dm = np.abs(np.diff(motor[rows]))
+        new_stretch = np.r_[True, (np.diff(t[rows]) > STRETCH_GAP_S) | (dm > REHOME_JUMP_DEG)]
+        for s, e in zip(np.flatnonzero(new_stretch), np.r_[np.flatnonzero(new_stretch)[1:], rows.size]):
+            sub = rows[s:e]
+            m = motor[sub]
+            moving = np.r_[False, np.abs(np.diff(m)) > 1e-9]
+            # A move is a run of consecutive moving samples; its first row is
+            # the sample before the first change (the platform leaves from there).
+            starts = np.flatnonzero(moving & ~np.r_[False, moving[:-1]])
+            slew = np.zeros(sub.size, bool)
+            cuts = [0]
+            for a in starts:
+                b = a
+                while b + 1 < sub.size and moving[b + 1]:
+                    b += 1
+                lo = a - 1
+                if np.ptp(m[lo:b + 1]) > BIG_SLEW_DEG:
+                    slew[lo:b + 1] = True
+                    cuts.append(lo)
+            cuts = sorted(set(cuts)) + [sub.size]
+            for c0, c1 in zip(cuts[:-1], cuts[1:]):
+                seg = sub[c0:c1]
+                if seg.size == 0:
+                    continue
+                quiet = ~slew[c0:c1]
+                raw = wrap180(pot[seg] - motor[seg])
+                usable = quiet & np.isfinite(raw)
+                if usable.any():
+                    t_first = t[seg][usable][0]
+                    window = usable & (t[seg] <= t_first + ANCHOR_WINDOW_S)
+                    if window.sum() < ANCHOR_MIN_SAMPLES:
+                        window = usable
+                else:
+                    window = usable
+                if window.sum() < ANCHOR_MIN_SAMPLES:
+                    continue
+                centre = np.median(raw[window])
+                rel = wrap180(raw[window] - centre)
+                value = centre + np.median(rel)
+                scatter = 1.4826 * np.median(np.abs(rel - np.median(rel)))
+                offset[seg] = value
+                segment[seg] = next_id
+                next_id += 1
+                az[seg] = wrap360(motor[seg] + value)
+                sigma[seg] = np.sqrt((scatter / np.sqrt(window.sum())) ** 2
+                                     + MOTOR_QUANT_SIGMA ** 2 + AZ_FLOOR_SIGMA ** 2)
+                flags[seg[slew[c0:c1]]] |= FLAG_AZ_SLEW
+
+    fallback = ~np.isfinite(az)
+    az[fallback] = fused[fallback]
+    flags[fallback & np.isfinite(fused)] |= FLAG_AZ_FUSED_FALLBACK
+    diverges = (~fallback & np.isfinite(pot)
+                & (np.abs(wrap180(pot - az)) > AZ_DIVERGE_DEG))
+    flags[diverges] |= FLAG_AZ_POT_DIVERGES
+    return az, sigma, flags, offset, segment
 
 
 def detect_el_stuck(imu_el_deg, motor_el_steps, window=200, imu_ptp_deg=3.0,
