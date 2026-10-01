@@ -58,15 +58,15 @@ Entry points: `compare_real_tx.py`, `cv_ridge.py`, `demo_*`, `explore_basis*`,
 
 ## Receiver calibration
 
-`yfactor_calibration_replication.ipynb` (rendered `.html`/`.pdf` alongside)
+`yfactor_calibration_replication.ipynb` (committed executed, with outputs)
 reproduces Christian's minimal three-state Y-factor calibration of the
-16/17 Jul night (his `T12_yfactor_minimal.ipynb`, received 2026-09-25): T\*,
+16/17 Jul night (Christian's `T12_yfactor_minimal.ipynb`, received 2026-09-25): T\*,
 then the antenna and the antenna + load + receiver S11 corrections. It matches
-every number his notebook prints, and uses `eigsep_cal.S11` for Γ at plane P,
-which agrees with his own S11 chain to ~1e-15.
+every number that notebook prints, and uses `eigsep_cal.S11` for Γ at plane P,
+which agrees with Christian's own S11 chain to ~1e-15.
 
 - `d5_yfactor.py` is Christian's helper module, **vendored unchanged** (sha256
-  `2471b6fab712…`). Don't edit it here; changes belong in his copy.
+  `2471b6fab712…`). Don't edit it here; changes belong in Christian's copy.
 - `SWITCH` in § 0 picks the switch-path S-parameters: `'christian'` (default,
   `marjum-2026-07/data/s11/cal_materials/switch_sparams.npz`) or
   `'eigsep_cal'` (the file packaged in `eigsep_cal`). The two characterizations
