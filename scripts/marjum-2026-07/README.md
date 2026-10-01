@@ -26,6 +26,7 @@ worktree that lacks the gitignored raw data.
 | `flagging/` | B15/B16 flag studies, the comb inventory, `make_figures.py` for flags/v0, and the B16 DPSS trial. |
 | `experiments/` | The B10 natural-experiment scan/summary pairs behind MEMO-005…011. |
 | `b3/` | The beam mode-budget / horizon-sensitivity study, formerly `marjum-2026-07/analysis/b3/`. |
+| `tcal/` | The `derived/tcal/` box-air temperature calibration: build and validate. |
 
 Outputs still land in the campaign repository, beside the data they
 describe. These scripts write there; they do not keep their own copies.
@@ -50,3 +51,8 @@ deliberately. The product's own manifest says "not validated for
 production use as-is", refinement made the fit worse for nearly every
 file (1/28, 0/28 improved), and its output bit in `flags/v2` has a known
 uncentred-threshold defect. See `marjum-2026-07/flags/v2/README.md`.
+
+## Recent changes
+
+- 2026-10-01: added `tcal/`, which builds and validates the first field
+  temperature calibration product, `derived/tcal/v0000/`.
