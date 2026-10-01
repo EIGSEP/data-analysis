@@ -4,8 +4,8 @@ Collects, for the stretches of the campaign where the RF switch was
 cycling through its calibrators, everything ``eigsep_data.products.tcal``
 needs to put a box-air integration on a kelvin scale at reference plane P:
 
-- one median spectrum per ambient-load (RFAMB) and noise-source (RFNON)
-  visit, labelled with its receiver regime from ``cal_windows.jsonl``;
+- one masked, integration-time-weighted mean spectrum per ambient-load
+  (RFAMB) and noise-source (RFNON) visit, labelled with its receiver regime from ``cal_windows.jsonl``;
 - every field S11 sweep of the antenna, the ambient load and the
   receiver, calibrated to plane P with ``eigsep_cal.S11`` and put on the
   correlator channels;
@@ -62,6 +62,13 @@ MIN_VISIT_ROWS = 50
 OUTLIER_BAND_MHZ = (30.0, 245.0)
 OUTLIER_FRAC = 0.10
 MAX_BAD_CHANNELS = 100
+#: Per-sample mask inside a visit, built here because flags@v2 runs no
+#: detector on calibration rows (it sets only their ``cal`` bit). A sample
+#: is masked if it is wrapped (int32 overflow, negative counts), in an
+#: all-zero (dropped) integration, or more than SAMPLE_NSIG robust sigmas
+#: (1.4826 MAD) from the visit's own per-channel median. The median is used
+#: only to flag; the visit spectrum is the weighted mean of what remains.
+SAMPLE_NSIG = 5.0
 #: Regime labels that may bracket a row. The rx-transition cycle at
 #: 07-17 19:43 sits inside the bounded gap and is not used.
 REGIMES = ("rx-A", "rx-B")
@@ -131,23 +138,27 @@ def visits(index, state, windows):
     loaded = sel.load(keys=[KEY])
     p = np.asarray(loaded.data[KEY], dtype=float)
     t = loaded.meta.time_best.to_numpy(dtype=float)
+    tau = loaded.meta.integration_time.to_numpy(dtype=float)
     files = loaded.meta.file.to_numpy(str)
     order = np.argsort(t, kind="stable")
-    p, t, files = p[order], t[order], files[order]
+    p, t, tau, files = p[order], t[order], tau[order], files[order]
+    masked_frac = []
     usable = ~np.all(p == 0, axis=1)
     starts = np.flatnonzero(np.r_[True, np.diff(t) > MAX_ROW_GAP_S])
     stops = np.r_[starts[1:], t.size]
     rows = []
     for a, b in zip(starts, stops):
         use = a + np.flatnonzero(usable[a:b])
+        spec = None
+        if use.size:
+            spec, frac = masked_mean(p[use], tau[use])
+            masked_frac.append(frac)
         rows.append(
             {
-                "t": t[use].mean() if use.size else np.nan,
+                "t": np.average(t[use], weights=tau[use]) if use.size else np.nan,
                 "file": files[a],
                 "n": use.size,
-                # Median, not mean: int32 wraps in strong narrow lines
-                # sit in a few rows and a mean carries them.
-                "p": np.median(p[use], axis=0) if use.size else None,
+                "p": spec,
             }
         )
     v = pd.DataFrame(rows)
@@ -161,6 +172,10 @@ def visits(index, state, windows):
         ),
         "kept": int(keep.sum()),
         "rows_per_visit": [int(v.n[keep].min()), int(v.n[keep].max())],
+        "masked_sample_fraction": {
+            "median_over_visits": float(np.median(masked_frac)),
+            "max_over_visits": float(np.max(masked_frac)),
+        },
     }
     v = v[keep].reset_index(drop=True)
     freqs = np.asarray(loaded.freq, dtype=float)
@@ -168,6 +183,24 @@ def visits(index, state, windows):
     log["dropped_contaminated"] = bad
     log["kept"] = int(len(v))
     return v, freqs, log
+
+
+def masked_mean(p, tau):
+    """Integration-time-weighted mean of one visit, masked per sample.
+
+    Returns the spectrum (NaN in a channel with no unmasked sample) and
+    the fraction of samples masked.
+    """
+    bad = p < 0
+    med = np.median(p, axis=0)
+    mad = 1.4826 * np.median(np.abs(p - med), axis=0)
+    with np.errstate(invalid="ignore"):
+        bad |= (mad > 0) & (np.abs(p - med) > SAMPLE_NSIG * mad)
+    w = np.where(bad, 0.0, tau[:, None])
+    wsum = w.sum(axis=0)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        spec = np.where(wsum > 0, (w * p).sum(axis=0) / wsum, np.nan)
+    return spec, float(bad.mean())
 
 
 def contaminated(v, freqs):
@@ -322,6 +355,8 @@ def main(argv=None):
             "equations": "eigsep_cal.dicke.tstar_coefficients, receiver_s11_coefficients",
             "t_ns_k": T_NS_K,
             "t_ns_source": "nameplate ENR 35 dB behind 30 dB pad; not measured",
+            "visit_average": "integration-time-weighted mean, per-sample mask (wrap, dropped, > SAMPLE_NSIG robust sigma)",
+            "sample_nsig": SAMPLE_NSIG,
             "visit_rejection": {
                 "band_mhz": OUTLIER_BAND_MHZ,
                 "frac": OUTLIER_FRAC,
