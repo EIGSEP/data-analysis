@@ -89,9 +89,15 @@ def stats(x):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("version")
+    ap.add_argument(
+        "--products",
+        help="campaign tree to read/write derived/tcal/ in (default: the "
+        "campaign root, which also supplies the raw data)",
+    )
     args = ap.parse_args(argv)
     root = eigsep_data.get_campaign_root(required=True)
-    pdir = root / "derived" / "tcal" / args.version
+    proot = Path(args.products) if args.products else root
+    pdir = proot / "derived" / "tcal" / args.version
     z = dict(np.load(pdir / "solutions.npz"))
     f = z["freqs"]
     b = (f >= BAND[0]) & (f < BAND[1])

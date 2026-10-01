@@ -52,6 +52,16 @@ SPAN_UTC = ("2026-07-17T00:00:00Z", "2026-07-18T04:00:00Z")
 MAX_ROW_GAP_S = 5.0
 #: Visits with fewer usable rows than this are partial and dropped.
 MIN_VISIT_ROWS = 50
+#: A visit is contaminated, and dropped, when more than MAX_BAD_CHANNELS
+#: channels in OUTLIER_BAND_MHZ sit more than OUTLIER_FRAC from the median
+#: of its neighbouring visits (up to two either side, same regime). In v0000
+#: three visits that shared a window with an S11 sweep (07-17 08:53 and
+#: 14:08 RFNON, 14:09 RFAMB) had 278-296 such channels, up to 900x bright.
+#: Clean rx-A visits have at most 4; rx-B's edge visits reach 48, because
+#: rx-B drifts fast and an edge visit's neighbours all lie on one side.
+OUTLIER_BAND_MHZ = (30.0, 245.0)
+OUTLIER_FRAC = 0.10
+MAX_BAD_CHANNELS = 100
 #: Regime labels that may bracket a row. The rx-transition cycle at
 #: 07-17 19:43 sits inside the bounded gap and is not used.
 REGIMES = ("rx-A", "rx-B")
@@ -153,7 +163,40 @@ def visits(index, state, windows):
         "rows_per_visit": [int(v.n[keep].min()), int(v.n[keep].max())],
     }
     v = v[keep].reset_index(drop=True)
-    return v, np.asarray(loaded.freq, dtype=float), log
+    freqs = np.asarray(loaded.freq, dtype=float)
+    bad, v = contaminated(v, freqs)
+    log["dropped_contaminated"] = bad
+    log["kept"] = int(len(v))
+    return v, freqs, log
+
+
+def contaminated(v, freqs):
+    """Drop visits that disagree with their neighbours in many channels.
+
+    Returns the dropped visits (UTC and channel count) and the rest.
+    """
+    band = (freqs >= OUTLIER_BAND_MHZ[0]) & (freqs < OUTLIER_BAND_MHZ[1])
+    p = np.stack(v.p.to_list())
+    n_bad = np.zeros(len(v), dtype=int)
+    for i in range(len(v)):
+        nb = [
+            j for j in range(i - 2, i + 3)
+            if j != i and 0 <= j < len(v) and v.regime[j] == v.regime[i]
+        ]
+        if len(nb) < 2:
+            continue
+        with np.errstate(divide="ignore", invalid="ignore"):
+            r = p[i][band] / np.median(p[nb][:, band], axis=0)
+        n_bad[i] = int(np.sum(np.abs(r - 1) > OUTLIER_FRAC))
+    drop = n_bad > MAX_BAD_CHANNELS
+    dropped = [
+        {
+            "utc": datetime.fromtimestamp(t, timezone.utc).strftime("%m-%d %H:%M"),
+            "channels_off": int(n),
+        }
+        for t, n in zip(v.t[drop], n_bad[drop])
+    ]
+    return dropped, v[~drop].reset_index(drop=True)
 
 
 def s11_on_channels(s11_dir, switch_path, osl_path, freqs_mhz):
@@ -212,6 +255,11 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("version", help="product version, e.g. v0000")
     ap.add_argument(
+        "--products",
+        help="campaign tree to read/write derived/tcal/ in (default: the "
+        "campaign root, which also supplies the raw data)",
+    )
+    ap.add_argument(
         "--switch",
         default="data/s11/cal_materials/switch_sparams.npz",
         help="switch-path S-parameters, relative to the campaign root",
@@ -219,7 +267,8 @@ def main(argv=None):
     args = ap.parse_args(argv)
 
     root = eigsep_data.get_campaign_root(required=True)
-    out_dir = root / "derived" / "tcal" / args.version
+    proot = Path(args.products) if args.products else root
+    out_dir = proot / "derived" / "tcal" / args.version
     out_dir.mkdir(parents=True, exist_ok=True)
     switch = root / args.switch
     osl = eigsep_cal.s11.PACKAGED_FILES[2026]["osldata"]
@@ -273,6 +322,11 @@ def main(argv=None):
             "equations": "eigsep_cal.dicke.tstar_coefficients, receiver_s11_coefficients",
             "t_ns_k": T_NS_K,
             "t_ns_source": "nameplate ENR 35 dB behind 30 dB pad; not measured",
+            "visit_rejection": {
+                "band_mhz": OUTLIER_BAND_MHZ,
+                "frac": OUTLIER_FRAC,
+                "max_bad_channels": MAX_BAD_CHANNELS,
+            },
             "omits": [
                 "receiver noise waves",
                 "noise-source port mismatch (VNANON/RFNON paths uncharacterized)",

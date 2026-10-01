@@ -75,9 +75,15 @@ def leave_one_out(t, v, label, max_gap, f):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("version")
+    ap.add_argument(
+        "--products",
+        help="campaign tree to read/write derived/tcal/ in (default: the "
+        "campaign root, which also supplies the raw data)",
+    )
     args = ap.parse_args(argv)
     root = eigsep_data.get_campaign_root(required=True)
-    pdir = root / "derived" / "tcal" / args.version
+    proot = Path(args.products) if args.products else root
+    pdir = proot / "derived" / "tcal" / args.version
     z = dict(np.load(pdir / "solutions.npz"))
     f = z["freqs"]
     out = {"band_mhz": BAND}
@@ -101,7 +107,7 @@ def main(argv=None):
     index = MetadataIndex(root / "data")
     t0, t1 = float(z["amb_t"].min()), float(z["amb_t"].max())
     sel = index.select(time=(t0, t1), files=("corr_20260715_003217Z.h5", "corr_20991231"))
-    b = sel.load_bundle(key="4", root=root, products=[f"tcal@{args.version}"])
+    b = sel.load_bundle(key="4", root=proot, products=[f"tcal@{args.version}"])
     fb = b.freqs_mhz
     bb = band_mask(fb)
     st = b.meta.rfswitch.to_numpy(str)
@@ -111,10 +117,20 @@ def main(argv=None):
     for state, extra in (("RFAMB", 0.0), ("RFNON", float(z["t_ns_k"]))):
         rows = (st == state) & np.isfinite(ts[:, bb]).all(1)
         resid = np.nanmedian(ts[rows][:, bb], axis=1) - (tl[rows] + extra)
+        # Worst cases and single channels, not just medians: a few bad
+        # calibration visits corrupt hundreds of channels for ~25 min while
+        # leaving every band-median statistic unchanged (v0000).
+        expect = (tl[rows] + extra)[:, None]
+        wide = (fb >= 30) & (fb < 245)
+        with np.errstate(invalid="ignore"):
+            off = np.abs(ts[rows][:, wide] - expect) > 0.05 * (expect if extra == 0 else extra)
         plumb[state] = {
             "rows": int(rows.sum()),
             "median_resid_k": float(np.median(resid)),
             "p95_abs_resid_k": float(np.percentile(np.abs(resid), 95)),
+            "max_abs_resid_k": float(np.max(np.abs(resid))),
+            "channel_fraction_off_5pct": float(np.nanmean(off)),
+            "rows_with_over_50_channels_off_5pct": int((off.sum(1) > 50).sum()),
         }
     out["plumbing"] = plumb
     ant = st == "RFANT"
@@ -154,7 +170,7 @@ def main(argv=None):
         g[dut] = yf.s11_to_channels(np.asarray(gg)[i], s.freqs / 1e6, d["freqs"])
     t_chr = yf.correct_receiver_s11(tstar, tload, g["ant"], g["amb"], g["rec"])
     # The product, per the same sky visits: median over each visit's rows.
-    bn = index.select(time=(start, stop)).load_bundle(key="4", root=root, products=[f"tcal@{args.version}"])
+    bn = index.select(time=(start, stop)).load_bundle(key="4", root=proot, products=[f"tcal@{args.version}"])
     cn = bn.calibrated
     assert np.allclose(bn.freqs_mhz, d["freqs"])
     t_prod = np.full_like(t_chr, np.nan)
