@@ -92,9 +92,15 @@ style block near the top and a `save(fig, name)` helper that writes
 the `derived/beam/empirical_raster_v0007` fits (HFSS, PCA, DPSS) per tooth, as
 maps, time series and waterfalls.
 
-Not yet converted: `geometry_explorer.ipynb` still reads local caches and in
-places hardcodes `/mnt/data02/...`. Treat its output as stale until it is given
-the same treatment.
+Not yet converted: `geometry_explorer.ipynb` (camera poses and MCMC draws on the
+hillshade, built by `build_geometry_explorer.py`) and `geometry_mcmc_explorer.ipynb`
+(the joint MCMC's traces and per-camera diagnostics, formerly "Marjum 2026-07 MCMC
+Review - Summary") still read local caches and in places hardcode `/mnt/data02/...`.
+
+**Geometry results live in memo 002** (`eigsep/memos/memo-002-marjum-2026-07-geometry/`):
+camera poses, antenna and transmitter positions, the joint MCMC, the azimuth zero and
+the LIDAR check. The geometry, MCMC and LIDAR explorers here are for interactive
+poking; where they disagree with the memo, the memo is right.
 
 **Frozen checkpoints.** `comb_transition_waterfalls` and `Marjum 2026-07 LIDAR Antenna Constraint` are
 review-gate evidence, kept with their rendered `.html`/`.pdf`. They record a
@@ -133,3 +139,10 @@ lib-shaped modules here (`rotation_beam`, `tx_beam_sim`, `beam_pca`,
 `fit_v007_pca_beam`, etc.) are candidates for eventual promotion into an
 `eigsep_data.beam_mapping/` subpackage. This flat layout is an intentional
 intermediate state — not the endpoint.
+
+## Recent changes
+
+- 2026-10-01: geometry results graduated into memo 002. The MCMC review notebook is
+  renamed `geometry_mcmc_explorer.ipynb`; the explorers' stale HTML renders, the
+  LIDAR-explorer builder and the Q13 inversion script are removed (memo 002 covers
+  the Q13 result).
