@@ -80,7 +80,11 @@ def unix(iso):
 def reduce_rows(b, chans, half_window, min_channels):
     """Per-row mean over each beam channel's window, NaN where too few."""
     T = b.calibrated
-    bad = ((b.flags & CLEAN_BITS) != 0) | ~np.isfinite(T)
+    flags = b.flags
+    # A file with no flag payload comes back NaN; its rows are dropped.
+    unflagged = np.isnan(flags) if flags.dtype.kind == "f" else np.zeros(flags.shape, bool)
+    codes = np.where(unflagged, 0, flags).astype(np.uint16)
+    bad = ((codes & CLEAN_BITS) != 0) | unflagged | ~np.isfinite(T)
     in_tx = (b.t >= unix(TX_SPAN[0])) & (b.t <= unix(TX_SPAN[1]))
     comb = np.arange(T.shape[1]) % 8 == 0
     bad[np.ix_(in_tx, comb)] = True
@@ -94,7 +98,7 @@ def reduce_rows(b, chans, half_window, min_channels):
         ok = n >= min_channels
         out[ok, k] = T[ok, sl].sum(axis=1) / n[ok]
         nch[:, k] = n
-    return out, nch
+    return out, nch, int(unflagged.all(axis=1).sum())
 
 
 def main():
@@ -128,6 +132,7 @@ def main():
                 f"pointing@{args.pointing}"]
 
     rows = []
+    no_flags = {"rows": 0, "files": []}
     for start, stop in spans:
         t0, t1 = unix(start), unix(stop)
         for c0 in np.arange(t0, t1, args.chunk_s):
@@ -135,7 +140,10 @@ def main():
             if sel.nrows == 0:
                 continue
             b = sel.load_bundle(key="4", products=products)
-            T, nch = reduce_rows(b, chans, args.half_window, args.min_channels)
+            T, nch, n_unflagged = reduce_rows(
+                b, chans, args.half_window, args.min_channels)
+            no_flags["rows"] += n_unflagged
+            no_flags["files"] += b.provenance["products"]["flags"].get("skipped") or []
             p = b.pointing
             keep = (
                 np.isfinite(T).any(axis=1)
@@ -240,6 +248,7 @@ def main():
         "counts": {
             "rows_calibrated_and_pointed": int(len(rows)),
             "bins": int(len(arrays["t"])),
+            "rows_dropped_no_flag_payload": no_flags,
             "bins_dropped": dropped,
             "bins_by_era_regime": {
                 f"{e}/{r}": int(n) for (e, r), n in pd.Series(
