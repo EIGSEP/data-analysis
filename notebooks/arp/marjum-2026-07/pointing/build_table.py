@@ -31,6 +31,23 @@ v1.2 adds flag bit 10 ``EL_SOLUTION_GLITCH`` (beam-analyst finding, via
     failure firings of the same criterion are a different, less-understood
     population (most already ``quality == "suspect"`` for other reasons), so
     the bit is defined by its criterion, not the mechanism.  Purely additive.
+v2.0 **meaning changes** -- ``az_deg`` is the *commanded* azimuth: motor
+    counts plus one potentiometer-anchored offset per anchor segment
+    (``fuse.commanded_azimuth``). On 07-17 the platform followed the motor
+    through a 27 deg potentiometer slip: the unfitted HFSS beam's held-out
+    test RMS is 0.071 with commanded az against 0.197 with the v1 fused az
+    (data-analysis single_ch_beam_fit_debug.ipynb), and the az and el drives
+    never run together (Aaron, 2026-09-23/24). Anchor rule, option (b)
+    (Aaron, 2026-09-24): a new segment starts at every motor re-home, data
+    gap and big slew (> 20 deg); its offset is the median pot - motor over
+    its first 10 min after the slew. The v1 fused azimuth is kept as
+    ``az_fused_deg``. New columns ``az_commanded_offset_deg`` and
+    ``az_segment``; new flag bits 11 ``AZ_POT_DIVERGES``, 12 ``AZ_SLEW``, and
+    13 ``AZ_FUSED_FALLBACK`` (no motor or no anchor; v1 fused az used).
+    ``AZ_SLIP_EVENT`` and ``AZ_SLIP_RAMP`` keep their criteria but now mean
+    pot/motor divergence, not platform slip. ``quality`` no longer marks
+    commanded rows suspect for a missing per-sample pot; AZ_SLEW rows are
+    suspect.
 
 Run::
 
@@ -55,8 +72,8 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-VERSION = "v1.2"
-SCHEMA_VERSION = 4
+VERSION = "v2.0"
+SCHEMA_VERSION = 5
 
 # Nominal platform height per curation height_era, and its uncertainty.
 # geometer owns the absolute values; these are the campaign-note figures the
@@ -157,14 +174,18 @@ def build(data_dir, t_start, t_stop, campaign_dir, index=None):
     d = extract.load_window(data_dir, t_start, t_stop, index=index)
     n = d["time"].size
 
-    az, sigma_az, flags_az, az_offset = fuse.fuse_azimuth(
+    az_fused, sigma_fused, flags_az, az_offset = fuse.fuse_azimuth(
         d["motor_az_pos"], d["potmon_pot_az_angle"])
+    az, sigma_cmd, flags_cmd, cmd_offset, az_segment = fuse.commanded_azimuth(
+        d["motor_az_pos"], d["potmon_pot_az_angle"], d["time"], az_fused)
+    commanded = (flags_cmd & fuse.FLAG_AZ_FUSED_FALLBACK) == 0
+    sigma_az = np.where(commanded & np.isfinite(az), sigma_cmd, sigma_fused)
     el, sigma_el, flags_el = fuse.fuse_elevation(
         d["imu_el_el_deg"], d["motor_el_pos"])
 
-    flags = flags_az | flags_el
+    flags = flags_az | flags_el | flags_cmd
     flags[d["motor_status"] == "absent"] |= fuse.FLAG_NO_METADATA
-    flags[fuse.detect_az_slip_ramp(az, d["motor_az_pos"], d["time"])] |= \
+    flags[fuse.detect_az_slip_ramp(az_fused, d["motor_az_pos"], d["time"])] |= \
         fuse.FLAG_AZ_SLIP_RAMP
     flags[fuse.detect_el_solution_glitch(el, d["time"], d["file_index"])] |= \
         fuse.FLAG_EL_SOLUTION_GLITCH
@@ -219,10 +240,13 @@ def build(data_dir, t_start, t_stop, campaign_dir, index=None):
     # 'interp' is never emitted -- this product does not interpolate; absent
     # pointing is a gap, not a smoothed value.
     quality = np.full(n, QUALITY_OK, dtype=object)
+    fallback_no_pot = (((flags & fuse.FLAG_AZ_FUSED_FALLBACK) != 0)
+                       & ((flags & fuse.FLAG_AZ_NO_POT) != 0))
     value_suspect = (
         hdr_bad                                        # t_utc only ~+/-10 min
+        | fallback_no_pot                              # az has no absolute ref
         | ((flags & (fuse.FLAG_EL_NO_IMU               # el from motor alone
-                     | fuse.FLAG_AZ_NO_POT             # az has no absolute ref
+                     | fuse.FLAG_AZ_SLEW               # platform may lag/slip
                      | fuse.FLAG_UNCOMMANDED)) != 0))  # swinging within a sample
     quality[value_suspect] = QUALITY_SUSPECT
     quality[(flags & fuse.FLAG_NO_ESTIMATE) != 0] = QUALITY_GAP
@@ -235,6 +259,9 @@ def build(data_dir, t_start, t_stop, campaign_dir, index=None):
         "sample_idx": d["sample_idx"].astype("int32"),
         "hdr_time_bad": hdr_bad,
         "az_deg": az,
+        "az_fused_deg": az_fused,
+        "az_commanded_offset_deg": cmd_offset,
+        "az_segment": az_segment.astype("int64"),
         "el_deg": el,
         "az_sigma_deg": sigma_az,
         "el_sigma_deg": sigma_el,
@@ -308,10 +335,10 @@ def main():
         "version": VERSION,
         "schema_version": SCHEMA_VERSION,
         "generated_utc": generated,
-        "generated_by": "pointing-analyst",
-        "generator": "eigsep_data/notebooks/arp/marjum-2026-07/pointing/build_table.py",
+        "generated_by": "Claude Code session for Aaron (v2.0); pointing-analyst (v1.x)",
+        "generator": "data-analysis/notebooks/arp/marjum-2026-07/pointing/build_table.py",
         "generator_commit": commit,
-        "generator_repo": "eigsep_data",
+        "generator_repo": "data-analysis",
         "generator_clean_scope": (
             "notebooks/arp/marjum-2026-07/pointing -- the '-dirty' suffix "
             "reflects this generator's own files, not the whole shared repo. "
@@ -345,13 +372,17 @@ def main():
             "imu_az yaw, where alive, drifts (+188 deg/hr vs pot -71 deg/hr) "
             "and is NOT an absolute azimuth reference.",
             "Azimuth zero point is not tied to true north; awaiting geometer.",
-            "Motor counts are relative and slip; never use as absolute angles.",
-            "Achieved azimuth steps are smaller than commanded (4.435 vs "
-            "5.0018 deg in the 07-17 scan), accumulating 28.9 deg over the "
-            "62-min block. Do not assume the scan plan.",
-            "That slip is a discrete episode, not continuous drift: 27.4 deg "
-            "lost in 12.3 min (07-17 20:41:24-20:53:43, -133 deg/hr), with "
-            "the command tracked to within a few degrees either side.",
+            "v2.0 az_deg is commanded: motor counts give the motion, and the "
+            "pot sets one offset per anchor segment (first 10 min after a "
+            "re-home, gap or big slew). Absolute az therefore inherits one "
+            "pot reading per segment; segments after a big slew may differ "
+            "from each other by platform slip during the slew.",
+            "The 07-17 20:41-20:53 'slip' in v1 fused az is a potentiometer "
+            "slip; the platform followed the motor (beam-fit evidence in "
+            "data-analysis single_ch_beam_fit_debug.ipynb). az_fused_deg "
+            "keeps the v1 value for audit.",
+            "Commanded az assumes the platform follows the motor between big "
+            "slews; this is validated on the 07-17 beam-scan raster only.",
             "EL_SOLUTION_GLITCH's wrap-park mechanism (spurious sample "
             "escaping an el ~ +/-180 park) is established for the "
             "post-EL-failure era only; pre-failure firings of the same "
@@ -370,6 +401,13 @@ def main():
             "lidar_valid_m": [fuse.LIDAR_MIN_VALID, fuse.LIDAR_MAX_VALID],
             "hdr_time_tol_s": extract.HDR_TIME_TOL_S,
             "era_height_m": {k: v[0] for k, v in ERA_HEIGHT_M.items()},
+            "commanded_az": {
+                "stretch_gap_s": fuse.STRETCH_GAP_S,
+                "rehome_jump_deg": fuse.REHOME_JUMP_DEG,
+                "big_slew_deg": fuse.BIG_SLEW_DEG,
+                "anchor_window_s": fuse.ANCHOR_WINDOW_S,
+                "anchor_min_samples": fuse.ANCHOR_MIN_SAMPLES,
+                "pot_diverge_deg": fuse.AZ_DIVERGE_DEG},
         },
         "inputs": [{"path": f"marjum-2026-07/data/{os.path.basename(f)}",
                     "sha256": sha256(f)} for f in files],
