@@ -27,6 +27,7 @@ worktree that lacks the gitignored raw data.
 | `experiments/` | The B10 natural-experiment scan/summary pairs behind MEMO-005…011. |
 | `b3/` | The beam mode-budget / horizon-sensitivity study, formerly `marjum-2026-07/analysis/b3/`. |
 | `tcal/` | The `derived/tcal/` box-air temperature calibration: build and validate. |
+| `ground_sky/` | Ground temperature and sky solved from an assumed beam (`eigsep_sim.design_matrix`); for now, the degeneracy study on the real geometry. |
 
 Outputs still land in the campaign repository, beside the data they
 describe. These scripts write there; they do not keep their own copies.
@@ -69,5 +70,7 @@ Superseded generators are in `debug/` (see `debug/README.md`).
 
 ## Recent changes
 
+- 2026-10-01: added `ground_sky/`, the start of the ground-temperature and
+  sky solve; its first study shows what the Marjum geometry can constrain.
 - 2026-10-01: added `tcal/`, which builds and validates the first field
   temperature calibration product, `derived/tcal/v0000/`.
