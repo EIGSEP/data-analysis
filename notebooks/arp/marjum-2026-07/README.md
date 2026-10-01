@@ -164,6 +164,9 @@ intermediate state — not the endpoint.
 
 ## Recent changes
 
+- 2026-10-01: `_memo12_verification.py` removed. It checked legacy MEMO-012's
+  numbers; that memo is replaced by memos 002 and 003 (pointing, in the eigsep repo's
+  `memos/`), which regenerate their own figures and numbers.
 - 2026-10-01: geometry results graduated into memo 002. The MCMC review notebook is
   renamed `geometry_mcmc_explorer.ipynb`; the explorers' stale HTML renders, the
   LIDAR-explorer builder and the Q13 inversion script are removed (memo 002 covers
