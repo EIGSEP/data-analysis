@@ -70,6 +70,8 @@ Superseded generators are in `debug/` (see `debug/README.md`).
 
 ## Recent changes
 
+- 2026-10-02: `build_known_quantities_xlsx.py` cites the living memos 002, 003 and 005
+  instead of legacy MEMO-012/013 and the removed `AZIMUTH_CONVENTIONS.md`.
 - 2026-10-01: added `ground_sky/`, the start of the ground-temperature and
   sky solve; its first study shows what the Marjum geometry can constrain.
 - 2026-10-01: added `tcal/`, which builds and validates the first field

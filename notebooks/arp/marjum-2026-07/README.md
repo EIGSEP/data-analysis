@@ -164,6 +164,10 @@ intermediate state — not the endpoint.
 
 ## Recent changes
 
+- 2026-10-02: `AZIMUTH_CONVENTIONS.md` removed. Its questions (opposite azimuth
+  handedness in two code paths, and what `field_top` meant) are settled: the code has
+  one convention (`eigsep_base.rotations`), and memos 003 and 005 test the handedness
+  against the transmitter polarization and the photographed arm bearings.
 - 2026-10-01: `_memo12_verification.py` removed. It checked legacy MEMO-012's
   numbers; that memo is replaced by memos 002 and 003 (pointing, in the eigsep repo's
   `memos/`), which regenerate their own figures and numbers.
