@@ -20,10 +20,10 @@ METHOD NOTES, each one a trap already stepped in:
     era's 1.7 MHz*, manufacturing a height trend from the estimator. A
     low-order polynomial in log-log removes only the smoothest bandpass shape
     and does not impose a delay cutoff that varies with what you are testing.
-  * DIGITAL COMBS MIMIC HEIGHT. The 1.953125 MHz self-comb (exactly 8
-    channels) transforms to 512 ns = an apparent 76.7 m; the 0.9766 MHz
-    (4-channel) family lands at 1024 ns = 153 m. The TX comb near 1.0 MHz sits
-    close to the latter. All are marked in the output.
+  * COMBS MIMIC HEIGHT. The 1.953125 MHz transmitter comb (exactly 8
+    channels; called a "self-comb" before memo 001) transforms to 512 ns = an
+    apparent 76.7 m; the 0.9766 MHz (4-channel) family lands at 1024 ns =
+    153 m. Box-air's 1.000 MHz self-EMI comb (07-16) sits close to the latter. All are marked in the output.
   * RFI DOMINATES A DELAY TRANSFORM. One bright channel rings across the whole
     delay axis, so flagging is iterative sigma-clipping, and the flagged
     fraction is reported because a heavily flagged band cannot support a claim.
@@ -67,7 +67,7 @@ CORRUPT = {
 }
 
 DIGITAL = {
-    "8-chan self-comb 1.953 MHz": 1e3 / 1.953125,
+    "8-chan transmitter comb 1.953 MHz": 1e3 / 1.953125,
     "4-chan family 0.977 MHz": 1e3 / 0.9765625,
 }
 

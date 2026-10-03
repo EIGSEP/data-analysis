@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Per-integration digital-self-comb state on box-gnd, across the era.
+"""Per-integration transmitter-comb state on box-gnd, across the era.
+
+The 8-channel (1.953125 MHz) comb on channels == 0 mod 8 is the beam-mapping
+transmitter (memo 001, "Combs"). Before memo 001 it was called the "digital
+self-comb", this script was `scan_self_comb_per_integration.py`, and its
+output was `flags/diag/self_comb_per_integration_boxgnd.jsonl`. The
+measurement is unchanged.
 
 Why this exists
 ---------------
@@ -23,7 +29,7 @@ Both bias the era's episode count and durations downward/late.
 Scope: box-gnd only
 -------------------
 Per Aaron's 2026-09-20 decision, **box-gnd (input `0`) is the
-authoritative source for comb on/off state and transition timing.** It
+authoritative source for transmitter on/off state and transition timing.** It
 is conducted, not antenna-switched, so it sees through the calibration
 and VNA cadence that makes box-air's readings ambiguous. This changes
 what determines *state*; it does not change what downstream analysis
@@ -56,14 +62,14 @@ had an unnormalised best-phase tooth excess of exactly 0.00000 -- i.e.
 the degeneracy never hid a comb. `tooth_excess_log10` is written
 alongside the contrast so this stays auditable downstream.
 
-Output: one JSON line per (file, block):
+Output: one provenance line, then one JSON line per (file, block):
     {file, block, int0, n_int, t_utc, lock8, phase, scale,
      tooth_excess_log10}
 
 Usage
 -----
-    python scan_self_comb_per_integration.py --out <path.jsonl>
-    python scan_self_comb_per_integration.py --era-only --block 8
+    python scan_transmitter_per_integration.py --out <path.jsonl>
+    python scan_transmitter_per_integration.py --era-only --block 8
 """
 
 from __future__ import annotations
@@ -72,6 +78,7 @@ import argparse
 import importlib.util
 import json
 import os
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -87,7 +94,9 @@ CI = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(CI)
 DET = CI.D
 
-# The digital self-comb's documented era, UTC. Used only by --era-only.
+# The transmitter era, by file close time: the first file in which box-gnd
+# sees the 8-channel comb (07-17 15:36:22) through 07-18 03:00:13. The four
+# files after that are not scanned. Used only by --era-only.
 ERA_LO = "20260717153744"
 ERA_HI = "20260718030013"
 
@@ -170,7 +179,7 @@ def main():
     ap.add_argument("--block", type=int, default=8,
                     help="integrations per block (default 8, ~4.3 s)")
     ap.add_argument("--era-only", action="store_true",
-                    help="restrict to the documented self-comb era")
+                    help="restrict to the transmitter era (ERA_LO..ERA_HI)")
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
 
@@ -180,11 +189,31 @@ def main():
     if args.era_only:
         files = [f for f in files if ERA_LO <= file_key(f.name) <= ERA_HI]
     out_path = Path(args.out) if args.out else (
-        root / "flags" / "diag" / "self_comb_per_integration_boxgnd.jsonl")
+        root / "flags" / "diag" / "transmitter_per_integration_boxgnd.jsonl")
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
+    sha = subprocess.run(["git", "-C", str(HERE), "rev-parse", "--short",
+                          "HEAD"], capture_output=True, text=True).stdout.strip()
+    dirty = subprocess.run(["git", "-C", str(HERE), "status", "--porcelain",
+                            "--", "."], capture_output=True,
+                           text=True).stdout.strip()
+    prov = {
+        "product": "transmitter_per_integration_boxgnd",
+        "campaign": "marjum-2026-07",
+        "generator": "data-analysis/scripts/marjum-2026-07/flagging/"
+                     "scan_transmitter_per_integration.py",
+        "generator_commit": f"{sha}-dirty" if dirty else sha,
+        "renamed_from": {
+            "file": "flags/diag/self_comb_per_integration_boxgnd.jsonl",
+            "generator": "scan_self_comb_per_integration.py",
+            "reason": "the 8-channel comb is the transmitter, not a digital "
+                      "self-comb (memo 001)"},
+        "input": KEY, "spacing_ch": SPACING, "block_integrations": args.block,
+        "files": ([ERA_LO, ERA_HI] if args.era_only else "all"),
+    }
     n_rows = 0
     with out_path.open("w") as fh:
+        fh.write(json.dumps({"provenance": prov}) + "\n")
         for i, path in enumerate(files):
             try:
                 for rec in scan_file(path, args.block):

@@ -166,6 +166,12 @@ intermediate state — not the endpoint.
 
 ## Recent changes
 
+- 2026-10-03: files here use pre-memo-001 comb names and are not being edited:
+  "digital self-comb"/"self-comb"/`self_comb_*` means the beam-mapping transmitter's
+  8-channel comb, and "TX comb"/`tx_on`/`tx_comb`/`tx_state` means box-air's 1.000 MHz
+  self-EMI of 07-16. The rename map is in memo 006
+  (`memos/memo-006-marjum-2026-07-rfi/`, forthcoming); the renamed products are listed in
+  `scripts/marjum-2026-07/README.md` § Comb names.
 - 2026-10-02: `AZIMUTH_CONVENTIONS.md` removed. Its questions (opposite azimuth
   handedness in two code paths, and what `field_top` meant) are settled: the code has
   one convention (`eigsep_base.rotations`), and memos 003 and 005 test the handedness

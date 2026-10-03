@@ -41,6 +41,9 @@ reference as the receiver, so it produces a channel-locked comb by
 design. Channel-locking therefore separates *clock-referenced* sources
 (TX and our own digital electronics) from *free-running external* ones
 (broadcast, laptops). It does not by itself identify self-RFI.
+(Memo 001 settles it for this campaign: the 8-channel comb is the
+transmitter, and the only self-generated comb is box-air's 1.000 MHz EMI
+on 07-16.)
 
 What distinguishes the TX from digital self-RFI is **beam response**:
 the TX is a source in the far field, so the power the rotating antenna

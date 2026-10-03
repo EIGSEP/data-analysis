@@ -22,8 +22,8 @@ worktree that lacks the gitignored raw data.
 
 | Directory | What it generates |
 |---|---|
-| `curation/` | The campaign's tracked tables: `file_state.csv`, `mode_table.jsonl`, `cal_windows.jsonl`, `boundaries.jsonl`, the TX/comb presence tables, `overflow_channels.jsonl`. |
-| `flagging/` | B15/B16 flag studies, the comb inventory, `make_figures.py` for flags/v0, and the B16 DPSS trial. |
+| `curation/` | The campaign's tracked tables: `file_state.csv`, `mode_table.jsonl`, `cal_windows.jsonl`, `boundaries.jsonl`, the comb tables (`boxair_emi_presence`, `transmitter_presence`, `comb_eras`, `beamscan_comb_identity`, `boxair_emi_matched`), `overflow_channels.jsonl`. |
+| `flagging/` | B15/B16 flag studies, the comb inventory, the box-gnd transmitter per-integration trace and on/off episodes (`scan_transmitter_per_integration.py`, `derive_transmitter_transitions.py`), `make_figures.py` for flags/v0, and the B16 DPSS trial. |
 | `experiments/` | The B10 natural-experiment scan/summary pairs behind MEMO-005…011. |
 | `b3/` | The beam mode-budget / horizon-sensitivity study, formerly `marjum-2026-07/analysis/b3/`. |
 | `tcal/` | The `derived/tcal/` box-air temperature calibration: build and validate. |
@@ -31,6 +31,28 @@ worktree that lacks the gitignored raw data.
 
 Outputs still land in the campaign repository, beside the data they
 describe. These scripts write there; they do not keep their own copies.
+
+## Comb names
+
+Memo 001 ("Combs, and which one is the transmitter") names the two combs;
+code here uses its names. The **transmitter** is the 8-channel
+(1.953125 MHz) comb on channels == 0 mod 8 from 07-17 15:36:22, on both
+antennas. **`boxair_emi`** is box-air's own 1.000 MHz self-EMI on 07-16
+01:16:57-16:49:03. Before 2026-10-03 these scripts called them the other way
+round ("digital self-comb" for the transmitter, "tx"/`tx_comb`/`tx_on` for
+the EMI). Renamed in that change:
+
+| Old | New |
+|---|---|
+| `curation/scan_tx_presence.py` → `tx_presence.jsonl` (`tx_on`) | `scan_boxair_emi_presence.py` → `boxair_emi_presence.jsonl` (`boxair_emi`) |
+| `curation/build_self_comb_presence.py` → `self_comb_presence.jsonl` | `build_transmitter_presence.py` → `transmitter_presence.jsonl` (`transmitter`) |
+| `curation/scan_tx_comb.py` → `tx_comb_eras.jsonl` | `scan_comb_eras.py` → `comb_eras.jsonl` |
+| `curation/build_tx_state_matched.py` → `tx_state_matched.jsonl` (`tx_state`) | `build_boxair_emi_matched.py` → `boxair_emi_matched.jsonl` (`boxair_emi_state`); it detects the 1 MHz EMI, so it is kept under that name, not retired |
+| `flagging/scan_self_comb_per_integration.py`, `derive_self_comb_transitions.py` | `scan_transmitter_per_integration.py`, `derive_transmitter_transitions.py` |
+| `mode_table.jsonl` column `tx_comb` | `boxair_emi`, plus a new `transmitter` column |
+| `b15_event_survey.self_comb_channel_mask` | `comb_teeth_channel_mask` (old name kept as an alias) |
+
+Frozen scripts in `debug/` and the notebooks keep the old names.
 
 ## What is *not* here
 
@@ -69,6 +91,11 @@ those products record.
 Superseded generators are in `debug/` (see `debug/README.md`).
 
 ## Recent changes
+
+- 2026-10-03: comb labels follow memo 001 (see "Comb names"): curation and
+  flagging generators renamed, `build_mode_table.py` now writes `boxair_emi`
+  and a per-file `transmitter` column, its science census excludes both
+  combs, and consumers read the new column names.
 
 - 2026-10-02: `build_known_quantities_xlsx.py` cites the living memos 002, 003 and 005
   instead of legacy MEMO-012/013 and the removed `AZIMUTH_CONVENTIONS.md`.

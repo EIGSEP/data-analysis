@@ -12,7 +12,7 @@ What this adds, precisely: for each (file, input, time, channel) pixel
 inside the analysis band (45-235 MHz), a NEW bit is set if and only if
 B16's DPSS-fit residual-outlier refinement flagged that pixel AND it
 was not already flagged by v0's own per-pixel category bitfield AND
-its channel is not already in the campaign-wide static self-comb
+its channel is not already in the campaign-wide static comb-teeth
 exclusion. That isolates exactly what "fitting DPSS modes and removing
 outliers" contributes beyond what's already known -- not a wholesale
 replacement of v0's categories, which stay untouched and copied
@@ -75,7 +75,7 @@ def main():
     log(f"V0_DIR={V0_DIR}")
     log(f"OUT_DIR={OUT_DIR}")
 
-    self_freqs, self_mask = EV.self_comb_channel_mask()  # (1024,), (1024,) bool
+    self_freqs, self_mask = EV.comb_teeth_channel_mask()  # (1024,), (1024,) bool
     band = (self_freqs >= D.BAND_ANALYSIS[0]) & (self_freqs <= D.BAND_ANALYSIS[1])
     band_idx = np.nonzero(band)[0]
     log(f"analysis-band channels: {band.sum()} of {D.N_CHAN}")
@@ -102,7 +102,7 @@ def main():
                 "uint16 category bitfield (WIDENED from v0's uint8 -- "
                 "see flag_bits.json), axes (time, channel). v0's 8 bits "
                 "copied through unchanged; bit 8 (value 256) is new: "
-                "DPSS-fit residual-outlier flagging beyond v0+self-comb.")
+                "DPSS-fit residual-outlier flagging beyond v0+comb-teeth mask.")
             h_out.attrs["version"] = "v2"
             if "freqs_mhz" in h_in:
                 h_out.create_dataset("freqs_mhz", data=h_in["freqs_mhz"][:])
@@ -133,10 +133,10 @@ def main():
                                     f"time-axis mismatch: v0 has {v0_bits.shape[0]} rows, "
                                     f"b16 has {b16_flagged.shape[0]} for {fname}/{inp}")
                             v0_cat_flagged_band = (v0_bits[:, band] != D.CLEAN)
-                            self_comb_band = self_mask[band][None, :]
+                            comb_teeth_band = self_mask[band][None, :]
                             new_outlier = (b16_flagged.astype(bool)
                                            & ~v0_cat_flagged_band
-                                           & ~self_comb_band)
+                                           & ~comb_teeth_band)
                             out_bits[:, band_idx] = np.where(
                                 new_outlier, out_bits[:, band_idx] | DPSS_OUTLIER_VALUE,
                                 out_bits[:, band_idx])
@@ -200,7 +200,7 @@ def main():
                             "outlier detection (REFINE_NSIG=6), analysis "
                             "band only (45-235 MHz), AND NOT already "
                             "flagged by v0's category bits or the "
-                            "campaign-wide static self-comb channel "
+                            "campaign-wide static comb-teeth channel "
                             "exclusion -- i.e. exactly what DPSS-fit + "
                             "outlier-removal added beyond what was "
                             "already known. REFINE_NSIG was left "

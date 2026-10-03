@@ -6,7 +6,7 @@ INDEX.md has carried two different answers to "how much orientation diversity
 does era X have", and they disagree by ~5x:
 
   * a **file-level** count from ``mode_table.jsonl`` ("14 orientations at 30 m",
-    "the TX-on window is ``rot_state = parked``"), and
+    "the 1 MHz-comb window is ``rot_state = parked``"), and
   * a **dwell-weighted** participation ratio over the per-sample pointing table.
 
 The file-level answer is the wrong instrument and INDEX.md now says so: one
@@ -37,7 +37,8 @@ Two pointing sources, and they disagree where it matters
 position); ``--source fused`` uses ``az_deg``/``el_deg`` (the fused solution,
 IMU-referenced in elevation). Report **both** for near-degenerate slices. On a
 stare, the fused solution's sensor scatter straddles cell edges and inflates
-N_eff without any real pointing change -- the TX-on era reads N_eff 1.14
+N_eff without any real pointing change -- the 07-16 box-air 1 MHz EMI era
+(once mistaken for the transmitter-on era) reads N_eff 1.14
 (motor) but 1.96 (fused) at a 4.435 deg cell, purely from bin splitting. When
 the two disagree by more than ~0.3, the slice is a stare and neither number
 should be quoted to two decimals.
@@ -50,6 +51,12 @@ Units: degrees. Times are UTC. Cells are fixed-width in (az, el) -- no
 cos(el) area weighting, so cells near the zenith are smaller on sky than the
 nominal size. This is deliberate: N_eff here measures diversity of *commanded
 orientation*, which is what a rotation-separation budget spends.
+
+Comb slices (memo 001): ``boxair_emi`` is the 07-16 box-air 1.000 MHz
+self-EMI era; before memo 001 it was the ``tx_on`` slice, described as "the
+only transmitter-live data", which was wrong. ``transmitter`` is every file
+in which box-gnd sees the beam-mapping transmitter's 8-channel comb
+(``mode_table.jsonl`` ``transmitter`` = on or partial).
 
 Output: one JSON record per (slice, source, cell) via --json.
 """
@@ -65,12 +72,31 @@ import pandas as pd
 
 HERE = Path(__file__).resolve().parent
 
+
+def _campaign_root():
+    """Campaign root; ``MARJUM_DATA_ROOT`` wins, else the package setting."""
+    import os
+    env = os.environ.get("MARJUM_DATA_ROOT")
+    if env:
+        return Path(env)
+    from eigsep_data.paths import get_campaign_root
+    return get_campaign_root(required=True)
+
+
+CURATION = _campaign_root() / "curation"
+
 # Named slices the archive makes claims about. Each is (description, selector).
 SLICES = {
-    "tx_on": (
-        "the 436 files with tx_on=true in tx_presence.jsonl "
-        "(07-16 01:18 -> 07-17 14:11) -- the only transmitter-live data",
-        lambda df: df.file.isin(_tx_on_files()),
+    "boxair_emi": (
+        "the 436 files with boxair_emi=true in boxair_emi_presence.jsonl "
+        "(07-16 01:18 -> 07-17 14:11): box-air's 1.000 MHz self-EMI, NOT "
+        "the transmitter (memo 001)",
+        lambda df: df.file.isin(_boxair_emi_files()),
+    ),
+    "transmitter": (
+        "files with mode_table transmitter = on or partial (box-gnd sees the "
+        "8-channel transmitter comb; 07-17 15:37 -> 07-18 03:00)",
+        lambda df: df.file.isin(_transmitter_files(df.file.unique())),
     ),
     "beam_scan": (
         "the dedicated beam scan, 07-17 18:51 -> 07-18 03:22 (227 files)",
@@ -84,10 +110,18 @@ SLICES = {
 SOURCES = {"motor": ("motor_az_deg", "motor_el_deg"), "fused": ("az_deg", "el_deg")}
 
 
-def _tx_on_files():
-    path = HERE / "tx_presence.jsonl"
+def _boxair_emi_files():
+    path = CURATION / "boxair_emi_presence.jsonl"
     rows = [json.loads(line) for line in open(path)]
-    return {r["file"] for r in rows if r.get("tx_on")}
+    return {r["file"] for r in rows if r.get("boxair_emi")}
+
+
+def _transmitter_files(files):
+    """Expand mode_table windows (file_first..file_last) over ``files``."""
+    wins = [json.loads(line) for line in open(CURATION / "mode_table.jsonl")]
+    wins = [w for w in wins if w.get("transmitter") in ("on", "partial")]
+    return {f for f in files
+            if any(w["file_first"] <= f <= w["file_last"] for w in wins)}
 
 
 def _between(df, t0, t1):
@@ -119,15 +153,16 @@ def diversity(az, el, cell):
 def short_sha(repo):
     sha = subprocess.run(["git", "-C", str(repo), "rev-parse", "--short", "HEAD"],
                          capture_output=True, text=True).stdout.strip()
-    dirty = subprocess.run(["git", "-C", str(repo), "status", "--porcelain"],
+    dirty = subprocess.run(["git", "-C", str(repo), "status", "--porcelain",
+                            "--", "."],
                            capture_output=True, text=True).stdout.strip()
     return f"{sha}-dirty" if dirty else sha
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--table", default=str(HERE / "pointing_table.parquet"))
-    ap.add_argument("--slice", nargs="*", default=["tx_on", "beam_scan"],
+    ap.add_argument("--table", default=str(CURATION / "pointing_table.parquet"))
+    ap.add_argument("--slice", nargs="*", default=["transmitter", "beam_scan"],
                     choices=sorted(SLICES), help="named slices to report")
     ap.add_argument("--source", nargs="*", default=["motor", "fused"],
                     choices=sorted(SOURCES))
@@ -149,16 +184,17 @@ def main():
         "product": "pointing_diversity",
         "campaign": "marjum-2026-07",
         "version": "v1",
-        "generator": "curation/pointing_diversity.py",
-        "generator_commit": short_sha(HERE.parent.parent),
+        "generator": "data-analysis/scripts/marjum-2026-07/curation/pointing_diversity.py",
+        "generator_commit": short_sha(HERE),
         "input": "curation/pointing_table.parquet",
         "quality_filter": args.quality,
         "metric": "participation ratio (sum w)^2 / sum w^2 over per-sample "
                   "dwell in fixed-width (az, el) cells",
         "warning": "Geometric diversity only -- says nothing about beam "
                    "degeneracy, and nothing about whether the transmitter was "
-                   "on. Cross-check tx_presence.jsonl before budgeting a "
-                   "transmitter measurement against any of these numbers.",
+                   "on. Cross-check curation/transmitter_transitions_boxgnd.jsonl "
+                   "before budgeting a transmitter measurement against any of "
+                   "these numbers.",
     }
 
     out = [{"provenance": prov}]

@@ -99,7 +99,7 @@ def scan_file(path, starts, rows, wrap_hist):
         rec["phase"] = w["phase"]
         rec["rfswitch"] = w["rfswitch_dominant"]
         rec["rot_state"] = w["rot_state"]
-        rec["tx_comb"] = w["tx_comb"]
+        rec["boxair_emi"] = w["boxair_emi"]
 
     with h5py.File(path, "r") as f:
         freqs = f["header"]["freqs"][:]

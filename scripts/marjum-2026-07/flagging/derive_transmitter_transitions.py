@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
-"""Digital-self-comb on/off episodes from the box-gnd per-integration trace.
+"""Transmitter-comb on/off episodes from the box-gnd per-integration trace.
 
-Consumes `scan_self_comb_per_integration.py`'s block trace and emits the
-authoritative transition list.
+Consumes `scan_transmitter_per_integration.py`'s block trace and emits the
+authoritative transition list for the beam-mapping transmitter (the 8-channel,
+1.953125 MHz comb on channels == 0 mod 8; memo 001, "Combs"). Before memo 001
+this comb was called the "digital self-comb", this script was
+`derive_self_comb_transitions.py`, and its output was
+`curation/self_comb_transitions_boxgnd.jsonl`. The rule and the episodes are
+unchanged.
 
 State rule, and why it is hysteretic
 ------------------------------------
@@ -45,12 +50,23 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
 BLOCK_S = 4.3          # 8 integrations at ~0.537 s
 FILE_S = 128.85
 ON_THRESHOLD = 30.0
+
+
+def generator_commit():
+    here = Path(__file__).resolve().parent
+    sha = subprocess.run(["git", "-C", str(here), "rev-parse", "--short",
+                          "HEAD"], capture_output=True, text=True).stdout.strip()
+    dirty = subprocess.run(["git", "-C", str(here), "status", "--porcelain",
+                            "--", "."], capture_output=True,
+                           text=True).stdout.strip()
+    return f"{sha}-dirty" if dirty else sha
 
 
 def parse_t(s):
@@ -86,6 +102,7 @@ def main():
     args = ap.parse_args()
 
     rows = [json.loads(l) for l in open(args.trace)]
+    rows = [r for r in rows if "provenance" not in r]
     rows.sort(key=lambda r: (r["file"], r["block"]))
     eps = episodes(rows, args.on_threshold)
 
@@ -96,12 +113,19 @@ def main():
 
     with Path(args.out).open("w") as fh:
         fh.write(json.dumps({"provenance": {
-            "product": "self_comb_transitions_boxgnd",
+            "product": "transmitter_transitions_boxgnd",
             "campaign": "marjum-2026-07",
-            "version": "v1",
-            "generator": "flagging/derive_self_comb_transitions.py",
+            "version": "v2",
+            "generator": ("data-analysis/scripts/marjum-2026-07/flagging/"
+                          "derive_transmitter_transitions.py"),
+            "generator_commit": generator_commit(),
+            "renamed_from": {
+                "file": "curation/self_comb_transitions_boxgnd.jsonl (v1)",
+                "generator": "flagging/derive_self_comb_transitions.py",
+                "reason": ("the 8-channel comb is the beam-mapping "
+                           "transmitter, not a digital self-comb (memo 001)")},
             "trace": Path(args.trace).name,
-            "trace_generator": "flagging/scan_self_comb_per_integration.py",
+            "trace_generator": "flagging/scan_transmitter_per_integration.py",
             "statistic": "comb_inventory.tooth_contrast_locked, spacing 8 ch",
             "input": "0 (box-gnd) -- authoritative for state and timing",
             "block_integrations": 8,

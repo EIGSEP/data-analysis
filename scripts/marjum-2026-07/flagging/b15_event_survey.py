@@ -63,19 +63,24 @@ def day_files():
     return files
 
 
-def self_comb_channel_mask():
+def comb_teeth_channel_mask():
     """Campaign-wide, fixed per-channel exclusion mask: True where that
-    channel is EVER flagged SELF_RFI (comb teeth: digital self-comb,
-    Panda EMI, fan/laptop bands) on either box-gnd or box-air, anywhere
-    in the regenerated v0 masks.
+    channel is EVER flagged SELF_RFI (comb teeth: the transmitter's
+    8-channel comb, box-air's 1 MHz self-EMI, fan/laptop bands) on either
+    box-gnd or box-air, anywhere in the regenerated v0 masks. (v0 files
+    the transmitter's teeth under SELF_RFI because it predates memo 001's
+    identification of the 8-channel comb as the transmitter.)
 
-    Added per Aaron's correction (2026-09-14): transmitter/self-comb
+    Was ``self_comb_channel_mask`` until 2026-10-03; that name remains as
+    a deprecated alias so pre-memo-001 notebooks still run.
+
+    Added per Aaron's correction (2026-09-14): transmitter/comb
     channels confound PCA's basis pursuit and must be excluded from the
     channel set going in, not left in and hoped to wash out. Built from
     v0's own SELF_RFI bit (don't re-derive comb identification) rather
     than a hand-picked channel list, so it tracks whatever v0 actually
-    flagged, including the walking Panda comb which has no fixed
-    channel set.
+    flagged, including box-air's walking 1 MHz EMI comb which has no
+    fixed channel set.
 
     **Correction (2026-09-15, Aaron):** `detectors.categorise()` sets
     SELF_RFI in `BAND_LAPTOP`/`BAND_FAN` (145-160 MHz) whenever *any*
@@ -89,7 +94,7 @@ def self_comb_channel_mask():
     (v0's own per-pixel bitfield, applied as usual) as every other
     band, not a blanket exclusion regardless of what's happening there
     at a given time. Carved out below -- the comb-teeth-based exclusion
-    (digital self-comb, Panda EMI) is unaffected.
+    (transmitter comb, box-air 1 MHz EMI) is unaffected.
     """
     freqs = None
     ever_self = None
@@ -108,6 +113,10 @@ def self_comb_channel_mask():
     not_dynamic_band = (freqs >= D.BAND_LAPTOP[0]) & (freqs <= D.BAND_LAPTOP[1])
     ever_self = ever_self & ~not_dynamic_band
     return freqs, ever_self
+
+
+# Deprecated pre-memo-001 name (the 8-channel comb is the transmitter).
+self_comb_channel_mask = comb_teeth_channel_mask
 
 
 def band_survey():

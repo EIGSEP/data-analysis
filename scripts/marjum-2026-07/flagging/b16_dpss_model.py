@@ -39,9 +39,9 @@ Rev 2 (2026-09-15, Aaron's review): four corrections applied.
    here, since they're pure presentation of these arrays.
 
 Flags: v0's own per-(time,channel) category bitfield (regenerated,
-unmodified) OR the campaign-wide self-comb/transmitter channel mask
-already built and validated for B15's PCA exclusion
-(`b15_event_survey.self_comb_channel_mask`) -- reused here as
+unmodified) OR the campaign-wide comb-teeth channel mask (transmitter
+comb and box-air 1 MHz EMI) already built and validated for B15's PCA
+exclusion (`b15_event_survey.comb_teeth_channel_mask`) -- reused here as
 instructed, not re-derived. Plus, after `iterative_refine()`, any
 residual-identified outliers on top of that.
 
@@ -119,7 +119,8 @@ def fit_file(path, fname, inp, self_mask, band, refine=True):
     iterative_refine), for one file/antenna. None on error.
     """
     m = B.mode_for(modes, fname)
-    tx_on = bool(m and m.get("tx_comb") == "on")
+    # mode_table's `boxair_emi` was `tx_comb` before memo 001; same values.
+    tx_on = bool(m and m.get("boxair_emi") == "on")
     _fname, per_input, freqs_mhz, err = B.process_file((path, tx_on))
     if err or inp not in per_input:
         return None
@@ -146,7 +147,7 @@ def fit_file(path, fname, inp, self_mask, band, refine=True):
 
     if refine:
         # Find outliers the fit residual itself reveals that v0's
-        # bitfield + self-comb mask did NOT already flag -- this is
+        # bitfield + comb-teeth mask did NOT already flag -- this is
         # the loop the review asked for, run once (not to convergence,
         # stated explicitly below in the notebook).
         #
@@ -279,7 +280,7 @@ def write_companion(path, fname, results_by_input, band, freqs_mhz):
         h.attrs["filter_center_ns"] = FILTER_CENTER_NS
         h.attrs["filter_half_width_ns"] = FILTER_HALF_WIDTH_NS
         h.attrs["flag_basis"] = ("flags/v0 category bitfield (regenerated) "
-                                  "OR campaign-wide self-comb channel mask, "
+                                  "OR campaign-wide comb-teeth channel mask, "
                                   "OR iterative residual-based refinement "
                                   f"({REFINE_NSIG} sigma, one pass)")
         h.create_dataset("freqs_mhz", data=freqs_mhz[band])
@@ -297,7 +298,7 @@ def write_companion(path, fname, results_by_input, band, freqs_mhz):
 if __name__ == "__main__":
     from datetime import datetime, timezone
 
-    self_freqs, self_mask = EV.self_comb_channel_mask()
+    self_freqs, self_mask = EV.comb_teeth_channel_mask()
 
     t0 = datetime(2026, 7, 17, 20, 0, 0, tzinfo=timezone.utc)
     t1 = datetime(2026, 7, 17, 21, 0, 0, tzinfo=timezone.utc)

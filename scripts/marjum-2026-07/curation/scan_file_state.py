@@ -20,9 +20,13 @@ The fingerprint has two layers:
        - total power (mean of the whole 240x1024 auto array)
        - live-channel count (median-nonzero channels)
        - argmax channel (the strongest tone if any)
-       - tx-comb detection score: harmonic-sum of the median spectrum at
-         candidate spacings (~4 MHz nominal, i.e. 16 chan; scan +/- a few chans)
-       - 1.25 MHz comb detection score (~5 chan spacing) - the 7/15 storm event
+       - comb4mhz score: harmonic-sum of the median spectrum at ~4 MHz
+         spacing (16.4 chan). Named for a transmitter spacing in the field
+         notes, but what lights it up is box-air's 1.000 MHz self-EMI comb
+         on 07-16 (memo 001); build_mode_table.py turns it into the
+         `boxair_emi` column. It does not detect the transmitter.
+       - comb1p25mhz score (~5 chan spacing): the field notes' "1.25 MHz"
+         comb. Memo 001 finds no 1.25 MHz comb anywhere in the campaign.
        - median az/el from motor when populated (real samples only)
 
 The two-layer split matters because deterministic-metadata boundaries are
@@ -69,8 +73,8 @@ OUT_CSV = CAMPAIGN_ROOT / "curation" / "file_state.csv"
 OUT_JSONL = CAMPAIGN_ROOT / "boundaries.jsonl"
 
 DFREQ_MHZ = 0.244140625  # header/dfreq
-TX_SPACING_MHZ_NOMINAL = 4.0  # notes say every ~4 MHz
-COMB_1P25_MHZ = 1.25         # 7/15 storm-event comb spacing
+COMB_4_MHZ = 4.0             # field notes' "every ~4 MHz"; fires on the 1 MHz box-air EMI
+COMB_1P25_MHZ = 1.25         # field notes' "1.25 MHz" comb; none found (memo 001)
 AUTO_INPUTS = ("0", "1", "2", "3", "4", "5")
 
 
@@ -351,7 +355,7 @@ def per_file(path: Path) -> dict:
                     hi = int(len(nz) - 1 - np.argmax(nz[::-1]))
                     band = med[lo:hi+1]
                     # 4 MHz spacing -> ~16.384 chan
-                    spacing_4 = TX_SPACING_MHZ_NOMINAL / DFREQ_MHZ
+                    spacing_4 = COMB_4_MHZ / DFREQ_MHZ
                     s4, o4 = comb_score(band, spacing_4, (0, int(round(spacing_4))))
                     row[f"a{inp}_comb4mhz_score"] = s4
                     row[f"a{inp}_comb4mhz_offset"] = int(o4 + lo)

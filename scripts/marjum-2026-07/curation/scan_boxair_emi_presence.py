@@ -1,41 +1,41 @@
 #!/usr/bin/env python3
-"""Per-file TX-comb presence: was the ground transmitter on, integration by
-integration, for the whole campaign.
+"""Per-file presence of box-air's 1.000 MHz self-EMI comb, for the whole campaign.
 
-Answers a direct question that was previously answered only piecemeal:
-- `mode_table.jsonl`'s `tx_comb` column does NOT track the transmitter -- it
-  tracks an unrelated, self-generated 1.953125 MHz digital comb (see
-  `curation/tx_comb_eras.jsonl` and the retraction in INDEX.md). Confusing the
-  two was the original error; this script does not repeat it.
-- `curation/tx_comb_eras.jsonl` characterizes comb TYPE per era from 6-file
-  medians -- it establishes what the TX comb looks like, but is not a
-  per-file table and cannot say which specific integrations had it on.
-- `eigsep_data/notebooks/arp/marjum-2026-07/comb_presence_beam_scan.json`
-  is per-file but scoped to the 227-file beam-scan window only.
+What this measures (memo 001, section "Combs")
+----------------------------------------------
+Box-air's own electronics radiated a 1.000 MHz comb (teeth at integer MHz,
+~10 dB, box-air only) from 07-16 01:16:57 to 16:49:03 UTC; it vanished when
+the Panda computer was power-cycled. This scan detects it per file on input
+4 (box-air). It is NOT the beam-mapping transmitter: the transmitter is the
+8-channel (1.953125 MHz) comb on channels == 0 mod 8 from 07-17 15:36:22,
+whose per-file state is `curation/transmitter_presence.jsonl` (beam-scan
+window) and `curation/transmitter_transitions_boxgnd.jsonl` (per-integration
+episodes). Before memo 001 this product was `curation/tx_presence.jsonl`
+with field `tx_on`, written when the 1 MHz comb was believed to be the
+transmitter; the values are unchanged, only the names.
 
-This is the missing piece: per file, per input, was the TX comb (real
-external emitter, ~1.000 MHz = 4.096 channels, NOT locked to the ADC clock)
-present, across all 5,120 files.
+- `curation/comb_eras.jsonl` characterizes comb type per era from 6-file
+  medians; it is not a per-file table.
+- `mode_table.jsonl`'s `boxair_emi` column is a separate, cruder detector of
+  the same comb (from `file_state.csv`'s `comb4mhz_score`).
 
 Method
 ------
-`curation/scan_tx_comb.py` established the discriminator: the TX comb is a
-harmonic family of peaks whose Rayleigh phase-concentration statistic S is
+`curation/scan_comb_eras.py` established the discriminator: the 1 MHz comb is
+a harmonic family of peaks whose Rayleigh phase-concentration statistic S is
 high at period P = 1.000/0.244140625 = 4.0961 channels, AND whose tone
-centres sit on integer MHz (unlike the self-comb or unstructured RFI, which
-do not). Both are independent, O(n_tones) computations -- no need for the
-full continuous periodogram scan that makes the per-era tool too slow to run
-per file.
+centres sit on integer MHz (unlike the 8-channel transmitter comb or
+unstructured RFI). Both are independent, O(n_tones) computations.
 
 Calibrated against six known cases (07-13/14/15 "off" era samples, the 07-16
-"on" era sample, and two self-comb-dominated samples):
+"on" era sample, and two transmitter-dominated samples):
 
-    case                S_tx    rms_offset_from_integer_MHz
-    TX on   (07-16)     0.873   0.091
-    TX off  (worst neg) 0.168   0.286   <- max S_tx seen with no TX
-    TX off  (best neg)  0.022   0.318
+    case                     S_1mhz  rms_offset_from_integer_MHz
+    1 MHz EMI on  (07-16)    0.873   0.091
+    off (worst neg)          0.168   0.286   <- max S_1mhz seen without it
+    off (best neg)           0.022   0.318
 
-Threshold: S_tx > 0.5 AND rms_offset < 0.15. Both margins are >2x the
+Threshold: S_1mhz > 0.5 AND rms_offset < 0.15. Both margins are >2x the
 worst-case separation observed in calibration, on independent statistics.
 
 Autos are int32 and positive-definite; a negative value is an accumulator
@@ -43,16 +43,16 @@ wrap (see curation/overflow_channels.jsonl) and is repaired (+2**32) before
 the median so a handful of bright wrapped samples cannot distort it.
 
 Scans key='4' (box-air), which per data/README.md is live for the entire
-campaign (present in phases A, B, and C) -- the one input that lets a single
-scan cover 07-12 through 07-18 without a phase-dependent key.
+campaign (present in phases A, B, and C).
 
-Output: curation/tx_presence.jsonl, one row per file:
-    {file, t_utc, phase, n_tones, S_tx, rms_offset_mhz, tx_on, note}
+Output: curation/boxair_emi_presence.jsonl: one provenance line, then one row
+per file:
+    {file, t_utc, phase, n_tones, S_1mhz, rms_offset_mhz, boxair_emi, note}
 
 Usage
 -----
-    python curation/scan_tx_presence.py
-    python curation/scan_tx_presence.py --summary
+    python curation/scan_boxair_emi_presence.py
+    python curation/scan_boxair_emi_presence.py --summary --out <path>
 """
 
 from __future__ import annotations
@@ -61,6 +61,7 @@ import argparse
 import os
 import json
 import re
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -85,16 +86,26 @@ def _campaign_root():
 
 CAMPAIGN_ROOT = _campaign_root()
 DATA = CAMPAIGN_ROOT / "data"
-JSONL_OUT = CAMPAIGN_ROOT / "curation" / "tx_presence.jsonl"
+JSONL_OUT = CAMPAIGN_ROOT / "curation" / "boxair_emi_presence.jsonl"
+HERE = Path(__file__).resolve().parent
 
 FNAME_RE = re.compile(r"corr_(\d{8})_(\d{6})Z")
 CHAN_MHZ = 250.0 / 1024.0
-P_TX = 1.000 / CHAN_MHZ          # 4.0961 channels
-S_TX_THRESHOLD = 0.5
+P_1MHZ = 1.000 / CHAN_MHZ        # 4.0961 channels
+S_1MHZ_THRESHOLD = 0.5
 RMS_THRESHOLD_MHZ = 0.15
 MIN_TONES = 8
 
 PHASE_PIVOTS = [("2026-07-15T00:32:17Z", "C"), ("2026-07-14T04:10:43Z", "B")]
+
+
+def short_sha(repo):
+    """Commit of the generator's repo, with -dirty if it has local changes."""
+    sha = subprocess.run(["git", "-C", str(repo), "rev-parse", "--short", "HEAD"],
+                         capture_output=True, text=True).stdout.strip()
+    dirty = subprocess.run(["git", "-C", str(repo), "status", "--porcelain",
+                            "--", "."], capture_output=True, text=True).stdout.strip()
+    return f"{sha}-dirty" if dirty else sha
 
 
 def filename_time(fn: str) -> float:
@@ -119,7 +130,7 @@ def phase_of(ts: float) -> str:
 def find_tones(spec, lo, hi, n_med=21, snr=8.0):
     """Local maxima standing `snr` robust-sigma above a running median.
 
-    Identical logic to scan_tx_comb.py's find_tones (kept independent here to
+    Identical logic to scan_comb_eras.py's find_tones (kept independent here to
     avoid an eigsep_observing import, which is unnecessary overhead for a
     5,120-file scan and slows it roughly 5x).
     """
@@ -146,6 +157,8 @@ def main() -> None:
     ap.add_argument("--summary", action="store_true")
     ap.add_argument("--lo", type=int, default=200)
     ap.add_argument("--hi", type=int, default=1000)
+    ap.add_argument("--out", type=Path, default=JSONL_OUT,
+                    help="output JSONL (default: the campaign's curation/)")
     args = ap.parse_args()
 
     files = sorted(DATA.glob("corr_*.h5"))
@@ -160,7 +173,7 @@ def main() -> None:
             with h5py.File(path, "r") as h:
                 if "4" not in h["data"]:
                     rows.append({"file": name, "t_utc": iso(ts),
-                                "phase": phase_of(ts), "tx_on": None,
+                                "phase": phase_of(ts), "boxair_emi": None,
                                 "note": "input 4 absent"})
                     continue
                 a = np.asarray(h["data"]["4"][:], dtype=np.float64)
@@ -169,44 +182,60 @@ def main() -> None:
                 freqs = np.asarray(h["header"]["freqs"][:], dtype=float)
         except Exception as e:                  # noqa: BLE001
             rows.append({"file": name, "t_utc": iso(ts), "phase": phase_of(ts),
-                        "tx_on": None, "note": f"read error: {e}"})
+                        "boxair_emi": None, "note": f"read error: {e}"})
             print(f"  ! {name}: {e}", file=sys.stderr)
             continue
 
         peaks = find_tones(spec, args.lo, args.hi)
         if peaks.size < MIN_TONES:
             rows.append({"file": name, "t_utc": iso(ts), "phase": phase_of(ts),
-                        "n_tones": int(peaks.size), "tx_on": False,
+                        "n_tones": int(peaks.size), "boxair_emi": False,
                         "note": "too few tones to test"})
             continue
 
-        stx = s_at(peaks, P_TX)
+        s1 = s_at(peaks, P_1MHZ)
         off_mhz = (freqs[peaks] % 1.0 + 0.5) % 1.0 - 0.5
         rms = float(np.std(off_mhz))
-        tx_on = bool(stx > S_TX_THRESHOLD and rms < RMS_THRESHOLD_MHZ)
+        emi = bool(s1 > S_1MHZ_THRESHOLD and rms < RMS_THRESHOLD_MHZ)
         rows.append({
             "file": name, "t_utc": iso(ts), "phase": phase_of(ts),
-            "n_tones": int(peaks.size), "S_tx": round(stx, 4),
-            "rms_offset_mhz": round(rms, 4), "tx_on": tx_on,
+            "n_tones": int(peaks.size), "S_1mhz": round(s1, 4),
+            "rms_offset_mhz": round(rms, 4), "boxair_emi": emi,
         })
 
         if args.summary and i % 500 == 0:
             print(f"  ...{i}/{len(files)}", file=sys.stderr)
 
-    with JSONL_OUT.open("w") as f:
+    prov = {
+        "product": "boxair_emi_presence",
+        "campaign": "marjum-2026-07",
+        "generator": "data-analysis/scripts/marjum-2026-07/curation/"
+                     "scan_boxair_emi_presence.py",
+        "generator_commit": short_sha(HERE),
+        "renamed_from": {"file": "curation/tx_presence.jsonl",
+                         "fields": {"tx_on": "boxair_emi", "S_tx": "S_1mhz"},
+                         "reason": "the 1.000 MHz comb is box-air self-EMI, "
+                                   "not the transmitter (memo 001)"},
+        "measures": "box-air (input 4) 1.000 MHz self-EMI comb, per file",
+        "threshold": {"S_1mhz_gt": S_1MHZ_THRESHOLD,
+                      "rms_offset_mhz_lt": RMS_THRESHOLD_MHZ,
+                      "min_tones": MIN_TONES},
+    }
+    with args.out.open("w") as f:
+        f.write(json.dumps({"provenance": prov}) + "\n")
         for r in rows:
             f.write(json.dumps(r) + "\n")
 
-    n_on = sum(1 for r in rows if r.get("tx_on") is True)
-    n_off = sum(1 for r in rows if r.get("tx_on") is False)
+    n_on = sum(1 for r in rows if r.get("boxair_emi") is True)
+    n_off = sum(1 for r in rows if r.get("boxair_emi") is False)
     n_na = len(rows) - n_on - n_off
-    print(f"{len(rows)} files -> {JSONL_OUT.relative_to(CAMPAIGN_ROOT)}")
-    print(f"  tx_on=True: {n_on}   tx_on=False: {n_off}   unresolved: {n_na}")
+    print(f"{len(rows)} files -> {args.out}")
+    print(f"  boxair_emi=True: {n_on}   boxair_emi=False: {n_off}   unresolved: {n_na}")
 
     if args.summary:
         # Contiguous on/off windows, for a human-readable timeline.
         def key(r):
-            return (r.get("tx_on"), r["phase"])
+            return (r.get("boxair_emi"), r["phase"])
         groups = []
         cur = None
         for r in rows:
@@ -219,7 +248,7 @@ def main() -> None:
                 cur[1].append(r)
         if cur is not None:
             groups.append(cur)
-        print(f"\n  {len(groups)} contiguous tx_on windows:")
+        print(f"\n  {len(groups)} contiguous boxair_emi windows:")
         for (on, phase), grp in groups:
             if on is not True:
                 continue

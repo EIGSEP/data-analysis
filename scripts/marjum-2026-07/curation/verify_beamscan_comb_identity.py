@@ -9,32 +9,36 @@ off", including a contiguous ~2 h block. The detector was deliberately
 20 MADs), which makes it blind to comb identity: it fires on any periodic
 tone structure.
 
-INDEX.md's settled position is that there are two combs in this campaign and
-the beam-scan window contains only the *digital self-comb* (8.000 ch, locked,
-residue 0, ours), the TX beam-mapping comb (1.000 MHz, 4.096 ch, walks) having
-been on only 07-16 01:18-16:51. If that is right, a spacing-agnostic detector
-run over the beam-scan window is a **self-comb** presence map wearing a TX
-label, and the archive must not ingest it as `tx_comb`.
+Two combs appear in this campaign (memo 001, "Combs"): the beam-mapping
+**transmitter** comb (8.000 ch = 1.953125 MHz, channel-locked, residue 0,
+from 07-17 15:36:22) and box-air's **1.000 MHz self-EMI** (4.096 ch, walks,
+07-16 01:16:57-16:49:03 only). This script runs the archive's own estimator
+(`scan_comb_eras.py`: continuous periodogram + channel-lock test) on the
+exact ON and OFF file groups beam-analyst labelled, per file, and finds every
+ON file is the 8-channel transmitter comb.
 
-This script settles it by running the archive's own estimator
-(`scan_tx_comb.py`: continuous periodogram + channel-lock test) on the exact
-ON and OFF file groups beam-analyst labelled, per file rather than per era.
+When this was first run (2026-09) the 8-channel comb was believed to be a
+"digital self-comb" generated in our own chain, and rows were labelled
+`identified_as: "digital self 1.953125 MHz (8 ch, locked)"`. The measurement
+is unchanged; the label is now "transmitter 1.953125 MHz".
 
 Reported per file:
   period_ch / S      continuous-periodogram fundamental and its Rayleigh score
   lock_frac/phase_ch channel-lock fraction and modal residue (0 => includes DC)
-  mod8_contrast      median on-comb excess at ch % 8 == 0 (self-comb strength)
-  mod4096_S          Rayleigh score at the *walking* TX period 4.096 ch
-  identified_as      name from scan_tx_comb.REFERENCE, or "unidentified"
+  mod8_contrast      median on-comb excess at ch % 8 == 0 (transmitter teeth)
+  mod4096_S          Rayleigh score at the 1.000 MHz box-air EMI period 4.096 ch
+  identified_as      name from scan_comb_eras.REFERENCE, or "unidentified"
 
 Units: channels (250/1024 = 0.244140625 MHz each). int32 wraps repaired before
 the median, as everywhere else in this archive.
 
-Output: curation/beamscan_comb_identity.jsonl via --json.
+Output: curation/beamscan_comb_identity.jsonl via --json (one provenance
+line, then one row per sampled file).
 """
 
 import argparse
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -43,7 +47,7 @@ import numpy as np
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-from scan_tx_comb import (  # noqa: E402
+from scan_comb_eras import (  # noqa: E402
     CHAN_MHZ,
     comb_contrast,
     find_tones,
@@ -71,8 +75,9 @@ def analyse_file(path, key, lo, hi, snr):
     rec["mod8_contrast"] = comb_contrast(spec, 8, 0)
     peaks = find_tones(spec, lo, hi, snr=snr)
     rec["n_tones"] = int(peaks.size)
-    # TX comb is 1.000 MHz = 4.096 ch and does NOT lock to the grid, so it is
-    # scored at its known period rather than required to win the periodogram.
+    # The box-air 1 MHz EMI comb is 4.096 ch and does NOT lock to the grid, so
+    # it is scored at its known period rather than required to win the
+    # periodogram.
     rec["mod4096_S"] = round(rayleigh_at(peaks, 1.000 / CHAN_MHZ), 3)
     rec["mod8_S"] = round(rayleigh_at(peaks, 8.0), 3)
     if peaks.size < 8:
@@ -142,7 +147,26 @@ def main():
             print(json.dumps(rec), flush=True)
 
     if args.json:
+        sha = subprocess.run(["git", "-C", str(HERE), "rev-parse", "--short",
+                              "HEAD"], capture_output=True, text=True).stdout.strip()
+        dirty = subprocess.run(["git", "-C", str(HERE), "status", "--porcelain",
+                                "--", "."], capture_output=True,
+                               text=True).stdout.strip()
+        prov = {
+            "product": "beamscan_comb_identity",
+            "campaign": "marjum-2026-07",
+            "generator": "data-analysis/scripts/marjum-2026-07/curation/"
+                         "verify_beamscan_comb_identity.py",
+            "generator_commit": f"{sha}-dirty" if dirty else sha,
+            "presence_json": Path(args.presence_json).name,
+            "key": args.key, "band_ch": list(args.band), "snr": args.snr,
+            "renamed_from": {"identified_as": {
+                "digital self 1.953125 MHz (8 ch, locked)":
+                    "transmitter 1.953125 MHz"},
+                "reason": "the 8-channel comb is the transmitter (memo 001)"},
+        }
         with open(args.json, "w") as f:
+            f.write(json.dumps({"provenance": prov}) + "\n")
             for rec in out:
                 f.write(json.dumps(rec) + "\n")
 

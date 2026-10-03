@@ -1,5 +1,13 @@
 """Identify combs per era and decide whether each is channel-locked.
 
+Names follow memo 001 ("Combs, and which one is the transmitter"): the
+8-channel (1.953125 MHz) comb on channels == 0 mod 8 from 07-17 15:36:22 is
+the beam-mapping **transmitter**; the 1.000 MHz comb of 07-16 01:16:57-16:49:03
+is **box-air self-EMI** (box-air only, gone when the Panda was power-cycled).
+Before memo 001 this script was `scan_tx_comb.py`, its output was
+`curation/tx_comb_eras.jsonl`, and its REFERENCE table called those two
+"digital self" and "tx" respectively, i.e. backwards.
+
 Why this exists
 ---------------
 Two wrong comb spacings have circulated for this campaign, and both came from
@@ -29,21 +37,25 @@ The decisive question is not the spacing but **channel lock**:
   An external transmitter has no reason to align with either the channel grid
   or DC.
 
-A comb that is an exact integer number of channels *and* has residue 0 is
-phase-locked to the ADC sample clock and is therefore **ours**, not the sky's.
-``flagging/detectors.py`` encodes the same rule; this script is the per-era
-measurement behind it.
+Channel lock alone does not say whose comb it is. The 8-channel comb is
+channel-locked with residue 0 and was read as "ours" on that basis; memo 001
+shows it is the transmitter (it switches on in both antennas at once at
+07-17 15:36, toggles with the field team's transmitter tests, and is
+strongest on box-gnd, on the ground beside the transmitter). Identity needs a
+physical test, not a spectral property.
 
 Units: MHz throughout; ``freqs`` from ``header/freqs``. Channel width is
 250/1024 = 0.244140625 MHz. int32 wraps are repaired (``auto[auto<0] += 2**32``)
 before the median so bright wrapped RFI does not distort the continuum.
 
-Output: ``curation/tx_comb_eras.jsonl`` via ``--json``.
+Output: ``curation/comb_eras.jsonl`` via ``--out`` (one provenance line,
+then one row per era); ``--json`` prints the rows to stdout instead.
 """
 
 import argparse
 import glob
 import json
+import subprocess
 from pathlib import Path
 
 import numpy as np
@@ -54,12 +66,21 @@ CHAN_MHZ = 250.0 / 1024.0
 
 # Reference spacings, for naming a detected period. "locked" means an exact
 # integer number of channels, i.e. phase-locked to the ADC clock.
+# The 2.000 and 1.250 MHz entries are hypotheses from the field notes; memo
+# 001 finds no comb at either spacing.
 REFERENCE = [
-    ("tx 1.000 MHz (4.096 ch, walks)", 1.000 / CHAN_MHZ, False),
+    ("boxair_emi 1.000 MHz", 1.000 / CHAN_MHZ, False),
     ("laptop 2.000 MHz (8.192 ch, walks)", 2.000 / CHAN_MHZ, False),
-    ("lna 1.250 MHz (5.120 ch, walks)", 1.250 / CHAN_MHZ, False),
-    ("digital self 1.953125 MHz (8 ch, locked)", 8.0, True),
+    ("field-note 1.250 MHz (5.120 ch, walks)", 1.250 / CHAN_MHZ, False),
+    ("transmitter 1.953125 MHz", 8.0, True),
 ]
+
+# Pre-memo-001 label -> current label, recorded in the output's provenance.
+RENAMED_LABELS = {
+    "tx 1.000 MHz (4.096 ch, walks)": "boxair_emi 1.000 MHz",
+    "digital self 1.953125 MHz (8 ch, locked)": "transmitter 1.953125 MHz",
+    "lna 1.250 MHz (5.120 ch, walks)": "field-note 1.250 MHz (5.120 ch, walks)",
+}
 
 # Eras sampled as indices into sorted(glob("data/*.h5")). Six files is plenty:
 # a comb is a configuration property, not a noisy measurement. Note that the
@@ -70,7 +91,7 @@ ERAS = [
     ("07-13", 1000, 1006),
     ("07-14", 2000, 2006),
     ("07-15", 3000, 3006),
-    ("07-16 (TX on)", 4000, 4006),
+    ("07-16 (box-air 1 MHz EMI on)", 4000, 4006),
     ("07-17 beam scan", -185, -179),
     ("07-18 end (cal)", -6, None),
 ]
@@ -201,7 +222,7 @@ def analyse(label, files, lo, hi, snr, key):
     rec["mod8_contrast"] = comb_contrast(spec, 8, 0)
     if rec["mod8_contrast"] is not None:
         rec["mod8_contrast"] = round(rec["mod8_contrast"], 4)
-    # Are tone centres on integer MHz? That is the TX comb's signature.
+    # Are tone centres on integer MHz? That is the 1 MHz box-air EMI's signature.
     off_mhz = (freqs[peaks] % 1.0 + 0.5) % 1.0 - 0.5
     rec["rms_offset_from_integer_mhz"] = round(float(np.std(off_mhz)), 4)
     return rec
@@ -214,16 +235,21 @@ def main():
     ap.add_argument("--lo", type=int, default=200)
     ap.add_argument("--hi", type=int, default=1000)
     ap.add_argument("--snr", type=float, default=8.0)
-    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--json", action="store_true",
+                    help="print rows as JSON to stdout")
+    ap.add_argument("--out", help="write provenance + rows as JSONL here "
+                    "(normally curation/comb_eras.jsonl)")
     args = ap.parse_args()
 
     files = sorted(glob.glob(str(Path(args.data) / "*.h5")))
     if not files:
         raise SystemExit(f"no *.h5 under {args.data}")
 
+    recs = []
     for label, i0, i1 in ERAS:
         group = files[i0:i1] if i1 is not None else files[i0:]
         rec = analyse(label, group, args.lo, args.hi, args.snr, args.key)
+        recs.append(rec)
         if args.json:
             print(json.dumps(rec))
             continue
@@ -241,6 +267,31 @@ def main():
                   f"{rec['rms_offset_from_integer_mhz']:.3f} MHz")
         else:
             print(f"    {rec['verdict']}")
+
+
+    if args.out:
+        here = Path(__file__).resolve().parent
+        sha = subprocess.run(["git", "-C", str(here), "rev-parse", "--short",
+                              "HEAD"], capture_output=True, text=True).stdout.strip()
+        dirty = subprocess.run(["git", "-C", str(here), "status", "--porcelain",
+                                "--", "."], capture_output=True,
+                               text=True).stdout.strip()
+        prov = {
+            "product": "comb_eras",
+            "campaign": "marjum-2026-07",
+            "generator": "data-analysis/scripts/marjum-2026-07/curation/"
+                         "scan_comb_eras.py",
+            "generator_commit": f"{sha}-dirty" if dirty else sha,
+            "renamed_from": {"file": "curation/tx_comb_eras.jsonl",
+                             "generator": "scan_tx_comb.py",
+                             "identified_as": RENAMED_LABELS,
+                             "reason": "labels were backwards (memo 001)"},
+            "key": args.key, "band_ch": [args.lo, args.hi], "snr": args.snr,
+        }
+        with open(args.out, "w") as fh:
+            fh.write(json.dumps({"provenance": prov}) + "\n")
+            for rec in recs:
+                fh.write(json.dumps(rec) + "\n")
 
 
 if __name__ == "__main__":

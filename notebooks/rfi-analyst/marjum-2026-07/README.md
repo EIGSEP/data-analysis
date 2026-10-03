@@ -46,3 +46,12 @@ reads through `eigsep_data.load_bundle` directly and imports neither.
 `detectors.py`, `build_masks.py` and `validate.py` — the flags/v0
 producer — are now `eigsep_data.flagging`. `select_files.py` is now
 `eigsep_data.select_files`. Scripts here import them from there.
+
+## Recent changes
+
+- 2026-10-03: files here use pre-memo-001 comb names and are not being edited:
+  "digital self-comb"/"self-comb"/`self_comb_*`/`digital_self` means the beam-mapping
+  transmitter's 8-channel comb, and "TX comb"/`tx_comb`/"Panda EMI"/`panda_emi`/"1.25 MHz
+  comb" means box-air's 1.000 MHz self-EMI of 07-16. The rename map is in memo 006
+  (`memos/memo-006-marjum-2026-07-rfi/`, forthcoming). `EV.self_comb_channel_mask` still
+  works as an alias of `comb_teeth_channel_mask`.

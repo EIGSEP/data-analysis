@@ -4,16 +4,36 @@
 One row per contiguous window in which every classified mode axis is constant:
 
     height era | wiring phase | rotation state | orientation bin |
-    TX comb on/off | corr_acc_len | RF switch state | validity
+    box-air 1 MHz EMI | transmitter | corr_acc_len | RF switch state | validity
+
+The two comb axes (memo 001, "Combs, and which one is the transmitter"):
+
+``boxair_emi``   box-air's 1.000 MHz self-EMI comb (07-16 01:16:57-16:49:03,
+                 box-air only, gone when the Panda was power-cycled). Detected
+                 per file from ``file_state.csv``'s ``a*_comb4mhz_score``.
+                 Before memo 001 this column was called ``tx_comb`` and was
+                 read as the transmitter; the values are unchanged.
+``transmitter``  the beam-mapping transmitter's 8-channel comb (1.953125 MHz,
+                 channels == 0 mod 8), "on" / "off" / "partial" per file from
+                 box-gnd's per-integration episodes
+                 (``curation/transmitter_transitions_boxgnd.jsonl`` over the
+                 block trace ``flags/diag/transmitter_per_integration_boxgnd.jsonl``).
+                 "partial" means the file holds both on and off blocks. Files
+                 closing before the trace starts (07-17 15:37:44) are "off":
+                 memo 001's campaign-wide 8-channel contrast first sees the
+                 comb at 15:36:22. Files after the trace ends (07-18 03:00:13)
+                 are "unknown".
 
 Inputs
 ------
 curation/file_state.csv   per-file scan (see scan_file_state.py)
 events.jsonl              field-note timeline (height eras come from here)
+curation/transmitter_transitions_boxgnd.jsonl, flags/diag/transmitter_per_integration_boxgnd.jsonl
 
 Outputs
 -------
 curation/mode_table.jsonl     one JSON object per contiguous mode window
+curation/mode_table.provenance.json   generator, commit, inputs, renames
 curation/file_modes.csv       per-file mode assignment (regenerable, gitignored)
 
 Why filename time and not header/times
@@ -36,6 +56,7 @@ import argparse
 import os
 import json
 import re
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -62,6 +83,9 @@ CSV_IN = CAMPAIGN_ROOT / "curation" / "file_state.csv"
 EVENTS = CAMPAIGN_ROOT / "events.jsonl"
 JSONL_OUT = CAMPAIGN_ROOT / "curation" / "mode_table.jsonl"
 CSV_OUT = CAMPAIGN_ROOT / "curation" / "file_modes.csv"
+PROV_OUT = CAMPAIGN_ROOT / "curation" / "mode_table.provenance.json"
+TX_TRANSITIONS = CAMPAIGN_ROOT / "curation" / "transmitter_transitions_boxgnd.jsonl"
+TX_TRACE = CAMPAIGN_ROOT / "flags" / "diag" / "transmitter_per_integration_boxgnd.jsonl"
 
 FNAME_RE = re.compile(r"corr_(\d{8})_(\d{6})Z")
 
@@ -80,9 +104,10 @@ HEIGHT_ERAS = [
     ("2026-07-17T18:50:00Z", "~91m",   "fieldnotes:final-height-91m-1250-MDT"),
 ]
 
-# TX comb detection. a*_comb4mhz_score is strongly bimodal: ~0.06 when the
-# transmitter is off, ~28-35 when it is on. Any threshold in between works.
-TX_COMB_THRESHOLD = 1.0
+# Box-air 1 MHz EMI detection. a*_comb4mhz_score (a 16.4-channel harmonic sum
+# that the 1.000 MHz comb lights up) is strongly bimodal: ~0.06 when the comb
+# is absent, ~28-35 when present. Any threshold in between works.
+BOXAIR_EMI_THRESHOLD = 1.0
 
 # motor_*_std is exactly 0.0 when the axis is parked for the whole file and
 # nonzero (>=30 at the 5th percentile) while slewing. Exact-zero is the test.
@@ -91,6 +116,47 @@ PARKED_STD = 0.0
 # Default azimuth clustering tolerance, in potmon_az units. The pot reading is
 # continuous and noisy, so "distinct orientation" requires a tolerance.
 DEFAULT_AZ_TOL = 2.0
+
+
+def _jsonl(path: Path) -> list[dict]:
+    rows = [json.loads(line) for line in path.open() if line.strip()]
+    return [r for r in rows if "provenance" not in r]
+
+
+def transmitter_states() -> dict:
+    """Per-file transmitter state from box-gnd's per-integration episodes.
+
+    A block is "on" if its (file, block) lies inside an episode's
+    [(file_start, block_start), (file_end, block_end)] span, in the same
+    (file, block) order the episodes were derived in. A file is "on" if every
+    block is on, "off" if none is, "partial" otherwise. Files before the
+    trace are "off" (memo 001: first on 07-17 15:36:22); files after it, or
+    missing from it, are "unknown" -- see ``state_for`` below.
+    """
+    eps = [((e["file_start"], e["block_start"]), (e["file_end"], e["block_end"]))
+           for e in _jsonl(TX_TRANSITIONS)]
+    blocks: dict[str, list[bool]] = {}
+    for r in sorted(_jsonl(TX_TRACE), key=lambda r: (r["file"], r["block"])):
+        k = (r["file"], r["block"])
+        blocks.setdefault(r["file"], []).append(any(a <= k <= b for a, b in eps))
+    first, last = min(blocks), max(blocks)
+
+    class _States(dict):
+        def __missing__(self, fn):
+            return "off" if fn < first else "unknown"
+
+    out = _States()
+    for fn, on in blocks.items():
+        out[fn] = "on" if all(on) else ("off" if not any(on) else "partial")
+    return out
+
+
+def short_sha(repo: Path) -> str:
+    sha = subprocess.run(["git", "-C", str(repo), "rev-parse", "--short", "HEAD"],
+                         capture_output=True, text=True).stdout.strip()
+    dirty = subprocess.run(["git", "-C", str(repo), "status", "--porcelain",
+                            "--", "."], capture_output=True, text=True).stdout.strip()
+    return f"{sha}-dirty" if dirty else sha
 
 
 def filename_time(fn: str) -> float:
@@ -158,7 +224,8 @@ def classify(df: pd.DataFrame, az_tol: float) -> pd.DataFrame:
     df["az_alive"] = df["motor_az_med"].notna()
     df["el_alive"] = df["motor_el_med"].notna()
 
-    # TX comb: on if any live input for the file's phase shows the 4 MHz comb.
+    # Box-air 1 MHz EMI: on if any live input for the file's phase shows it
+    # in the 4 MHz harmonic-sum score.
     comb = pd.Series(False, index=df.index)
     for ph in ("A", "B", "C"):
         sel = df["filter_phase"] == ph
@@ -167,8 +234,9 @@ def classify(df: pd.DataFrame, az_tol: float) -> pd.DataFrame:
         cols = [f"a{i}_comb4mhz_score" for i in live_inputs(ph)]
         cols = [c for c in cols if c in df.columns]
         if cols:
-            comb |= sel & (df[cols].max(axis=1) > TX_COMB_THRESHOLD)
-    df["tx_comb"] = np.where(comb, "on", "off")
+            comb |= sel & (df[cols].max(axis=1) > BOXAIR_EMI_THRESHOLD)
+    df["boxair_emi"] = np.where(comb, "on", "off")
+    df["transmitter"] = df["file"].map(transmitter_states())
 
     # Orientation bin: cluster parked azimuths to a tolerance. Slewing files
     # get no orientation.
@@ -195,7 +263,8 @@ MODE_KEYS = [
     "filter_phase",
     "rot_state",
     "orient_bin",
-    "tx_comb",
+    "boxair_emi",
+    "transmitter",
     "corr_acc_len",
     "rfsw",
 ]
@@ -230,7 +299,8 @@ def windows(df: pd.DataFrame) -> list[dict]:
                 "el_alive": bool(first["el_alive"]),
                 "orient_bin": None if pd.isna(first["orient_bin"]) else str(first["orient_bin"]),
                 "potmon_az_med": None if pd.isna(first["potmon_az_med"]) else float(first["potmon_az_med"]),
-                "tx_comb": first["tx_comb"],
+                "boxair_emi": first["boxair_emi"],
+                "transmitter": first["transmitter"],
                 "corr_acc_len": None if pd.isna(first["corr_acc_len"]) else int(first["corr_acc_len"]),
                 "rfswitch_dominant": None if pd.isna(first["rfsw"]) else str(first["rfsw"]),
                 "n_hdr_time_bad": int(g["hdr_time_bad"].sum()),
@@ -253,8 +323,30 @@ def main() -> None:
     with JSONL_OUT.open("w") as f:
         for w in wins:
             f.write(json.dumps(w) + "\n")
+    PROV_OUT.write_text(json.dumps({
+        "product": "mode_table",
+        "campaign": "marjum-2026-07",
+        "generator": "data-analysis/scripts/marjum-2026-07/curation/build_mode_table.py",
+        "generator_commit": short_sha(Path(__file__).resolve().parent),
+        "inputs": {
+            "file_state": args.csv_in.name,
+            "transmitter_transitions": TX_TRANSITIONS.name,
+            "transmitter_trace": TX_TRACE.name,
+        },
+        "n_files": int(len(df)),
+        "n_windows": len(wins),
+        "renamed_from": {
+            "columns": {"tx_comb": "boxair_emi"},
+            "reason": "the column tracks box-air's 1.000 MHz self-EMI, not the "
+                      "transmitter (memo 001); values unchanged",
+        },
+        "added": {"transmitter": "on/off/partial/unknown per file from box-gnd's "
+                                 "per-integration transmitter episodes"},
+        "az_tol": args.az_tol,
+    }, indent=2) + "\n")
     keep = ["file", "t", "height_era", "filter_phase", "rot_state", "orient_bin",
-            "tx_comb", "corr_acc_len", "rfsw", "hdr_time_bad", "potmon_az_med"]
+            "boxair_emi", "transmitter", "corr_acc_len", "rfsw", "hdr_time_bad",
+            "potmon_az_med"]
     df[keep].to_csv(CSV_OUT, index=False)
 
     print(f"{len(df)} files -> {len(wins)} mode windows")
@@ -263,8 +355,10 @@ def main() -> None:
     print(f"  files with unusable header/times: {int(df['hdr_time_bad'].sum())}")
 
     if args.summary:
-        print("\n=== orientation census: parked, TX off, per height era + phase ===")
-        sci = df[(df.rot_state == "parked") & (df.tx_comb == "off") & df.orient_bin.notna()].copy()
+        print("\n=== orientation census: parked, box-air EMI off, transmitter off, "
+              "per height era + phase ===")
+        sci = df[(df.rot_state == "parked") & (df.boxair_emi == "off")
+                 & (df.transmitter == "off") & df.orient_bin.notna()].copy()
         sci["integ_s"] = (
             pd.to_numeric(sci["integration_time_s"], errors="coerce")
             * pd.to_numeric(sci["n_int"], errors="coerce")

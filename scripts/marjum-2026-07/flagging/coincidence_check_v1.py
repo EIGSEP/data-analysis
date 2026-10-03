@@ -8,6 +8,13 @@ non-coincident flags as candidates for the self-RFI/instrumental
 bucket instead of `unknown`. Validate against the labelled windows in
 CAMPAIGN.md used for v0 (1.25 MHz/Panda comb, fan, LIDAR).
 
+**Correction (2026-10-03, memo 001):** the "1.953125 MHz digital
+self-comb" below is the beam-mapping transmitter, an external source, and
+the 07-16 "1.25 MHz/Panda comb" is box-air's 1.000 MHz self-EMI (no 1.25 MHz
+comb exists). Window names are relabelled; the reasoning in this docstring
+is left as written in 2026-09 and is wrong where it calls the 8-channel comb
+not external.
+
 **Topology check first.** The ticket's premise names four inputs
 (box-air/box-gnd/viv-N/viv-E). None of the three labelled windows below
 actually have four live inputs at once -- `mode_table.jsonl` shows
@@ -82,16 +89,16 @@ WINDOWS = [
         "inputs": ("3", "4"),
     },
     {
-        "name": "07-16 Panda/1.25MHz-field-note event (labelled self-RFI, "
-                "Panda power cycle)",
+        "name": "07-16 box-air 1 MHz self-EMI (field-note '1.25 MHz' "
+                "event; labelled self-RFI, Panda power cycle)",
         "day": "20260716",
         "t0": "2026-07-16T01:00:00Z",
         "t1": "2026-07-16T01:30:00Z",
         "inputs": ("0", "4"),
     },
     {
-        "name": "07-17/18 digital self-comb, 1.953125 MHz (labelled "
-                "self-RFI, conducted+radiated on BOTH live inputs)",
+        "name": "07-17/18 transmitter comb, 1.953125 MHz (v0 labels it "
+                "self-RFI; on BOTH live inputs)",
         "day": "20260718",
         "t0": "2026-07-18T00:00:00Z",
         "t1": "2026-07-18T02:00:00Z",
@@ -135,7 +142,8 @@ def run_window(w, modes):
     for path in files:
         fname = os.path.basename(path)
         m = B.mode_for(modes, fname)
-        tx_on = bool(m and m.get("tx_comb") == "on")
+        # mode_table's `boxair_emi` was `tx_comb` before memo 001.
+        tx_on = bool(m and m.get("boxair_emi") == "on")
         _fname, per_input, freqs, err = B.process_file((path, tx_on))
         if err:
             continue

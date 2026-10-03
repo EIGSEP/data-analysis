@@ -44,7 +44,7 @@ def main():
     log("=== B16 full-campaign run starting ===")
     log(f"DATA_ROOT={M16.DATA_ROOT}")
 
-    self_freqs, self_mask = EV.self_comb_channel_mask()
+    self_freqs, self_mask = EV.comb_teeth_channel_mask()
     band = (self_freqs >= D.BAND_ANALYSIS[0]) & (self_freqs <= D.BAND_ANALYSIS[1])
     log(f"analysis-band channels: {int(band.sum())}")
 

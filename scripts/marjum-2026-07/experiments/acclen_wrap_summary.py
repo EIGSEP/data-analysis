@@ -8,7 +8,7 @@ Three questions, in order:
      2026-07-15T15:54:59Z doubling.
 
 For (3) the contrast is matched on everything the mode table carries: phase C,
-height era ~30m, rot_state parked, tx_comb off, and RF switch state, so the
+height era ~30m, rot_state parked, boxair_emi off (was tx_comb), and RF switch state, so the
 only intended difference is corr_acc_len.
 """
 import json
@@ -117,7 +117,7 @@ def main():
                 continue
             if r.get("phase") != "C" or r.get("height_era") != "~30m":
                 continue
-            if r.get("rot_state") != "parked" or r.get("tx_comb") != "off":
+            if r.get("rot_state") != "parked" or r.get("boxair_emi") != "off":
                 continue
             if r.get("rfswitch") != "RFANT":
                 continue
