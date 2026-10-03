@@ -129,7 +129,9 @@ which agrees with Christian's own S11 chain to ~1e-15.
   `marjum-2026-07/data/s11/cal_materials/switch_sparams.npz`) or
   `'eigsep_cal'` (the file packaged in `eigsep_cal`). The two characterizations
   disagree by ~0.06 in port reflection and shift calibrated T by ±6 %. Charlie
-  found the packaged file wrong (2026-09-30); keep the default.
+  found the packaged file wrong (2026-09-30) and replaced it on 2026-10-01, so the
+  two options now give the same answer; the saved § 6(b) outputs show the old
+  comparison, which memo 004 maintains.
 - The campaign-wide version of this calibration is the `tcal` data product
   (`marjum-2026-07/derived/tcal/`, `Bundle.calibrated` in `eigsep_data`).
 - Diagnostic only: T_NS is the 917 K nameplate value, with no noise-wave,
