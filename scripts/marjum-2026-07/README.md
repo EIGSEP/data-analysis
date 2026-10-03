@@ -95,7 +95,8 @@ Superseded generators are in `debug/` (see `debug/README.md`).
 - 2026-10-03: comb labels follow memo 001 (see "Comb names"): curation and
   flagging generators renamed, `build_mode_table.py` now writes `boxair_emi`
   and a per-file `transmitter` column, its science census excludes both
-  combs, and consumers read the new column names.
+  combs, and consumers read the new column names (falling back to `tx_comb`
+  for mode tables and `acclen_wrap_scan.jsonl` written before the rename).
 
 - 2026-10-02: `build_known_quantities_xlsx.py` cites the living memos 002, 003 and 005
   instead of legacy MEMO-012/013 and the removed `AZIMUTH_CONVENTIONS.md`.

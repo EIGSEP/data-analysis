@@ -117,7 +117,10 @@ def main():
                 continue
             if r.get("phase") != "C" or r.get("height_era") != "~30m":
                 continue
-            if r.get("rot_state") != "parked" or r.get("boxair_emi") != "off":
+            # acclen_wrap_scan.jsonl written before 2026-10-03 calls this
+            # column tx_comb (same values; renamed per memo 001).
+            emi = r.get("boxair_emi", r.get("tx_comb"))
+            if r.get("rot_state") != "parked" or emi != "off":
                 continue
             if r.get("rfswitch") != "RFANT":
                 continue

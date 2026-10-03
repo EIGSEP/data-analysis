@@ -120,7 +120,7 @@ def fit_file(path, fname, inp, self_mask, band, refine=True):
     """
     m = B.mode_for(modes, fname)
     # mode_table's `boxair_emi` was `tx_comb` before memo 001; same values.
-    tx_on = bool(m and m.get("boxair_emi") == "on")
+    tx_on = bool(m and m.get("boxair_emi", m.get("tx_comb")) == "on")
     _fname, per_input, freqs_mhz, err = B.process_file((path, tx_on))
     if err or inp not in per_input:
         return None

@@ -143,7 +143,7 @@ def run_window(w, modes):
         fname = os.path.basename(path)
         m = B.mode_for(modes, fname)
         # mode_table's `boxair_emi` was `tx_comb` before memo 001.
-        tx_on = bool(m and m.get("boxair_emi") == "on")
+        tx_on = bool(m and m.get("boxair_emi", m.get("tx_comb")) == "on")
         _fname, per_input, freqs, err = B.process_file((path, tx_on))
         if err:
             continue
