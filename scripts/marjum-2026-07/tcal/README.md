@@ -23,8 +23,9 @@ coverage and its validation are in the product's own `README.md`.
   rows.
 - 2026-10-01: `tcal` v0001. `build_tcal.py` drops calibration visits that
   disagree with their neighbours in more than 100 channels; three
-  contaminated visits (lines on the 1.953125 MHz self-comb grid,
-  coincident with S11 sweeps) had corrupted v0000. `validate_tcal.py` now
+  contaminated visits (lines on the 1.953125 MHz 8-channel grid, before
+  the transmitter that uses it was on, coincident with S11 sweeps) had
+  corrupted v0000. `validate_tcal.py` now
   reports worst cases and per-channel counts, which v0000's band-median
   checks missed. All three scripts take `--products` to work on a
   campaign tree other than the raw-data root.
