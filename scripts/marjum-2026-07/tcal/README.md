@@ -6,7 +6,7 @@ bundle is loaded (`Bundle.calibrated`, `Bundle.t_star`).
 
 | Script | What it does |
 |---|---|
-| `build_tcal.py` | Collects the calibration inputs on their own cadences and writes `solutions.npz` and `manifest.json`: RFAMB/RFNON visit spectra (masked weighted means) with their receiver regime, field S11 at plane P on correlator channels, load-thermistor readings. It computes no temperatures. |
+| `build_tcal.py` | Collects the calibration inputs on their own cadences and writes `solutions.npz` and `manifest.json`: RFAMB/RFNON visit spectra (weighted means, masked with the flag product's RFI bits) with their receiver regime, field S11 at plane P on correlator channels, load-thermistor readings. It computes no temperatures. |
 | `bracket_cost.py` | What wider interpolation limits cost in temperature, by leave-out over calibration brackets and S11 holds, and whether the 07-17 16:22 → 19:19 hole can be bridged; writes `bracket_cost.json`. The limits in `build_tcal.py` come from it. |
 | `validate_tcal.py` | Leave-one-out test of linear versus nearest interpolation, a plumbing check through `load_bundle`, comparison with Christian's T12 calibration, and coverage; writes `validation.json`. |
 
@@ -16,6 +16,14 @@ coverage and its validation are in the product's own `README.md`.
 
 ## Recent changes
 
+- 2026-10-05: `tcal` v0003. Calibration visits are masked with the campaign
+  flag product `flags@v3-beta.3`'s RFI bits (0x74), which now flags
+  calibration rows; this replaces v0002's own > 5 sigma stopgap. Wrapped
+  samples and dropped integrations are still masked directly, and the
+  contaminated-visit test stays as an independent check. Coverage now counts
+  a row as calibrated when >= 99 % of its 50-200 MHz channels are, because
+  two clock-aligned channels (125.0 and 187.5 MHz) are fully flagged in a few
+  visits.
 - 2026-10-01: `tcal` v0002. Each calibration visit is now a masked,
   integration-time-weighted mean rather than a median (AGENTS.md, Analysis
   methodology). The mask is built per sample (wraps, dropped integrations,

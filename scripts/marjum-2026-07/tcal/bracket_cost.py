@@ -123,7 +123,7 @@ def main(argv=None):
                 dpl = (1 - w) * pl[i] + w * pl[i + m] - pl[k]
                 dg = (1 - w) * g[i] + w * g[i + m] - g[k]
                 dts = -t_ns * dpl / g[k] - (tstar - t_load) * dg / g[k]
-                errs.append(np.median(np.abs(dts / tstar)[b]))
+                errs.append(np.nanmedian(np.abs(dts / tstar)[b]))
         rows.append({"bracket_min": round(m * cadence / 60, 1), **stats(errs)})
     out["cal_bracket_frac_error_in_tstar"] = rows
 
@@ -151,23 +151,23 @@ def main(argv=None):
     # 3. Across the hole: edges vs the same span elsewhere.
     ib, ia = ih, ih + 1
     span = after - before
-    edge = float(np.median(np.abs(gc[ia] / gc[ib] - 1)[b]))
+    edge = float(np.nanmedian(np.abs(gc[ia] / gc[ib] - 1)[b]))
     ref = []
     for i in np.flatnonzero(tc <= before):
         j = np.argmin(np.abs(tc - (tc[i] + span)))
         if abs(tc[j] - tc[i] - span) < 600 and tc[j] <= before:
-            ref.append(np.median(np.abs(gc[j] / gc[i] - 1)[b]))
+            ref.append(np.nanmedian(np.abs(gc[j] / gc[i] - 1)[b]))
     s_all = z["s11_ant_t"]
     raise_t = unix(RAISE_UTC)
     sb = np.flatnonzero(s_all < raise_t).max()
     sa = np.flatnonzero(s_all > raise_t).min()
     s_span = s_all[sa] - s_all[sb]
-    dgam = float(np.median(np.abs(z["s11_ant"][sa] - z["s11_ant"][sb])[b]))
+    dgam = float(np.nanmedian(np.abs(z["s11_ant"][sa] - z["s11_ant"][sb])[b]))
     sref = []
     for i in range(s_all.size):
         j = np.argmin(np.abs(s_all - (s_all[i] + s_span)))
         if abs(s_all[j] - s_all[i] - s_span) < 1800 and s_all[j] < s_all[sb] + 1:
-            sref.append(np.median(np.abs(z["s11_ant"][j] - z["s11_ant"][i])[b]))
+            sref.append(np.nanmedian(np.abs(z["s11_ant"][j] - z["s11_ant"][i])[b]))
     out["hole"] = {
         "cycle_edges_utc": [datetime.utcfromtimestamp(x).strftime("%H:%M") for x in (before, after)],
         "gain_change_across_hole": edge,

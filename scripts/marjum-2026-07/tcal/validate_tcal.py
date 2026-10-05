@@ -135,8 +135,14 @@ def main(argv=None):
     out["plumbing"] = plumb
     ant = st == "RFANT"
     cal = b.calibrated
-    ok = np.isfinite(cal[:, bb]).all(1)
+    # A row counts as calibrated when at least 99 % of its 50-200 MHz channels
+    # are: a channel the flags remove from a whole calibration visit is NaN in
+    # every row that visit brackets, which is honest, but should not void the
+    # row. The channel-level fraction is reported alongside.
+    finite = np.isfinite(cal[:, bb])
+    ok = finite.mean(1) >= 0.99
     out["coverage"] = {
+        "channel_fraction_calibrated_on_rfant": float(finite[ant].mean()),
         "span_utc": [datetime.utcfromtimestamp(t0).isoformat() + "Z", datetime.utcfromtimestamp(t1).isoformat() + "Z"],
         "rfant_rows": int(ant.sum()),
         "rfant_rows_calibrated": int((ant & ok).sum()),

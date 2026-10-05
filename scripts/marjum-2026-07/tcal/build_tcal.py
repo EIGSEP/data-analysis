@@ -62,13 +62,16 @@ MIN_VISIT_ROWS = 50
 OUTLIER_BAND_MHZ = (30.0, 245.0)
 OUTLIER_FRAC = 0.10
 MAX_BAD_CHANNELS = 100
-#: Per-sample mask inside a visit, built here because flags@v2 runs no
-#: detector on calibration rows (it sets only their ``cal`` bit). A sample
-#: is masked if it is wrapped (int32 overflow, negative counts), in an
-#: all-zero (dropped) integration, or more than SAMPLE_NSIG robust sigmas
-#: (1.4826 MAD) from the visit's own per-channel median. The median is used
-#: only to flag; the visit spectrum is the weighted mean of what remains.
-SAMPLE_NSIG = 5.0
+#: Per-sample mask inside a visit. RFI comes from the campaign flag product,
+#: which (from v3-beta.3) flags calibration rows against their own
+#: backgrounds: its RFI bits 2, 4, 5 and 6 (positive_auto_excess,
+#: cross_change, band_group_trigger, comb_group_trigger). Bit 0 stays set on
+#: every calibration row and is not used. The product has no overflow bit, so
+#: wrapped samples (negative counts) and all-zero (dropped) integrations are
+#: masked here directly. The visit spectrum is the integration-time-weighted
+#: mean of what remains. (v0002 used its own > 5 robust sigma stopgap.)
+FLAGS = "flags@v3-beta.3"
+RFI_MASK = 0x74
 #: Regime labels that may bracket a row. The rx-transition cycle at
 #: 07-17 19:43 sits inside the bounded gap and is not used.
 REGIMES = ("rx-A", "rx-B")
@@ -142,6 +145,7 @@ def visits(index, state, windows):
     files = loaded.meta.file.to_numpy(str)
     order = np.argsort(t, kind="stable")
     p, t, tau, files = p[order], t[order], tau[order], files[order]
+    rfi = rfi_on_full_axis(sel, t, np.asarray(loaded.freq, dtype=float), index)
     masked_frac = []
     usable = ~np.all(p == 0, axis=1)
     starts = np.flatnonzero(np.r_[True, np.diff(t) > MAX_ROW_GAP_S])
@@ -151,7 +155,7 @@ def visits(index, state, windows):
         use = a + np.flatnonzero(usable[a:b])
         spec = None
         if use.size:
-            spec, frac = masked_mean(p[use], tau[use])
+            spec, frac = masked_mean(p[use], tau[use], rfi[use])
             masked_frac.append(frac)
         rows.append(
             {
@@ -185,17 +189,40 @@ def visits(index, state, windows):
     return v, freqs, log
 
 
-def masked_mean(p, tau):
+def rfi_on_full_axis(sel, t, freqs, index):
+    """The flag product's RFI bits on the full correlator axis.
+
+    The flag cubes cover only their tested domain (35-235 MHz, stored to 250);
+    channels outside it carry no RFI information and are left unflagged.
+    Rows are matched to the raw load by time, which must agree exactly.
+    """
+    fb = sel.load_bundle(key=KEY, root=index_root(index), products=[FLAGS])
+    skipped = fb.provenance["products"]["flags"]["skipped"]
+    if skipped:
+        raise SystemExit(f"{FLAGS} missing for {skipped}")
+    order = np.argsort(fb.t, kind="stable")
+    if not np.array_equal(fb.t[order], t):
+        raise SystemExit("flag rows do not align with the raw rows")
+    lo = int(np.argmin(np.abs(freqs - fb.freqs_mhz[0])))
+    assert np.allclose(freqs[lo:lo + fb.freqs_mhz.size], fb.freqs_mhz)
+    rfi = np.zeros((t.size, freqs.size), dtype=bool)
+    rfi[:, lo:lo + fb.freqs_mhz.size] = (fb.flags[order] & RFI_MASK) != 0
+    return rfi
+
+
+def index_root(index):
+    """The campaign tree the index's raw data (and flag cubes) live in."""
+    return Path(index.data_dir).resolve().parent
+
+
+def masked_mean(p, tau, rfi):
     """Integration-time-weighted mean of one visit, masked per sample.
 
-    Returns the spectrum (NaN in a channel with no unmasked sample) and
-    the fraction of samples masked.
+    Masks the flag product's RFI and wrapped (negative) samples. Returns the
+    spectrum (NaN in a channel with no unmasked sample) and the fraction of
+    samples masked.
     """
-    bad = p < 0
-    med = np.median(p, axis=0)
-    mad = 1.4826 * np.median(np.abs(p - med), axis=0)
-    with np.errstate(invalid="ignore"):
-        bad |= (mad > 0) & (np.abs(p - med) > SAMPLE_NSIG * mad)
+    bad = rfi | (p < 0)
     w = np.where(bad, 0.0, tau[:, None])
     wsum = w.sum(axis=0)
     with np.errstate(invalid="ignore", divide="ignore"):
@@ -355,8 +382,9 @@ def main(argv=None):
             "equations": "eigsep_cal.dicke.tstar_coefficients, receiver_s11_coefficients",
             "t_ns_k": T_NS_K,
             "t_ns_source": "nameplate ENR 35 dB behind 30 dB pad; not measured",
-            "visit_average": "integration-time-weighted mean, per-sample mask (wrap, dropped, > SAMPLE_NSIG robust sigma)",
-            "sample_nsig": SAMPLE_NSIG,
+            "visit_average": "integration-time-weighted mean; per-sample mask: flag-product RFI bits, wrapped samples, dropped integrations",
+            "flags": FLAGS,
+            "rfi_mask": RFI_MASK,
             "visit_rejection": {
                 "band_mhz": OUTLIER_BAND_MHZ,
                 "frac": OUTLIER_FRAC,
