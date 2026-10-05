@@ -16,6 +16,8 @@ coverage and its validation are in the product's own `README.md`.
 
 ## Recent changes
 
+- 2026-10-05: the builder reads `flags@v3`, the release of `v3-beta.3` (same files); a
+  rebuild reproduces `tcal` v0003 exactly.
 - 2026-10-05: `tcal` v0003. Calibration visits are masked with the campaign
   flag product `flags@v3-beta.3`'s RFI bits (0x74), which now flags
   calibration rows; this replaces v0002's own > 5 sigma stopgap. Wrapped

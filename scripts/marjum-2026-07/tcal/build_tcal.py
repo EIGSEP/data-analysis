@@ -63,14 +63,14 @@ OUTLIER_BAND_MHZ = (30.0, 245.0)
 OUTLIER_FRAC = 0.10
 MAX_BAD_CHANNELS = 100
 #: Per-sample mask inside a visit. RFI comes from the campaign flag product,
-#: which (from v3-beta.3) flags calibration rows against their own
+#: which (from v3, released from v3-beta.3) flags calibration rows against their own
 #: backgrounds: its RFI bits 2, 4, 5 and 6 (positive_auto_excess,
 #: cross_change, band_group_trigger, comb_group_trigger). Bit 0 stays set on
 #: every calibration row and is not used. The product has no overflow bit, so
 #: wrapped samples (negative counts) and all-zero (dropped) integrations are
 #: masked here directly. The visit spectrum is the integration-time-weighted
 #: mean of what remains. (v0002 used its own > 5 robust sigma stopgap.)
-FLAGS = "flags@v3-beta.3"
+FLAGS = "flags@v3"           # released unchanged from v3-beta.3 (same files)
 RFI_MASK = 0x74
 #: Regime labels that may bracket a row. The rx-transition cycle at
 #: 07-17 19:43 sits inside the bounded gap and is not used.
