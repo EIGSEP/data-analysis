@@ -10,8 +10,9 @@ Row selection:
 
 - ``tcal`` (``--tcal``) calibrated temperatures at plane P, so RFANT rows
   inside its coverage only.
-- ``flags@v2`` bits 0-7. Bit 8 is the known-defective
-  ``dpss_residual_outlier`` and is ignored (``flags/v2/README.md``).
+- ``flags`` (``--flags``, default ``v3``): any bit except 9, the advisory
+  ``high_scatter`` (``flags/v3/README.md``). For ``v2``, bits 0-7; its bit 8
+  is the known-defective ``dpss_residual_outlier``.
 - Transmitter comb: channels = 0 mod 8 are dropped from 07-17 15:36 to
   07-18 03:00 whatever the flags say (memo 001, Combs). Every beam
   frequency is such a channel, so in that span the window loses its centre.
@@ -54,14 +55,21 @@ from common import (
     workspace_root,
 )
 
-# tcal v0002 coverage (derived/tcal/v0002/README.md, Coverage), with margin;
+# tcal v0003 coverage (derived/tcal/v0003/README.md, Coverage; the same as
+# v0002), with margin;
 # rows outside it are NaN in Bundle.calibrated anyway.
 DEFAULT_SPANS = [
     ("2026-07-17T04:00:00Z", "2026-07-17T16:30:00Z"),
     ("2026-07-18T01:20:00Z", "2026-07-18T03:00:00Z"),
 ]
 TX_SPAN = ("2026-07-17T15:36:00Z", "2026-07-18T03:00:00Z")
-CLEAN_BITS = 0xFF
+# Flag bits that reject a sample, by flag version.
+CLEAN_BITS = {"v2": 0x00FF}
+CLEAN_BITS_DEFAULT = 0xFFFF & ~(1 << 9)  # v3: any bit except advisory bit 9
+
+
+def clean_bits(version):
+    return CLEAN_BITS.get(version, CLEAN_BITS_DEFAULT)
 
 
 def beam_channels():
@@ -77,23 +85,31 @@ def unix(iso):
     return pd.Timestamp(iso).timestamp()
 
 
-def reduce_rows(b, chans, half_window, min_channels):
+def reduce_rows(b, chans, half_window, min_channels, bits):
     """Per-row mean over each beam channel's window, NaN where too few."""
     T = b.calibrated
     flags = b.flags
     # A file with no flag payload comes back NaN; its rows are dropped.
     unflagged = np.isnan(flags) if flags.dtype.kind == "f" else np.zeros(flags.shape, bool)
     codes = np.where(unflagged, 0, flags).astype(np.uint16)
-    bad = ((codes & CLEAN_BITS) != 0) | unflagged | ~np.isfinite(T)
+    bad = ((codes & bits) != 0) | unflagged | ~np.isfinite(T)
     in_tx = (b.t >= unix(TX_SPAN[0])) & (b.t <= unix(TX_SPAN[1]))
-    comb = np.arange(T.shape[1]) % 8 == 0
+    comb = (np.rint(b.freqs_mhz / CHANNEL_MHZ).astype(int) % 8) == 0
     bad[np.ix_(in_tx, comb)] = True
     T = np.where(bad, 0.0, T)
     good = (~bad).astype(float)
     out = np.full((T.shape[0], len(chans)), np.nan)
     nch = np.zeros((T.shape[0], len(chans)), dtype=int)
+    # The bundle is band-limited by its products (flags@v3 starts at
+    # 35.156 MHz), so map correlator channels onto its columns.
+    first = int(np.rint(b.freqs_mhz[0] / CHANNEL_MHZ))
+    assert np.allclose((first + np.arange(T.shape[1])) * CHANNEL_MHZ,
+                       b.freqs_mhz), "bundle frequencies off the channel grid"
     for k, c in enumerate(chans):
-        sl = slice(c - half_window, c + half_window + 1)
+        lo, hi = c - half_window - first, c + half_window + 1 - first
+        if lo < 0 or hi > T.shape[1]:
+            continue
+        sl = slice(lo, hi)
         n = good[:, sl].sum(axis=1)
         ok = n >= min_channels
         out[ok, k] = T[ok, sl].sum(axis=1) / n[ok]
@@ -104,8 +120,8 @@ def reduce_rows(b, chans, half_window, min_channels):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("version", help="output version, e.g. v0001")
-    ap.add_argument("--tcal", default="v0002")
-    ap.add_argument("--flags", default="v2")
+    ap.add_argument("--tcal", default="v0003")
+    ap.add_argument("--flags", default="v3")
     ap.add_argument("--pointing", default="v2.0")
     ap.add_argument("--bin-s", type=float, default=120.0)
     ap.add_argument("--half-window", type=int, default=2)
@@ -141,7 +157,8 @@ def main():
                 continue
             b = sel.load_bundle(key="4", products=products)
             T, nch, n_unflagged = reduce_rows(
-                b, chans, args.half_window, args.min_channels)
+                b, chans, args.half_window, args.min_channels,
+                clean_bits(args.flags))
             no_flags["rows"] += n_unflagged
             no_flags["files"] += b.provenance["products"]["flags"].get("skipped") or []
             p = b.pointing
@@ -230,7 +247,7 @@ def main():
             "inputs": {
                 "tcal": {"spec": f"tcal@{args.tcal}",
                          "manifest_sha256": sha256(tcal_dir / "manifest.json")},
-                "flags": {"spec": f"flags@{args.flags}", "bits": "0-7 (0xFF)",
+                "flags": {"spec": f"flags@{args.flags}", "reject_mask": hex(clean_bits(args.flags)),
                           "manifest_sha256": sha256(
                               campaign / "flags" / args.flags / "manifest.json")},
                 "pointing": {"spec": f"pointing@{args.pointing}",
