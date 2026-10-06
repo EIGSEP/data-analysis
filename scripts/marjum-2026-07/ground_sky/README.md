@@ -53,6 +53,12 @@ writes a trial anywhere instead of a new product version.
 
 ## Fit to data and the Sun (2026-10-06; `flags@v3`, `tcal@v0003`, HFSS beam)
 
+**The reference for these results is now memo 008**
+(`memos/memo-008-marjum-2026-07-image-domain/`), built from the published
+products `derived/ground_sky/{binned_v0001,binned_v0002,fit_v0001..v0004,sun_events_v0001}`.
+It also compares them with concurrent RSTN solar monitoring. The summary below
+is kept for orientation.
+
 These are trial runs written with `--out-dir`, not yet products. Coverage is
 the same as tcal v0002: 07-17 04:11–16:22 (87.5 m, rx-A, parked) and
 07-18 01:27–02:56 (91 m, rx-B).
@@ -149,6 +155,9 @@ These figures use 120 s static bins and radiometer noise only.
   that a good χ² cannot vouch for T_gnd holds regardless.
 
 ## Recent changes
+
+- 2026-10-06: published the products memo 008 reads; added the campaign
+  sunrise/sunset table and an npz to `sun_events.py`.
 
 - 2026-10-06: v3 flags and tcal v0003 are now the defaults. Fixed a 35 MHz
   frequency offset in `bin_spectra.py`, caused by v3's band-limited bundles.
