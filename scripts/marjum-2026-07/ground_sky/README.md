@@ -11,8 +11,10 @@ pipeline (calibrated spectra → bins → fit) and the studies that drive it.
 At each frequency, every time bin is
 
     T(t) = Σ_p A_sky[t,p] T_sky[p] + A_gnd[t] T_gnd + T_off[regime(t)]
+           [+ A_sun[t] S_sun]
 
-The sky is in Galactic HEALPix pixels. For data, `T_sky = a·GSM + δ`: the
+The optional Sun term is its flux S_sun (SFU) times the beam gain toward it
+and its terrain visibility (`sun.py`). The sky is in Galactic HEALPix pixels. For data, `T_sky = a·GSM + δ`: the
 amplitude `a` is free (it absorbs the front-end loss, since `tcal`
 temperatures are at plane P, and any GSM scale error) and only `δ` has a
 prior. The ground is everything below the
@@ -29,6 +31,9 @@ Inputs:
   with `az_offset` and `psi` read from `empirical_raster_v0012`.
 - Pointing: `curation/pointing_table.parquet`, using phase C and
   `quality == "ok"` rows only.
+- Horizon bearings: `horizon_profiles_v0002` bearings are UTM 12N grid
+  bearings (the DEM's frame), 1.52° from true at the site. The fit now
+  rotates them to true bearings; the first trials did not.
 - Beam: pluggable. Either the HFSS bowtie or an `empirical_beam.npz`, through
   `HealpixBeam.from_npz`.
 
@@ -36,44 +41,88 @@ Inputs:
 
 | Script | What it does |
 |---|---|
-| `bin_spectra.py` | Builds `derived/ground_sky/binned_vNNNN`: `tcal` box-air temperatures, `flags@v2` bits 0–7, transmitter-comb channels dropped in its span, averaged over ±2 channels at each HFSS beam frequency and into static 120 s bins of one height era and receiver regime. Noise is the in-bin scatter. |
-| `fit_ground_sky.py` | Builds `derived/ground_sky/fit_vNNNN` from a binned product: per-frequency fit of `a`, T_gnd and one offset per receiver regime, on night bins only (Sun below −10°; it is not modelled). Reports which columns the data actually constrain, the per-regime pedestal ⟨f_gnd⟩·T_gnd + T_off that is constrained even when its parts are not, and χ² on held-out alternating 30-min blocks. |
+| `bin_spectra.py` | Builds `derived/ground_sky/binned_vNNNN`: `tcal@v0003` box-air temperatures, `flags@v3` (any bit but 9; `flags@v2` bits 0–7 with `--flags v2`), transmitter-comb channels dropped in its span, averaged over ±2 channels at each HFSS beam frequency and into static 120 s bins of one height era and receiver regime. Noise is the in-bin scatter. |
+| `fit_ground_sky.py` | Builds `derived/ground_sky/fit_vNNNN` from a binned product: per-frequency fit of `a`, T_gnd and one offset per receiver regime. `--sun model` adds the Sun as a column; `--sun cut-flat` (Sun below −10°) or `cut-terrain` (Sun behind the ridge) instead chooses which bins are fitted. The model and residual are evaluated on every bin either way, so cut bins are out-of-sample predictions. Reports which columns the data actually constrain, the per-regime pedestal ⟨f_gnd⟩·T_gnd + T_off that is constrained even when its parts are not, and χ² on held-out alternating 30-min blocks. |
+| `sun.py` | The Sun from the antenna: ephemeris; the DEM traced along the Sun's bearing (horizon elevation and edge distance); knife-edge diffraction at that edge; the K-per-SFU column through the beam; the UTM grid-to-true bearing rotation. |
+| `sun_events.py` | Tests whether the out-of-sample residual of a `cut-flat` fit around the 07-17 terrain sunrise is the Sun: a local line plus S_sun × Sun column on transmitter-off bins only, a flat-horizon null at 12:26, and a timing scan. |
 | `common.py` | Paths, provenance, and per-file height era (`mode_table.jsonl`, which fills the pointing table's blank eras) and receiver regime (`cal_windows.jsonl`). |
 | `degeneracy_study.py` | Builds the design matrix on the real geometry. Reports Fisher errors on T_gnd, the offset and the sky mean under four prior choices (sky free or 10 % GSM; offset free or known to 1 K). Then runs a simulate-and-recover check: GSM truth at nside 16, fitted at nside 8, with HFSS or the empirical beam as the true beam. Writes `summary.json`. No measured spectra are used. |
 
 Run with `EIGSEP_CAMPAIGN_ROOT` set. Each takes a few minutes; `--out-dir`
 writes a trial anywhere instead of a new product version.
 
-## First fit to data (2026-10-01; `binned_v0001`, HFSS beam)
+## Fit to data and the Sun (2026-10-06; `flags@v3`, `tcal@v0003`, HFSS beam)
 
-Trial runs, not yet a product: `fit_v0001` waits for eigsep_sim#6.
+**The reference for these results is now memo 008**
+(`memos/memo-008-marjum-2026-07-image-domain/`), built from the published
+products `derived/ground_sky/{binned_v0001,binned_v0002,fit_v0001..v0004,sun_events_v0001}`.
+It also compares them with concurrent RSTN solar monitoring. The summary below
+is kept for orientation.
 
-- **The calibrated night data cannot measure T_gnd.** `tcal@v0002` covers
-  07-17 04:11–16:22 (zenith, 87.5 m, rx-A) and 07-18 01:27–02:56 (mostly
-  near nadir, 91 m, rx-B). The second window is all at dusk, with the Sun
-  above −10°, so the night fit is one pointing, one height and one regime:
-  165 bins. There, T_gnd and the offset are exactly degenerate (as
-  `degeneracy_study.py` predicts). Only their pedestal is determined:
-  ⟨f_gnd⟩·T_gnd + T_off ≈ +50 to +80 K across 110–165 MHz, and −700 to
-  −60 K below 75 MHz. Between 125 and 207 MHz, the ±1° wobble in el
-  formally separates the two, giving T_gnd from −1260 to +1510 K with
-  quoted errors of 60–1100 K. That is fitted model error, not a
-  measurement.
-- **The data vary about twice as much as GSM through the HFSS beam
-  predicts.** The template amplitude is a = 1.3 at 51 MHz, 1.8–2.3 from 62
-  to 210 MHz and 2.6–3.0 at 211–227 MHz, each ±0.02 statistically. A direct
-  forward check (GSM, T_gnd = 300 K, no offset) gives data/model of 1.1–1.9
-  in both receiver regimes, peaking near 78 MHz, and steady through the
-  night. Candidates: the `tcal` kelvin scale (it assumes the nameplate
-  noise-source excess, 917 K, and corrects mismatch most where the antenna
-  is worst matched), or a sky fraction that the HFSS beam underestimates.
-  The fit cannot tell these apart.
-- **The model is not yet adequate at the noise level.** χ² per bin is
-  70–280 in clean bands. Residuals are about 10× the in-bin scatter, which
-  is itself 2–6× radiometric. Held-out χ² is 2–5× the training χ², so the
-  10 % GSM prior on δ lets the sky absorb structure it cannot predict.
-- **The Sun must be cut or modelled.** It lifts data/model at 199 MHz from
-  1.06 to 1.80 within an hour of rising.
+These are trial runs written with `--out-dir`, not yet products. Coverage is
+the same as tcal v0002: 07-17 04:11–16:22 (87.5 m, rx-A, parked) and
+07-18 01:27–02:56 (91 m, rx-B).
+
+**When the Sun is visible.** The ridges are high and close: 39° at 350 m
+toward sunrise and 17° at 170 m toward sunset (DEM v0001, traced along the
+Sun's bearing). The Sun clears the ridge at **07-17 15:55 UTC** (87.5 m),
+3.5 h after it crosses 0° altitude (12:26). It drops behind the ridge at
+**07-18 01:20** (91 m), 1.5 h before 0°. The rx-B window starts after that,
+so the calibrated data see the direct Sun only from 15:55 to 16:22 on 07-17.
+At these wavelengths the ridge edge diffracts over √(λd/2) ≈ 2–6°, so the
+Sun ramps in over 10–30 min, slower at low frequency. The 30 m era has its
+own times (rise 16:25, set 00:01). The first trials' "the Sun lifts 199 MHz
+within an hour of rising" cannot be the direct Sun: that hour is behind
+the ridge.
+
+**Ground temperature.** No change from the first trials. Only one pointing,
+one height and one regime survive the night cut, and T_gnd trades exactly
+against the offset. Where the solver calls T_gnd constrained (125–207 MHz),
+it ranges from −6700 to +1400 K, which is fitted model error. The GSM
+amplitude is a ≈ 1.3–3.0, χ² per bin is ~75–300, and held-out χ² is 1.5–5×
+the training χ². Fitting the Sun-behind-ridge morning bins as well
+(`cut-terrain`) raises the median χ² only from 119 to 136.
+
+**The Sun around 15:55** (`sun_events.py` on a 60 s `cut-flat` fit):
+
+- **Method.** The residual from −85 to +27 min is fitted locally, as a line
+  plus S_sun × the predicted Sun column. Only transmitter-off bins are fitted
+  (the transmitter is on 15:36–16:14 with gaps, per the box-gnd
+  transitions). That leaves 62 bins, of which **only 7 have the Sun above the
+  ridge** (16:14–16:22).
+- **Spectrum.** At 110–235 MHz, S_sun rises smoothly: 7 ± 1 SFU (109 MHz),
+  14 ± 1 (148), 30 ± 2 (199), 22 ± 1 (219). Errors are scaled by
+  √(χ²/dof). Below 90 MHz the result is unstable: the residual there drifts
+  ~70 K across the window, and the null below fails.
+- **Flat-horizon null.** The same local fit around 12:26, with the Sun
+  visible from 0°, gives −1 to −6 SFU at 110–235 MHz. No step appears when
+  the Sun rises behind the ridge, as the terrain predicts.
+- **Timing.** χ² against a shift of the Sun column is lowest at τ = −4 min,
+  and within +5 of that minimum from −8 to +3 min. Shifts of 20 min or more
+  earlier are strongly disfavoured.
+- **Kelvin scale.** The night fit needs a ≈ 2: the data vary twice as much
+  as GSM through HFSS predicts. If that factor lies in the kelvin scale or
+  the beam, it scales S_sun too, and S/a is 3 SFU (109 MHz), 8 (148) and
+  13 (199). Either reading is in the quiet-to-active Sun range.
+- **Not separated.** Anything else that changes during 16:14–16:22 is not
+  separated, for example the box or the ground under the antenna coming into
+  sunlight. All 7 post-ridge bins come right after the transmitter switches
+  off. Transmitter-on bins sit a further +10 to +170 K above the Sun model.
+  So this is an excess that coincides in time, spectrum and geometry with the
+  predicted sunrise. It is not an identification of the Sun.
+- **Global fit not usable.** A global fit with the Sun column on every bin
+  (`--sun model`) fits the transmitter-on bins, and its held-out χ² reaches
+  10⁵.
+
+**Next checks.**
+
+- Compare with external solar radio monitors at 150–245 MHz for 07-17
+  ~16 UTC.
+- Repeat at the uncalibrated sunsets (07-16 and 07-17 00:01 at 30 m;
+  07-18 01:20 at 91 m), using the knife-edge ramp shape, not a level. In
+  raw-data quick looks, the step at 07-17 00:01 is abrupt and rippled below
+  100 MHz, with a matching jump on box-gnd. That is a system change, not
+  the Sun.
 
 ## What `summary.json` says (2026-10-01, defaults)
 
@@ -106,6 +155,15 @@ These figures use 120 s static bins and radiometer noise only.
   that a good χ² cannot vouch for T_gnd holds regardless.
 
 ## Recent changes
+
+- 2026-10-06: published the products memo 008 reads; added the campaign
+  sunrise/sunset table and an npz to `sun_events.py`.
+
+- 2026-10-06: v3 flags and tcal v0003 are now the defaults. Fixed a 35 MHz
+  frequency offset in `bin_spectra.py`, caused by v3's band-limited bundles.
+  Horizon bearings are rotated from the UTM grid to true. The Sun is added
+  (`sun.py`, `sun_events.py`, `--sun`). First calibrated excess consistent
+  with the Sun at the 07-17 terrain sunrise.
 
 - 2026-10-01: added the data pipeline (`bin_spectra.py`, `fit_ground_sky.py`,
   `common.py`) and the first fit's findings: night calibrated data fix the sky
