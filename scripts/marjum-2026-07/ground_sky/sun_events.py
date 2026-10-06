@@ -61,7 +61,7 @@ import numpy as np
 import pandas as pd
 
 import sun as sunmod
-from common import ERAS, campaign_root
+from common import ERAS, HERE, campaign_root, git_rev, sha256
 from fit_ground_sky import load_beam
 
 BLUE, ORANGE, GREEN = "#2a78d6", "#eb6834", "#2f9e59"
@@ -179,7 +179,19 @@ def main():
                      args.taus_min[2]) * 60
     use = win & ~tx
     nul = (t >= n0) & (t <= n1) & ~tx
-    out = {"fit_dir": str(args.fit_dir), "window_utc": args.window,
+    import eigsep_sim
+
+    out = {"provenance": {
+               "script": "data-analysis/scripts/marjum-2026-07/ground_sky/sun_events.py",
+               "built_utc": pd.Timestamp.now(tz="UTC").isoformat(timespec="seconds"),
+               "code": {"data-analysis": git_rev(HERE),
+                        "eigsep_sim": git_rev(Path(eigsep_sim.__file__).parent)},
+               "inputs": {"fit_npz_sha256": sha256(args.fit_dir / "fit.npz"),
+                          "fit_manifest_sha256": sha256(args.fit_dir / "manifest.json"),
+                          "dem_sha256": sha256(campaign / sunmod.DEM_PATH),
+                          "transmitter_transitions_sha256": sha256(
+                              campaign / "curation/transmitter_transitions_boxgnd.jsonl")}},
+           "fit_dir": str(args.fit_dir), "window_utc": args.window,
            "null_window_utc": args.null_window,
            "pointing_table_az_el_deg": [az, el], "era": era_key,
            "ridge_clear_utc": pd.Timestamp(rise, unit="s").isoformat(),
