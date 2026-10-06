@@ -184,3 +184,27 @@ def sun_column(beam, rot_body2enu, geom, model="knife"):
     lam = C_LIGHT / beam.freqs_hz[:, None]
     return (SFU * lam**2 / (8 * np.pi * K_B) * gain
             * visibility(geom, beam.freqs_hz, model))
+
+
+def terrain_events(t0_unix, t1_unix, era, step_s=10.0):
+    """Times the Sun's centre crosses the terrain horizon and 0 deg altitude.
+
+    Returns a list of dicts (kind "rise"/"set", horizon "terrain"/"flat",
+    t_unix, alt, az, horizon_deg, edge_m), each refined to ``step_s``.
+    """
+    t = np.arange(t0_unix, t1_unix, 60.0)
+    g = sun_geometry(t, era)
+    out = []
+    for name, x in (("terrain", g["theta_deg"]), ("flat", g["alt"])):
+        up = x > 0
+        for j in np.flatnonzero(np.diff(up.astype(int))):
+            tf = np.arange(t[j], t[j + 1] + step_s, step_s)
+            gf = sun_geometry(tf, era)
+            xf = gf["theta_deg"] if name == "terrain" else gf["alt"]
+            k = int(np.argmax((xf > 0) == up[j + 1]))
+            out.append({"kind": "rise" if up[j + 1] else "set", "horizon": name,
+                        "t_unix": float(tf[k]), "alt": float(gf["alt"][k]),
+                        "az": float(gf["az"][k]),
+                        "horizon_deg": float(gf["horizon_deg"][k]),
+                        "edge_m": float(gf["edge_m"][k])})
+    return sorted(out, key=lambda e: e["t_unix"])

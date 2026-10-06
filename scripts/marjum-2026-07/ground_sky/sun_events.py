@@ -34,6 +34,13 @@ changes in the same few minutes as the Sun (the box warming in sunlight, the
 ground under the antenna being lit) is not separated by this test; a result
 here is "consistent with" the Sun, not an identification.
 
+It also lists every terrain and 0-deg sunrise and sunset during each height
+era of phase C (``sun.terrain_events``; era spans from
+``curation/mode_table.jsonl``).
+
+Writes ``sun_events.json``, ``sun_events.npz`` (everything plotted) and
+``sun_events.png`` into ``--out-dir``.
+
 Run::
 
     export EIGSEP_CAMPAIGN_ROOT=/path/to/marjum-2026-07
@@ -103,6 +110,22 @@ def local_fit(t, y, s, col_fn, tau, t_ref):
     return {"S": float(x[2]), "sigma_S": float(np.sqrt(cov[2, 2] * max(chi2 / dof, 1))),
             "c0": float(x[0]), "c1": float(x[1]), "chi2": chi2, "dof": dof,
             "n": int(ok.sum())}
+
+
+def campaign_events(campaign):
+    """Terrain and 0-deg sunrises and sunsets while each height era was flown."""
+    rows = [json.loads(line) for line in open(campaign / "curation/mode_table.jsonl")]
+    rows = pd.DataFrame([r for r in rows if "file_first" in r and r.get("phase") == "C"])
+    out = []
+    for era, g in rows.groupby("height_era"):
+        if era not in ERAS:
+            continue
+        t0, t1 = ts(g.t_start_utc.min()), ts(g.t_end_utc.max())
+        for e in sunmod.terrain_events(t0, t1, ERAS[era]):
+            e["era"] = ERAS[era]
+            e["utc"] = pd.Timestamp(e["t_unix"], unit="s").isoformat()
+            out.append(e)
+    return sorted(out, key=lambda e: e["t_unix"])
 
 
 def main():
@@ -192,8 +215,30 @@ def main():
     out["taus_min"] = (taus / 60).tolist()
     out["mean_scaled_delta_chi2_vs_tau"] = dchi.tolist()
     out["tau_best_min_all"] = float(taus[np.argmin(dchi)] / 60)
+    out["events"] = campaign_events(campaign)
     args.out_dir.mkdir(parents=True, exist_ok=True)
     (args.out_dir / "sun_events.json").write_text(json.dumps(out, indent=1))
+    pf = out["per_frequency"]
+
+    def arr(key, sub):
+        return np.array([p[key][sub] if p[key] else np.nan for p in pf])
+
+    np.savez_compressed(
+        args.out_dir / "sun_events.npz",
+        freqs_mhz=freqs, t=t, tx_on=tx, window=win, fitted_local=use,
+        null_fitted=nul, residual_k=resid, sigma_k=sig,
+        grid_t=grid, sun_column_knife=col_k, sun_column_flat=col_f,
+        grid_alt=geom["alt"], grid_az=geom["az"], grid_theta=geom["theta_deg"],
+        grid_horizon=geom["horizon_deg"], grid_edge_m=geom["edge_m"],
+        ridge_clear_t=rise, alt0_t=alt0,
+        S=arr("terrain", "S"), sigma_S=arr("terrain", "sigma_S"),
+        c0=arr("terrain", "c0"), c1=arr("terrain", "c1"),
+        chi2=arr("terrain", "chi2"), dof=arr("terrain", "dof"),
+        S_null=arr("flat_null", "S"), sigma_S_null=arr("flat_null", "sigma_S"),
+        tau_best_min=np.array([p["tau_best_min"] if p["tau_best_min"] is not None
+                               else np.nan for p in pf]),
+        taus_min=taus / 60, chi2_tau=chi2_tau, mean_scaled_dchi2=dchi,
+        gsm_amplitude=z["gsm_amplitude"])
     for p in out["per_frequency"]:
         r, rf = p["terrain"], p["flat_null"]
         if r is None:
