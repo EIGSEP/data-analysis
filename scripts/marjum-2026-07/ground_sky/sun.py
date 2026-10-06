@@ -79,9 +79,15 @@ def _dem():
 
 @lru_cache(maxsize=None)
 def antenna_enu(era):
-    """Antenna (E, N, U) in the DEM's local grid for a height era key."""
+    """Antenna (E, N, U) in the DEM's local grid for a height era key.
+
+    ``era`` may also be ``"ground+X"`` (X in metres): the point X above the
+    ground under the antenna, for asking when the ground there is lit.
+    """
     meta = json.loads((campaign_root() / HORIZON_JSON).read_text())
     e, n, _ = meta["antenna_enu_m"]
+    if era.startswith("ground+"):
+        return np.array([e, n, meta["ground_under_antenna_m"] + float(era[7:])])
     return np.array([e, n, meta["eras"][era]["antenna_u_m"]])
 
 
