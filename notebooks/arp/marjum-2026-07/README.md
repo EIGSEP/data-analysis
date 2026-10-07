@@ -111,7 +111,8 @@ except that the g_rx calibration result has not been retested on commanded
 pointing.
 
 **`debug/`** holds superseded and single-question notebooks. See
-`debug/README.md`. Nothing there is expected to run.
+`debug/README.md`. Nothing there is expected to run. The executed October
+camera-proposal review is archived there; memo 002 holds its current result.
 
 ## Receiver calibration
 
@@ -166,6 +167,8 @@ intermediate state — not the endpoint.
 
 ## Recent changes
 
+- 2026-10-07: Archived the executed October camera-proposal review under
+  `debug/`, with memo 002 identified as the authoritative interpretation.
 - 2026-10-03: files here use pre-memo-001 comb names and are not being edited:
   "digital self-comb"/"self-comb"/`self_comb_*` means the beam-mapping transmitter's
   8-channel comb, and "TX comb"/`tx_on`/`tx_comb`/`tx_state` means box-air's 1.000 MHz
