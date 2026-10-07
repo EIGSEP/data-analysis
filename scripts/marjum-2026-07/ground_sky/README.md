@@ -45,6 +45,14 @@ Inputs:
 | `fit_ground_sky.py` | Builds `derived/ground_sky/fit_vNNNN` from a binned product: per-frequency fit of `a`, T_gnd and one offset per receiver regime. `--sun model` adds the Sun as a column; `--sun cut-flat` (Sun below −10°) or `cut-terrain` (Sun behind the ridge) instead chooses which bins are fitted. The model and residual are evaluated on every bin either way, so cut bins are out-of-sample predictions. Reports which columns the data actually constrain, the per-regime pedestal ⟨f_gnd⟩·T_gnd + T_off that is constrained even when its parts are not, and χ² on held-out alternating 30-min blocks. |
 | `sun.py` | The Sun from the antenna: ephemeris; the DEM traced along the Sun's bearing (horizon elevation and edge distance); knife-edge diffraction at that edge; the K-per-SFU column through the beam; the UTM grid-to-true bearing rotation. |
 | `sun_events.py` | Tests whether the out-of-sample residual of a `cut-flat` fit around the 07-17 terrain sunrise is the Sun: a local line plus S_sun × Sun column on transmitter-off bins only, a flat-horizon null at 12:26, and a timing scan. |
+| `sun_bursts.py` | Builds `derived/ground_sky/bursts_vNNNN`: the solar bursts of `curation/solar_bursts_v0001.json` (e-CALLISTO) in raw, unflagged box-air, with excess per band and sub-band, cutouts, and a random-daytime null. |
+| `impulsive_scan.py` | Builds `impulsive_vNNNN`: a blind scan of raw box-air for impulsive events, with rates by whether the Sun is visible, behind the ridge, or down. |
+| `sun_transitions.py` | Builds `transitions_vNNNN`: the raw context, minute by minute, of every terrain sunrise and sunset of phase C, plus a raw-power line + Sun fit with a timing scan, and when the ground under the antenna crosses. |
+| `sun_profile.py` | Builds `sun_profile_vNNNN`: the Sun column through the beam, minute by minute over phase C. |
+| `raster_sun.py` | Builds `raster_sun_vNNNN`: regression of raw power during the 07-17 raster on sky, ground, transmitter and Sun columns, with fake Suns as the null. Once per beam. |
+| `joint_fit.py` | Builds `joint_vNNNN`: the calibrated night fit tied across frequency (one T_gnd, a smooth offset) by summing per-frequency marginal likelihoods; T_gnd's stability against the offset order is the test. |
+| `sky_cal.py` | Builds `skycal_vNNNN`: parked night stretches calibrated on the sky (gain from GSM's drift through the beam), and the receiver/ground separation across stretches of different ground fraction. |
+| `raster_sky.py` | Builds `raster_sky_vNNNN`: gain-free regression of raw power in moving windows on GSM, ground, constant, transmitter, Sun and drift columns; T_gnd as the ground/GSM coefficient ratio; low-order sky corrections (Y_lm) tested against ground-fixed ones on held-out blocks; optionally a specularly reflected sky term. |
 | `common.py` | Paths, provenance, and per-file height era (`mode_table.jsonl`, which fills the pointing table's blank eras) and receiver regime (`cal_windows.jsonl`). |
 | `degeneracy_study.py` | Builds the design matrix on the real geometry. Reports Fisher errors on T_gnd, the offset and the sky mean under four prior choices (sky free or 10 % GSM; offset free or known to 1 K). Then runs a simulate-and-recover check: GSM truth at nside 16, fitted at nside 8, with HFSS or the empirical beam as the true beam. Writes `summary.json`. No measured spectra are used. |
 
@@ -155,6 +163,16 @@ These figures use 120 s static bins and radiometer noise only.
   that a good χ² cannot vouch for T_gnd holds regardless.
 
 ## Recent changes
+
+- 2026-10-07: sky recovery (`joint_fit.py`, `sky_cal.py`, `raster_sky.py`). Frequency smoothness
+  alone does not fix T_gnd, and the parked nights' height lever is too weak. The rotating antenna
+  gives a ground term that repeats across three 91 m windows, but it falls with frequency and is
+  not reflected sky. Low-order sky corrections are not separable from ground-fixed ones (memo 008).
+
+- 2026-10-07: solar bursts, impulsive-event rates, raw sunrise/sunset context and fits, the Sun's
+  path through the beam, and the raster test (`sun_bursts.py`, `impulsive_scan.py`,
+  `sun_transitions.py`, `sun_profile.py`, `raster_sun.py`). Box-air records solar bursts. The
+  calibrated 07-17 sunrise excess is larger than the concurrent Sun (memo 008).
 
 - 2026-10-06: published the products memo 008 reads; added the campaign
   sunrise/sunset table and an npz to `sun_events.py`.
