@@ -93,7 +93,7 @@ Superseded generators are in `debug/` (see `debug/README.md`).
 
 ## Recent changes
 
-- 2026-10-08: Archived 61 superseded terrain-analysis scripts under
+- 2026-10-08: Archived 62 superseded terrain-analysis scripts under
   `terrain-legacy/`, preserving their source hashes while reducing the
   separate terrain checkout.
 - 2026-10-03: comb labels follow memo 001 (see "Comb names"): curation and

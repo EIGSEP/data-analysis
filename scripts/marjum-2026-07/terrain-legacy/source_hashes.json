@@ -60,6 +60,7 @@
     "test_marjum_bundle.py": "6bbd13a2973691790c752b79824b5a9e3c8c57868bddd5061734fdc74006ef04",
     "test_marjum_guided.py": "0520932baddb7213f83b934dad2e7960d0467dd4dd71fbc8aa12fae42244b36f",
     "test_marjum_landmark_picker.py": "023d63f0b8e2d1271607a2282ee5e259e574e9b6b4a0c8779f7ca23cb6f9f20a",
+    "test_marjum_mcmc.py": "d2fbc1d5958bb6c65b3e266952f6aa1f94575a66ce39a6aa991f8e10596aae58",
     "test_marjum_position.py": "b8f6df34f49e9c0b583262756f3d4ac0c625b8c357efd123df6465e26cbcd65d",
     "test_marjum_transmitter.py": "e55bf01d4a6b7231d3abcb3c38fdf250881e3eb0c2c0dc22d56c4e603fd377db"
   }

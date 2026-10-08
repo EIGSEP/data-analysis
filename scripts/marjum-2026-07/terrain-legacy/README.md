@@ -1,6 +1,6 @@
 # Historical Marjum terrain analysis scripts
 
-These 61 scripts were copied byte-for-byte from the separate `terrain/`
+These 62 scripts were copied byte-for-byte from the separate `terrain/`
 checkout on 2026-10-08, before removing their superseded copies there.
 `source_hashes.json` records each source SHA-256. They cover camera
 initialization and validation, transmitter and antenna refinements, LIDAR
