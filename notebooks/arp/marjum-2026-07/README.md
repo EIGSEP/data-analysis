@@ -168,6 +168,7 @@ intermediate state — not the endpoint.
 
 ## Recent changes
 
+- 2026-10-08: `beam_explorer.ipynb` evaluates beam product v0013 (the v0012 fit on geometry release v0004) against v0012, takes the antenna and transmitter from the release named in the product's provenance, and honours `EIGSEP_CAMPAIGN_ROOT`.
 - 2026-10-08: Moved historical Marjum camera and MCMC review notebooks and
   available renders from the deprecated terrain checkout into `debug/`;
   memo 002 remains the current geometry reference.
