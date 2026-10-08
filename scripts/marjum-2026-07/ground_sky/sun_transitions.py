@@ -1,7 +1,7 @@
 """Raw box-air data around every terrain sunrise and sunset of phase C.
 
 Builds ``derived/ground_sky/transitions_vNNNN``. For each time the Sun's centre
-crosses the DEM horizon at the antenna (from ``sun_events_v0001``), it keeps
+crosses the DEM horizon at the antenna (from ``sun_events``, ``--sun-events``), it keeps
 the raw context ±``--half-min`` minutes around it, minute by minute:
 
 - the mean raw antenna spectrum (``RFANT`` rows, ``flags@v3`` any bit but 9;
@@ -20,7 +20,7 @@ on anywhere in the window, channels 3-5 away (midway between its comb teeth).
 
 Raw power is uncalibrated. The Sun coefficient over the mean power is S/T_sys
 (per SFU), and is turned into a flux with the 5th-95th percentile range of the
-calibrated temperatures in ``fit_v0003`` as a stand-in for T_sys. That
+calibrated temperatures in ``fit`` (``--fit``) as a stand-in for T_sys. That
 stand-in comes from other hours and heights.
 
 It also records when the ground under the antenna (2 and 10 m above it) goes
@@ -53,8 +53,10 @@ from eigsep_sim.design_matrix import HealpixBeam
 import sun as sunmod
 from common import CHANNEL_MHZ, HERE, campaign_root, git_rev, sha256, workspace_root
 
-SUN_EVENTS = "derived/ground_sky/sun_events_v0001/sun_events.json"
-FIT_T = "derived/ground_sky/fit_v0003/fit.npz"
+# Defaults: the products built on horizon_profiles_v0003 (sun_events_v0002 from
+# fit_v0007, the counterpart of fit_v0003). --sun-events/--fit name others.
+SUN_EVENTS = "derived/ground_sky/sun_events_v0002/sun_events.json"
+FIT_T = "derived/ground_sky/fit_v0007/fit.npz"
 TX = "curation/transmitter_transitions_boxgnd.jsonl"
 MODES = "curation/mode_table.jsonl"
 
@@ -118,8 +120,13 @@ def main():
     ap.add_argument("version")
     ap.add_argument("--half-min", type=int, default=60)
     ap.add_argument("--fit-half-min", type=int, default=45)
+    ap.add_argument("--sun-events", default="v0002", help="sun_events_vNNNN supplying the crossings")
+    ap.add_argument("--fit", default="v0007", help="fit_vNNNN whose calibrated bins stand in for T_sys")
     ap.add_argument("--out-dir", type=Path)
     args = ap.parse_args()
+    global SUN_EVENTS, FIT_T
+    SUN_EVENTS = f"derived/ground_sky/sun_events_{args.sun_events}/sun_events.json"
+    FIT_T = f"derived/ground_sky/fit_{args.fit}/fit.npz"
 
     campaign = campaign_root()
     out_dir = args.out_dir or campaign / "derived/ground_sky" / f"transitions_{args.version}"
@@ -273,7 +280,7 @@ def main():
         "code": {"data-analysis": git_rev(HERE), "eigsep_data": git_rev(eigsep_data.__path__[0]),
                  "eigsep_sim": git_rev(Path(eigsep_sim.__file__).parent)},
         "inputs": {k: {"path": f"marjum-2026-07/{v}", "sha256": sha256(campaign / v)}
-                   for k, v in (("sun_events", SUN_EVENTS), ("fit_v0003", FIT_T), ("tx", TX),
+                   for k, v in (("sun_events", SUN_EVENTS), ("fit", FIT_T), ("tx", TX),
                                 ("dem", sunmod.DEM_PATH))}},
         "params": {k: v for k, v in vars(args).items() if k not in ("version", "out_dir")},
         "files": {"transitions.json": "per crossing: status, pointing, fit stretch, per-frequency fits, timing scan best, ground-shadow times",

@@ -18,7 +18,7 @@ and its terrain visibility (`sun.py`). The sky is in Galactic HEALPix pixels. Fo
 amplitude `a` is free (it absorbs the front-end loss, since `tcal`
 temperatures are at plane P, and any GSM scale error) and only `δ` has a
 prior. The ground is everything below the
-DEM horizon (`curation/horizon_profiles_v0002.npz`, one profile per height
+DEM horizon (`curation/horizon_profiles_v0003.npz`, one profile per height
 era), at one uniform temperature. `T_off` is an additive offset. Rows are
 normalized by the full-sphere beam integral, so sky plus ground weights sum
 to one. As a result, a uniform shift of the sky and ground against the
@@ -31,7 +31,7 @@ Inputs:
   with `az_offset` and `psi` read from `empirical_raster_v0012`.
 - Pointing: `curation/pointing_table.parquet`, using phase C and
   `quality == "ok"` rows only.
-- Horizon bearings: `horizon_profiles_v0002` bearings are UTM 12N grid
+- Horizon bearings: the horizon-profile bearings are UTM 12N grid
   bearings (the DEM's frame), 1.52° from true at the site. The fit now
   rotates them to true bearings; the first trials did not.
 - Beam: pluggable. Either the HFSS bowtie or an `empirical_beam.npz`, through
@@ -165,6 +165,7 @@ These figures use 120 s static bins and radiometer noise only.
 
 ## Recent changes
 
+- 2026-10-08: Every script reads `common.HORIZON_PROFILES` (`curation/horizon_profiles_v0003`, the release v0004 antenna) and `common.DEM_PATH` (`derived/dem/v0003`, the mosaic 1 km larger to the west and south), so the antenna, transmitter, horizon and the Sun's terrain trace all come from geometry v0004. `sun_transitions.py` takes `--sun-events` and `--fit` instead of hard-coding v0001/v0003. Products before the `_v0002` (or `fit_v0005`) versions are on v0001 geometry.
 - 2026-10-08: The transmitter now comes from the geometry release the horizon profiles were built on (`sun.transmitter_enu()`), not `curation/transmitter_position.json`, so the antenna and transmitter always come from one fit. That is still release v0001 (same transmitter position as before, so existing products are unchanged); these scripts move to the current release v0004 only when `curation/horizon_profiles` is rebuilt at the v0004 antenna.
 - 2026-10-07: `ground_excess.py`: the low-frequency ground excess is spread over the ground, not
   concentrated at the horizon or in particular azimuths (memo 008).

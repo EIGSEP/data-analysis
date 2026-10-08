@@ -55,7 +55,7 @@ HERE = Path(__file__).resolve().parent
 CAMPAIGN = Path(os.environ["EIGSEP_CAMPAIGN_ROOT"])
 WORKSPACE = CAMPAIGN.parent
 POINTING = CAMPAIGN / "curation" / "pointing_table.parquet"
-HORIZONS = CAMPAIGN / "curation" / "horizon_profiles_v0002.npz"
+HORIZONS = CAMPAIGN / "curation" / "horizon_profiles_v0003.npz"   # common.HORIZON_PROFILES
 EMPIRICAL = CAMPAIGN / "derived/beam/empirical_raster_v0012/dpss"
 HFSS = WORKSPACE / "data-analysis/hfss_beam_maps/bowtie_beam.npz"
 

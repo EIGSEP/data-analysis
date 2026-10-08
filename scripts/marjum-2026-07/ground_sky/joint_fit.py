@@ -52,7 +52,7 @@ from eigsep_sim.design_matrix import HorizonProfile, build_design_matrix
 from eigsep_sim.observer import EarthSurface
 
 import sun as sunmod
-from common import ERAS, HERE, campaign_root, git_rev, sha256
+from common import ERAS, HERE, HORIZON_PROFILES, campaign_root, git_rev, sha256
 from fit_ground_sky import gsm_maps, load_beam
 
 
@@ -112,7 +112,7 @@ def main():
     rg = EarthSurface(lat, lon, hgt).rot_gal2top_stack(Time(t, format="unix")).astype(float)
     rb = mount_rotation(np.round(z["az"][keep], 1) + az_off, np.round(z["el"][keep], 1), psi)
     hz = sunmod.true_horizon(HorizonProfile.from_npz(
-        campaign / "curation/horizon_profiles_v0002.npz", ERAS[eras[0]]))
+        campaign / f"{HORIZON_PROFILES}.npz", ERAS[eras[0]]))
     dm = build_design_matrix(beam, [hz], rg, rb, man["params"]["nside_sky"], nside_int=64)
     gsm = gsm_maps(freqs, man["params"]["nside_sky"])
     dm = dm.with_sky_templates(gsm, names=["gsm_amplitude"])

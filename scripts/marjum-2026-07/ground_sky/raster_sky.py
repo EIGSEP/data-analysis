@@ -58,7 +58,7 @@ from eigsep_sim.design_matrix import HorizonProfile, build_design_matrix
 from eigsep_sim.observer import EarthSurface
 
 import sun as sunmod
-from common import CHANNEL_MHZ, HERE, campaign_root, git_rev, sha256
+from common import CHANNEL_MHZ, HERE, HORIZON_PROFILES, campaign_root, git_rev, sha256
 from fit_ground_sky import gsm_maps, load_beam
 
 
@@ -160,7 +160,7 @@ def main():
     rg_frozen = np.broadcast_to(rg[len(rg) // 2], rg.shape).copy()
     rb = mount_rotation(az + az_off, el, psi)
     hz = sunmod.true_horizon(HorizonProfile.from_npz(
-        campaign / "curation/horizon_profiles_v0002.npz", args.era))
+        campaign / f"{HORIZON_PROFILES}.npz", args.era))
     gsm = gsm_maps(freqs, args.nside)
     ylm, labels = real_ylm_maps(args.nside, args.lmax)
     print(f"{len(t)} rows, {len(freqs)} frequencies, {len(labels)} Y_lm", flush=True)

@@ -69,7 +69,7 @@ from eigsep_sim.design_matrix import HorizonProfile, build_design_matrix
 from eigsep_sim.observer import EarthSurface
 
 import sun as sunmod
-from common import CHANNEL_MHZ, ERAS, HERE, campaign_root, git_rev, sha256
+from common import CHANNEL_MHZ, ERAS, HERE, HORIZON_PROFILES, campaign_root, git_rev, sha256
 from fit_ground_sky import gsm_maps, load_beam
 
 # Night stretches of fixed pointing in receiver regime rx-A (mode table, pointing table).
@@ -181,7 +181,7 @@ def main():
         rg = EarthSurface(lat, lon, hgt).rot_gal2top_stack(Time(t, format="unix")).astype(float)
         rb = mount_rotation(df.az.values + az_off, df.el.values, psi)
         hz = sunmod.true_horizon(HorizonProfile.from_npz(
-            campaign / "curation/horizon_profiles_v0002.npz", ERAS[st["era"]]))
+            campaign / f"{HORIZON_PROFILES}.npz", ERAS[st["era"]]))
         dm = build_design_matrix(beam, [hz], rg, rb, 8, offset_groups=False, nside_int=64)
         colG = np.einsum("ftp,fp->ft", dm.A[:, :, dm.sky], gsm)
         fgnd = dm.A[:, :, dm.ground][:, :, 0]
@@ -259,7 +259,7 @@ def main():
             "code": {"data-analysis": git_rev(HERE), "eigsep_data": git_rev(eigsep_data.__path__[0]),
                      "eigsep_sim": git_rev(Path(eigsep_sim.__file__).parent)},
             "inputs": {"beam_sha256": sha256(beam_path),
-                       "horizon_sha256": sha256(campaign / "curation/horizon_profiles_v0002.npz")}},
+                       "horizon_sha256": sha256(campaign / f"{HORIZON_PROFILES}.npz")}},
         "params": {k: v for k, v in vars(args).items() if k not in ("version", "out_dir")},
         "stretches": results, "regression": reg}, indent=1))
     np.savez_compressed(out_dir / f"skycal_{args.beam}.npz", freqs_mhz=freqs, **arrays)

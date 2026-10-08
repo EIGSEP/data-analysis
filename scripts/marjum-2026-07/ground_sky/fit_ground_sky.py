@@ -77,7 +77,7 @@ from eigsep_sim.design_matrix import (
 from eigsep_sim.observer import EarthSurface
 
 import sun as sunmod
-from common import ERAS, HERE, campaign_root, git_rev, sha256, workspace_root
+from common import ERAS, HERE, HORIZON_PROFILES, campaign_root, git_rev, sha256, workspace_root
 
 BLUE, ORANGE = "#2a78d6", "#eb6834"
 INK, MUTED = "#0b0b0b", "#52514e"
@@ -194,7 +194,7 @@ def main():
     else:
         fitmask = np.ones(len(z["t"]), bool)
     eras = sorted(set(z["era"]))
-    hpath = campaign / "curation/horizon_profiles_v0002.npz"
+    hpath = campaign / f"{HORIZON_PROFILES}.npz"
     horizons = [HorizonProfile.from_npz(hpath, ERAS[e]) for e in eras]
     if not args.no_grid_rotation:
         horizons = [sunmod.true_horizon(h) for h in horizons]
@@ -325,7 +325,7 @@ def main():
                            "sha256": sha256(bdir / "binned.npz")},
                 "beam": {"name": args.beam, "path": str(beam_path.relative_to(workspace_root())),
                          "sha256": sha256(beam_path)},
-                "horizons": {"path": "marjum-2026-07/curation/horizon_profiles_v0002.npz",
+                "horizons": {"path": f"marjum-2026-07/{HORIZON_PROFILES}.npz",
                              "sha256": sha256(hpath)},
                 "sky_template": "pygdsm GlobalSkyModel16, ud_grade to nside_sky",
                 "dem": {"path": f"marjum-2026-07/{sunmod.DEM_PATH}",

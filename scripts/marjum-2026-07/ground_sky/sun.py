@@ -21,7 +21,7 @@ alternative hypothesis for timing tests.
 Bearings: the DEM is NAD83(2011) / UTM 12N (EPSG:6341), whose grid north is
 ``grid_to_true_deg()`` (about -1.52 deg) from true north at the site. The Sun's
 true bearing is converted to the grid before the DEM is read. The same rotation
-applies to ``horizon_profiles_v0002``, whose bearings are grid bearings.
+applies to the horizon profiles, whose bearings are grid bearings.
 """
 
 from __future__ import annotations
@@ -37,14 +37,13 @@ from scipy.special import fresnel
 
 from eigsep_base.const import MARJUM_PASS
 
-from common import campaign_root
+from common import DEM_PATH, HORIZON_PROFILES, campaign_root
 
 K_B = 1.380649e-23
 C_LIGHT = 299792458.0
 SFU = 1e-22  # W m^-2 Hz^-1
 R_EARTH = 6371e3
-DEM_PATH = "derived/dem/v0001/marjum_dem.npz"
-HORIZON_JSON = "curation/horizon_profiles_v0002.json"
+HORIZON_JSON = HORIZON_PROFILES + ".json"
 
 
 @lru_cache(maxsize=None)
@@ -134,7 +133,7 @@ def trace_horizon(bearing_true_deg, era, step_m=0.5, max_m=6000.0):
     """Horizon elevation (deg) and edge distance (m) along true bearings.
 
     Marches the DEM outward from the antenna to the tile edge, with geometric
-    Earth curvature and no refraction (as ``horizon_profiles_v0002``).
+    Earth curvature and no refraction (as the horizon profiles).
     """
     ant = antenna_enu(era)
     r = np.arange(2.0, max_m, step_m)

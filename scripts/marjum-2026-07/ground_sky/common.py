@@ -23,7 +23,13 @@ def workspace_root():
     return campaign_root().parent
 
 
-# horizon_profiles_v0002 keys by pointing-table era.
+# Horizon profiles (curation/horizon_profiles_vNNNN.{json,npz}) for every
+# script here; v0003 is traced from the release v0004 antenna on DEM v0003.
+HORIZON_PROFILES = "curation/horizon_profiles_v0003"
+# The DEM the Sun's terrain trace reads (same grid as the profiles).
+DEM_PATH = "derived/dem/v0003/marjum_dem.npz"
+
+# Horizon-profile keys by pointing-table era.
 ERAS = {"~30m": "30m", "~87.5m": "87.5m", "~91m": "91m"}
 
 # Channel width of the correlator, MHz.
