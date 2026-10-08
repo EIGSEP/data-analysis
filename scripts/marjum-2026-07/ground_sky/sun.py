@@ -91,6 +91,33 @@ def antenna_enu(era):
     return np.array([e, n, meta["eras"][era]["antenna_u_m"]])
 
 
+def geometry_release():
+    """``shared.json`` of the geometry release the horizon profiles were built on.
+
+    The antenna position comes from the horizon-profile product, so the
+    transmitter must come from the same release: mixing releases would put
+    the two ends of the antenna-to-transmitter vector in different fits.
+    The release path and checksum are those the profile recorded.
+    """
+    import hashlib
+
+    meta = json.loads((campaign_root() / HORIZON_JSON).read_text())
+    rec = [i for i in meta["provenance"]["inputs"]
+           if i["path"].endswith("_marjum_geometry/shared.json")]
+    if len(rec) != 1:
+        raise ValueError(f"{HORIZON_JSON} does not name exactly one geometry release")
+    path = campaign_root().parent / rec[0]["path"]
+    if hashlib.sha256(path.read_bytes()).hexdigest() != rec[0]["sha256"]:
+        raise ValueError(f"{path} differs from the release {HORIZON_JSON} was built on")
+    return json.loads(path.read_text())
+
+
+def transmitter_enu():
+    """Transmitter (E, N, U) from the horizon profiles' geometry release."""
+    return np.array(geometry_release()["transmitter"]["recommended_for_propagation"]
+                    ["position_enu_m"], float)
+
+
 def _dem_at(e, n):
     dem, e0, n0, res = _dem()
     x, y = e / res + e0, n / res + n0

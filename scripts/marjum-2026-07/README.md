@@ -94,6 +94,7 @@ Superseded generators are in `debug/` (see `debug/README.md`).
 
 ## Recent changes
 
+- 2026-10-08: `build_known_quantities_xlsx.py` builds from geometry release v0004 on DEM v0002 (no uncertainty, GPS points placed on the UTM grid) instead of v0001 and the retired `terrain/` files it could no longer find; `--root` and `--output` let it run from a worktree.
 - 2026-10-08: Moved the geometry posterior v0004 drivers into `geometry/`, out of
   the campaign product directory; the published hashes still verify.
 - 2026-10-08: Archived 62 superseded terrain-analysis scripts under

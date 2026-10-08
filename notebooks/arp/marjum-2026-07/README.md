@@ -100,7 +100,11 @@ Review - Summary") still read local caches and in places hardcode `/mnt/data02/.
 **Geometry results live in memo 002** (`eigsep/memos/memo-002-marjum-2026-07-geometry/`):
 camera poses, antenna and transmitter positions, the joint MCMC, the azimuth zero and
 the LIDAR check. The geometry, MCMC and LIDAR explorers here are for interactive
-poking; where they disagree with the memo, the memo is right.
+poking; where they disagree with the memo, the memo is right. Their saved outputs
+show the historical geometry (release `v0001` and the September joint MCMC); the
+current geometry is release `imgs/fits/v0004_marjum_geometry` (geometry_posterior
+v0004), which memo 002 adopts. `lidar_explorer.ipynb` picks the latest release when
+re-run, but its LIDAR fit was made at the v0001 antenna.
 
 **Frozen checkpoints.** `comb_transition_waterfalls` and `Marjum 2026-07 LIDAR Antenna Constraint` are
 review-gate evidence, kept with their rendered `.html`/`.pdf`. They record a
@@ -168,6 +172,7 @@ intermediate state — not the endpoint.
 
 ## Recent changes
 
+- 2026-10-08: The geometry, MCMC and LIDAR explorers are marked as showing the historical v0001 geometry; release v0004 (memo 002) is current.
 - 2026-10-08: Moved historical Marjum camera and MCMC review notebooks and
   available renders from the deprecated terrain checkout into `debug/`;
   memo 002 remains the current geometry reference.

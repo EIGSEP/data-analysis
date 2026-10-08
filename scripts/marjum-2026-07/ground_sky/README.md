@@ -165,6 +165,7 @@ These figures use 120 s static bins and radiometer noise only.
 
 ## Recent changes
 
+- 2026-10-08: The transmitter now comes from the geometry release the horizon profiles were built on (`sun.transmitter_enu()`), not `curation/transmitter_position.json`, so the antenna and transmitter always come from one fit. That is still release v0001 (same transmitter position as before, so existing products are unchanged); these scripts move to the current release v0004 only when `curation/horizon_profiles` is rebuilt at the v0004 antenna.
 - 2026-10-07: `ground_excess.py`: the low-frequency ground excess is spread over the ground, not
   concentrated at the horizon or in particular azimuths (memo 008).
 

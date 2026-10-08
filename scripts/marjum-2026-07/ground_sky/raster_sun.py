@@ -100,8 +100,7 @@ def main():
     colN = dm.A[:, :, dm.ground][:, :, 0]
     geom = sunmod.sun_geometry(t, args.era)
     colS = sunmod.sun_column(beam, rb, geom, "knife")
-    tx = np.array(json.loads((campaign / "curation/transmitter_position.json").read_text())
-                  ["best_estimate_enu_m"])
+    tx = sunmod.transmitter_enu()
     v = tx - sunmod.antenna_enu(args.era)
     g = np.radians(sunmod.grid_to_true_deg())
     v = np.array([[np.cos(g), -np.sin(g), 0], [np.sin(g), np.cos(g), 0], [0, 0, 1]]) @ (v / np.linalg.norm(v))

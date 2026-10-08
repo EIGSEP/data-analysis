@@ -17,13 +17,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import numpy as np
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
 
 CAMPAIGN = "marjum-2026-07"
-RELEASE = "v0001"
+RELEASE = "v0004"
+GPS = {"east_highline_anchor": (39.24672, -113.40102),
+       "west_highline_anchor": (39.24904, -113.40486),
+       "pulley_plate_tiedown": (39.24786463007058, -113.40269273002308)}
 LOCAL_TZ = ZoneInfo("America/Denver")
 
 
@@ -106,13 +110,12 @@ def add_table_sheet(wb: Workbook, name: str, headers: list[str], rows: list[list
 
 def source_catalog(root: Path) -> list[dict]:
     definitions = [
-        ("SRC-GEOM-MANIFEST", "marjum-2026-07/imgs/fits/v0001_marjum_geometry/manifest.json", "geometry release manifest", "candidate release; authoritative description"),
-        ("SRC-CAMERAS", "marjum-2026-07/imgs/fits/v0001_marjum_geometry/cameras.jsonl", "per-image camera solutions", "candidate release"),
-        ("SRC-LABELS", "marjum-2026-07/imgs/fits/v0001_marjum_geometry/labels.json", "image pixel labels", "candidate release"),
-        ("SRC-SHARED", "marjum-2026-07/imgs/fits/v0001_marjum_geometry/shared.json", "shared antenna/transmitter geometry", "candidate release"),
-        ("SRC-GEOM-README", "marjum-2026-07/imgs/fits/v0001_marjum_geometry/README.md", "geometry interpretation and caveats", "candidate release"),
-        ("SRC-ANT-POS", "terrain/antenna_position_bracket.json", "antenna best estimate and hard bound", "recommended deterministic product"),
-        ("SRC-TX-POS", "marjum-2026-07/curation/transmitter_position.json", "transmitter best estimate and hard bound", "recommended deterministic product"),
+        ("SRC-GEOM-MANIFEST", f"marjum-2026-07/imgs/fits/{RELEASE}_marjum_geometry/manifest.json", "geometry release manifest", "current release; authoritative description"),
+        ("SRC-CAMERAS", f"marjum-2026-07/imgs/fits/{RELEASE}_marjum_geometry/cameras.jsonl", "per-image camera solutions", "current release"),
+        ("SRC-LABELS", f"marjum-2026-07/imgs/fits/{RELEASE}_marjum_geometry/labels.json", "image pixel labels", "current release"),
+        ("SRC-SHARED", f"marjum-2026-07/imgs/fits/{RELEASE}_marjum_geometry/shared.json", "shared antenna/transmitter geometry", "current release"),
+        ("SRC-GEOM-README", f"marjum-2026-07/imgs/fits/{RELEASE}_marjum_geometry/README.md", "geometry interpretation and caveats", "current release"),
+        ("SRC-DEM", "marjum-2026-07/derived/dem/v0002/manifest.json", "UTM-georeferenced DEM the release is on", "published product"),
         ("SRC-GEOM-MEMO", "memos/memo-002-marjum-2026-07-geometry/memo-002.pdf", "anchors, positions, azimuth zero", "living memo (replaces legacy MEMO-012)"),
         ("SRC-POINTING-MEMO", "memos/memo-003-marjum-2026-07-pointing/memo-003.pdf", "mount, angle conventions, pointing fusion, azimuth zero", "living memo (replaces legacy MEMO-012/013)"),
         ("SRC-BEAM-MEMO", "memos/memo-005-marjum-2026-07-beam/memo-005.pdf", "beam reconstruction, polarization convention and handedness check", "living memo (replaces AZIMUTH_CONVENTIONS.md)"),
@@ -128,15 +131,9 @@ def source_catalog(root: Path) -> list[dict]:
         ("SRC-MEMO-002", "memos/MEMO-002-pointing-table-v0-beam-scan.md", "beam-scan timing and pointing", "memo"),
         ("SRC-MEMO-007", "memos/MEMO-007-comb-differencing-and-the-tx-comb-axis.md", "transmitter/comb timing interpretation", "memo"),
         ("SRC-MEMO-008", "memos/MEMO-008-component-events-and-an-undocumented-beam-scan-discontinuity.md", "component events and scan discontinuity", "memo"),
-        ("SRC-MCMC-README", "terrain/archive/2026-09-14_joint_posterior_v1_NONCONVERGED/README.md", "MCMC run verdict and inventory", "NOT CONVERGED; reference only"),
-        ("SRC-MCMC-COMBINED", "terrain/archive/2026-09-14_joint_posterior_v1_NONCONVERGED/joint_posterior_v1/combined.npz", "combined MCMC draws and diagnostics", "NOT CONVERGED; do not quote as posterior"),
-        ("SRC-MCMC-CONVERGENCE", "terrain/archive/2026-09-14_joint_posterior_v1_NONCONVERGED/joint_posterior_v1/convergence.json", "MCMC convergence diagnostics", "NOT CONVERGED"),
-        ("SRC-MCMC-MANIFEST", "terrain/archive/2026-09-14_joint_posterior_v1_NONCONVERGED/joint_posterior_v1/manifest.json", "MCMC run manifest", "frozen reference"),
-        ("SRC-MCMC-NOTEBOOK", "terrain/Marjum 2026-07 Joint MCMC Review.ipynb", "executed MCMC review", "NOT CONVERGED; working copy"),
-        ("SRC-ANT-FIT", "marjum-2026-07/curation/v0001_geometry_provenance/sources/terrain/cv_antenna_repick_v1/fit_antenna.npz", "frozen antenna fit", "v0001 provenance snapshot"),
-        ("SRC-TX-FIT", "marjum-2026-07/curation/v0001_geometry_provenance/sources/terrain/cv_transmitter_joint_v4/fit_transmitter.npz", "frozen transmitter candidate fit", "candidate failed one acceptance check"),
-        ("SRC-TX-REPORT", "marjum-2026-07/curation/v0001_geometry_provenance/sources/terrain/cv_transmitter_joint_v4/report.json", "transmitter fit report", "v0001 provenance snapshot"),
-        ("SRC-TX-ACCEPT", "marjum-2026-07/curation/v0001_geometry_provenance/sources/terrain/cv_transmitter_joint_v4/acceptance.json", "transmitter fit acceptance", "failed 2211 transmitter reprojection"),
+        ("SRC-GEOM-POSTERIOR", "marjum-2026-07/derived/geometry_posterior/v0004/manifest.json", "joint geometry fit the release is built from", "provisional point fit; chains not converged"),
+        ("SRC-GEOM-CONVERGENCE", "marjum-2026-07/derived/geometry_posterior/v0004/run/convergence_report.json", "v0004 MCMC convergence diagnostics", "NOT CONVERGED"),
+        ("SRC-GEOM-V0001", "marjum-2026-07/imgs/fits/v0001_marjum_geometry/shared.json", "historical release positions and hard brackets", "historical; superseded by v0004"),
     ]
     rows = []
     for source_id, rel, role, status in definitions:
@@ -159,17 +156,15 @@ def build(root: Path, output: Path, force: bool = False) -> dict:
         raise FileExistsError(f"refusing to replace published artifact: {output}")
 
     campaign = root / CAMPAIGN
-    release_dir = campaign / "imgs/fits/v0001_marjum_geometry"
+    release_dir = campaign / f"imgs/fits/{RELEASE}_marjum_geometry"
     cameras = read_jsonl(release_dir / "cameras.jsonl")
     manifest = read_json(release_dir / "manifest.json")
     shared = read_json(release_dir / "shared.json")
     events = sorted(read_jsonl(campaign / "events.jsonl"), key=lambda r: r["t_start_utc"])
-    ant_product = read_json(root / "terrain/antenna_position_bracket.json")
-    tx_product = read_json(campaign / "curation/transmitter_position.json")
-
-    sys.path.insert(0, str(root / "eigsep_terrain/src"))
-    from eigsep_terrain.marjum_dem import MarjumDEM
-    dem = MarjumDEM(cache_file=str(root / "terrain/marjum_dem.npz"))
+    from eigsep_terrain.dem import DEM
+    dem = DEM(cache_file=str(campaign / "derived/dem/v0002/marjum_dem.npz"))
+    if list(shared["frame"]["raster_origin_m"]) != [float(v) for v in dem.raster_origin]:
+        raise ValueError("release frame and DEM v0002 raster origin differ")
 
     def geodetic(enu):
         if not enu:
@@ -194,14 +189,14 @@ def build(root: Path, output: Path, force: bool = False) -> dict:
         ("Role", "Portable generated view; source JSON/JSONL/NPZ and memos remain authoritative."),
         ("Geometry release", f"{manifest['release_id']} ({manifest['status']})"),
         ("Geometry coverage", f"{manifest['coverage']['labeled_images']} images: {manifest['coverage']['usable_camera_poses']} usable poses, {manifest['coverage']['excluded_camera_poses']} excluded/null poses"),
-        ("Coordinate frame", "Local working grid, axes East/North/Up in metres; horizontal CRS EPSG:6341."),
-        ("Latitude/longitude", "Derived with eigsep_terrain MarjumDEM.enu_to_latlon using terrain/marjum_dem.npz."),
+        ("Coordinate frame", "UTM raster grid of derived/dem/v0002: EPSG:6341 easting/northing minus the release's raster_origin_m; axes East/North/Up in metres."),
+        ("Latitude/longitude", "Derived with eigsep_terrain DEM.enu_to_latlon (UTM frame) using derived/dem/v0002/marjum_dem.npz."),
         ("Altitude", "Converted geodetic altitude from enu_to_latlon; vertical datum is not independently verified. Do not silently substitute U for altitude."),
         ("Angle convention", "theta_ccw_from_east_deg is mathematical angle counter-clockwise about Up from East. Axis values are modulo 180 degrees; directed headings are modulo 360 degrees."),
         ("Camera rotation", "body_to_ENU = Rz(phi) @ Ry(theta) @ Rz(tilt), per geometry release manifest."),
         ("Time convention", "UTC is authoritative. Local display is America/Denver (MDT, UTC-06 during campaign). Filenames are file close-times."),
-        ("Uncertainty", "Antenna +/-1.7 m and transmitter +/-1.5 m are deterministic hard bounding radii, not posterior sigmas."),
-        ("MCMC warning", "The archived joint run is NOT CONVERGED / BIMODAL and is listed for provenance only; it does not supersede deterministic brackets."),
+        ("Uncertainty", "None established. Release v0004 is a point fit selected from non-converged chains (memo 002); bound cells are blank. The v0001 brackets (1.7 m, 1.5 m) are historical."),
+        ("MCMC warning", "The v0004 joint chains did not converge; no posterior interval exists."),
         ("Personal log", "The bound field notebook is not archived here. Timeline citations fieldnotes:p176-p181 are transcriptions/locators, not embedded primary pages."),
         ("Status vocabulary", "recommended = current use; candidate = unaccepted release/state; conditional = convention-dependent; superseded = retained historically; unresolved = insufficient evidence."),
         ("Blank cells", "Unknown or inapplicable. In particular, integration indices remain blank where evidence resolves only to files or approximate field-note times."),
@@ -269,26 +264,20 @@ def build(root: Path, output: Path, force: bool = False) -> dict:
         return [entity, "point", status, *enu, lat, lon, alt, bound, "m",
                 bound_kind, None, None, None, None, "position", source_id, locator, notes]
 
-    ant = ant_product["best_estimate_enu_m"]
-    tx = tx_product["best_estimate_enu_m"]
-    system_rows.append(point_row("antenna_91m_era", ant, 1.7,
-        "bounding radius; not posterior sigma", "recommended deterministic fit",
-        "SRC-ANT-POS", "best_estimate_enu_m", "91 m-era reference position"))
-    system_rows.append(point_row("transmitter", tx, 1.5,
-        "bounding radius; not posterior sigma", "recommended for propagation",
-        "SRC-TX-POS", "best_estimate_enu_m", "Use instead of failed v4 working candidate"))
-    system_rows.append(point_row("east_highline_anchor", [1789.164, 1914.729, 1842.95], None,
-        "receiver accuracy not recorded", "measured GPS horizontal; DEM-derived U",
-        "SRC-GEOM-MEMO", "section 2 and section 4.8", "GPS receiver -> CalTopo; lat/lon originally 39.24672, -113.40102"))
-    system_rows.append(point_row("west_highline_anchor", [1457.629, 2172.228, 1875.22], None,
-        "receiver accuracy not recorded", "measured GPS horizontal; DEM-derived U",
-        "SRC-GEOM-MEMO", "section 2 and section 4.8", "GPS receiver -> CalTopo; lat/lon originally 39.24904, -113.40486"))
-    tie_enu = dem.latlon_to_enu(39.24789, -113.40271, 1685.06).astype(float).tolist()
-    # The memo's 1685.06 m is working-grid U/DEM elevation, not geodetic alt.
-    tie_enu[2] = 1685.06
-    system_rows.append(point_row("pulley_plate_tiedown", tie_enu, None,
-        "receiver accuracy not recorded", "measured GPS horizontal; DEM-derived U",
-        "SRC-GEOM-MEMO", "section 2 and section 4.8", "CalTopo-revised 2026-09-18; lat/lon 39.24789, -113.40271"))
+    ant = shared["antenna_91m_era"]["position_enu_m"]
+    tx = shared["transmitter"]["recommended_for_propagation"]["position_enu_m"]
+    system_rows.append(point_row("antenna_91m_era", ant, None,
+        "no uncertainty established", shared["antenna_91m_era"]["status"],
+        "SRC-SHARED", "antenna_91m_era.position_enu_m", "91 m-era position, geometry v0004"))
+    system_rows.append(point_row("transmitter", tx, None,
+        "no uncertainty established", shared["transmitter"]["recommended_for_propagation"]["status"],
+        "SRC-SHARED", "transmitter.recommended_for_propagation.position_enu_m", "geometry v0004"))
+    for name, (lat, lon) in GPS.items():
+        # U is the DEM elevation at the GPS horizontal position, not a geodetic altitude.
+        e, n = (float(v) for v in np.ravel(dem.latlon_to_enu(lat, lon))[:2])
+        system_rows.append(point_row(name, [e, n, float(dem.interp_alt(e, n))], None,
+            "receiver accuracy not recorded", "measured GPS horizontal; DEM-derived U",
+            "SRC-GEOM-MEMO", "azimuth-zero section", f"GPS receiver -> CalTopo; lat/lon {lat:.5f}, {lon:.5f}"))
 
     def axis_row(entity, theta, domain, sigma, compass, meaning, status, source, locator, notes=""):
         return [entity, "axis", status, None, None, None, None, None, None,
@@ -398,11 +387,11 @@ def build(root: Path, output: Path, force: bool = False) -> dict:
         },
         "sources": sources,
         "known_limitations": [
-            "Geometry release v0001 is candidate, not accepted.",
+            "Geometry release v0004 is a provisional point fit with no established uncertainty.",
             "Converted altitude uses a vertical datum that has not been independently verified.",
             "The original bound field notebook is absent; fieldnotes page tags point to transcriptions.",
             "Integration indices are not filled where the curated evidence resolves only to file boundaries.",
-            "The archived joint MCMC run is nonconverged and reference-only.",
+            "The v0004 joint MCMC chains are nonconverged; positions are a point selection.",
             "No physical transmitter-polarization theta is asserted until alpha/frame/handedness semantics are resolved.",
         ],
     }
@@ -419,8 +408,8 @@ def build(root: Path, output: Path, force: bool = False) -> dict:
         f"- Generated: `{generated}`\n"
         "- Status: **candidate**\n\n"
         "Important caveats are reproduced on the workbook's README sheet. In particular, "
-        "the v0001 geometry release is candidate, the MCMC archive is nonconverged, and "
-        "the physical transmitter-polarization sky angle remains unresolved.\n",
+        "geometry release v0004 has no established uncertainty, its MCMC chains are "
+        "nonconverged, and the physical transmitter-polarization sky angle remains unresolved.\n",
         encoding="utf-8",
     )
     return output_manifest
@@ -429,9 +418,12 @@ def build(root: Path, output: Path, force: bool = False) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--force", action="store_true", help="replace an existing draft artifact")
+    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[3],
+                        help="workspace holding the campaign (default: beside data-analysis)")
+    parser.add_argument("--output", type=Path, default=None, help="workbook path (default: the campaign product)")
     args = parser.parse_args()
-    root = Path(__file__).resolve().parents[3]
-    output = root / CAMPAIGN / "derived/known_quantities" / RELEASE / f"{CAMPAIGN}_known_quantities_{RELEASE}.xlsx"
+    root = args.root
+    output = args.output or root / CAMPAIGN / "derived/known_quantities" / RELEASE / f"{CAMPAIGN}_known_quantities_{RELEASE}.xlsx"
     result = build(root, output, force=args.force)
     print(json.dumps({"workbook": result["workbook"], "coverage": result["coverage"]}, indent=2))
 
