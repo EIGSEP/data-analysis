@@ -13,7 +13,7 @@ v0002 was made by an uncommitted copy of this procedure on the int32
 ``terrain/marjum_dem_sw.npz``; ``--quantize`` reproduces that quantisation
 from the float32 cache for validation (``--validate-against``).
 
-Usage (current product):
+Usage (current product, on DEM v0003 at the release v0004 antenna):
     python build_horizon_profiles.py v0003 --out-dir <campaign>/curation
 """
 from __future__ import annotations
@@ -128,7 +128,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("version", help="product version, e.g. v0003")
     ap.add_argument("--release", default="v0004", help="geometry release supplying the antenna")
-    ap.add_argument("--dem", default=None, help="DEM cache (default: derived/dem/v0002/marjum_dem.npz)")
+    ap.add_argument("--dem", default=None, help="DEM cache (default: derived/dem/v0003/marjum_dem.npz)")
     ap.add_argument("--quantize", choices=("none", "round", "trunc"), default="none")
     ap.add_argument("--antenna", type=float, nargs=3, default=None,
                     help="override the antenna E N U (validation only)")
@@ -143,7 +143,7 @@ def main():
     campaign = Path(get_campaign_root(required=True))
     workspace = campaign.parent
     shared_path = campaign / "imgs" / "fits" / f"{args.release}_marjum_geometry" / "shared.json"
-    dem_path = Path(args.dem) if args.dem else campaign / "derived" / "dem" / "v0002" / "marjum_dem.npz"
+    dem_path = Path(args.dem) if args.dem else campaign / "derived" / "dem" / "v0003" / "marjum_dem.npz"
     shared = json.loads(shared_path.read_text())
     antenna = np.asarray(args.antenna if args.antenna else
                          shared["antenna_91m_era"]["position_enu_m"], float)
@@ -217,7 +217,7 @@ def main():
         },
         "stamp": stamp, "data_file": data_file,
         "supersedes": f"horizon_profiles {args.previous}",
-        "frame": ("UTM raster grid of derived/dem/v0002 (EPSG:6341 minus raster origin "
+        "frame": ("UTM raster grid shared by derived/dem/v0002 and v0003 (EPSG:6341 minus raster origin "
                   f"{frame.get('raster_origin_m')}); bearings are atan2(dN,dE) degrees; "
                   "elevation is angle above horizontal in radians"),
         "antenna_enu_m": [round(float(x), 3) for x in antenna],
@@ -253,8 +253,8 @@ def main():
         "limitations": [
             "No vegetation, talus or suspension structure in the DEM.",
             f"The antenna position (release {args.release}) has no established uncertainty.",
-            "The march stops at the DEM tile edge, which is nearer to the west and south than "
-            "in v0002's larger mosaic (see the extent).",
+            "The march stops at the DEM mosaic edge (see the extent); at 87.5-91 m the skyline on "
+            "about 160 bearings lies beyond DEM v0002's 3 x 4 tiles, so the larger mosaic is required.",
         ],
     }
     (out_dir / f"horizon_profiles_{args.version}.json").write_text(json.dumps(product, indent=1) + "\n")
