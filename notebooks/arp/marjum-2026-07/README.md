@@ -168,6 +168,9 @@ intermediate state — not the endpoint.
 
 ## Recent changes
 
+- 2026-10-08: Moved historical Marjum camera and MCMC review notebooks and
+  available renders from the deprecated terrain checkout into `debug/`;
+  memo 002 remains the current geometry reference.
 - 2026-10-07: Archived the October camera-proposal notebook and its executed
   HTML under `debug/`, with memo 002 identified as the authoritative interpretation.
 - 2026-10-03: files here use pre-memo-001 comb names and are not being edited:

@@ -23,6 +23,16 @@ Moved here 2026-09-21 when the `arp/marjum-2026-07` set was tidied:
 | `geometry_explorer_bak.ipynb` | `../geometry_explorer.ipynb` | Backup copy. |
 | `camera_proposal_repair_20261007.ipynb` (+ `.html`) | memo 002 | October proposal code and its executed rendering; memo 002 supersedes its interpretation, and old terrain paths are not maintained. |
 
+The `terrain_*.ipynb` geometry reviews were moved from the deprecated
+`terrain/` checkout on 2026-10-08. The B2 position, geometry snapshot, joint
+MCMC, and per-camera and summary MCMC reviews retain their executed HTML;
+the snapshot also has a PDF. `terrain_incremental_scale_up.ipynb` has no
+separate render and is source-only after the notebook clean filter. The three
+`terrain_build_*_notebook.py` files are the historical review builders.
+These studies use old terrain paths and targets; memo 002 is the current
+geometry record. The copies here preserve the exploratory method and
+contemporaneous output, not a supported rerun interface.
+
 Also here:
 
 | File | Why |
@@ -57,5 +67,8 @@ Added 2026-09-24, the tooth background and tooth selection for beam fit v0009. T
 
 ## Recent changes
 
+- 2026-10-08: Archived the historical B2, geometry snapshot, scale-up, and
+  joint MCMC reviews with their available renders as the terrain checkout is
+  retired; memo 002 remains the result to cite.
 - 2026-10-07: Preserved the camera-proposal diagnostic notebook and rendered
   HTML here after its results were incorporated into memo 002.
