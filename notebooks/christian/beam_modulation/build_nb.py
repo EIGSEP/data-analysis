@@ -46,7 +46,7 @@ $\pm90^\circ$ and maxima at $0^\circ$ and $\pm180^\circ$.
 - **The two combs are the transmitter's two polarizations, not a strong and a weak set.**
   Their coupling to the single-polarization bowtie trades off in antiphase as the azimuth
   is stepped: residue 8 nulls at azimuth $-130^\circ$ exactly where residue 0 peaks, and
-  the reverse near $-45^\circ$ (`explore/54`). At the $-90^\circ$ azimuth this figure uses,
+  the reverse near $-45^\circ$ (`validation.ipynb`, polarization coupling). At the $-90^\circ$ azimuth this figure uses,
   residue 8 leads residue 0 by 7.9 dB, so residue 8 is the aligned polarization here.
 - **Raw channel power is tone + sky continuum.** A raw curve flattens onto that pedestal
   once the tone becomes weak, so the depth it can show is capped by the tone-to-continuum
@@ -56,7 +56,7 @@ $\pm90^\circ$ and maxima at $0^\circ$ and $\pm180^\circ$.
   56.6 MHz.
 - **The continuum estimate has to be local.** DPSS models spanning the band were scored
   against transmitter-off data, where the comb channels carry continuum only and the truth
-  is known (`explore/45`–`47`), and lost to the flanking median: 2.5 per cent against
+  is known (`validation.ipynb`, continuum estimator checks), and lost to the flanking median: 2.5 per cent against
   1.6 per cent error at the comb channels. The bandpass has structure on a few MHz that a
   band-spanning basis cannot follow, and over a window narrow enough to track it a DPSS
   basis supports less than one mode and reduces to that same local average. Fitting in
@@ -283,7 +283,7 @@ A tone is used if its flanking channels are not RFI-ridden and its excess is sig
 $0^\circ$ and over at least 20 of the 72 bins. There is deliberately **no** smoothness cut
 on a tone's own profile: one was tried, and the secondary dip near $-45^\circ$ that would
 trip it turns out to be present in every tone from 201 to 240 MHz, deepening progressively
-with frequency (`explore/57`), so it is structure in the response rather than a channel
+with frequency (`validation.ipynb`, upper-band response), so it is structure in the response rather than a channel
 glitch.
 
 The band limit is the instrument band; the roughness cut removes the DTV-contaminated
@@ -368,9 +368,9 @@ the turn, far more than the sky does, because they carry a terrestrial transmitt
 **The control is the ground copy.** It does not rotate, so anything it also saw change
 over the same integrations changed in *time* rather than with orientation. A tone's
 continuum is plotted only where the ground copy was steady on that tone's own flanking
-channels, `GND_MAX = 0.35` dB peak-to-trough. `explore/61` fixes the threshold.
+channels, `GND_MAX = 0.35` dB peak-to-trough. `validation.ipynb`, ground-control check fixes the threshold.
 
-Two things to be honest about, both from `explore/61`:
+Two things to be honest about, both from `validation.ipynb`, ground-control check:
 
 - **The threshold is not sitting in a natural gap.** Values run 0.04--0.34 and then
   0.43--1.61, which is a step of only 0.09 dB, and it is not the largest break in the
@@ -428,7 +428,7 @@ md(r"""
 
 They are the same data at very different dynamic ranges, so the same contamination means
 different things in each. The honest form of the argument is bounded to the top of the
-range, and `explore/61` is explicit about where it stops holding:
+range, and `validation.ipynb`, ground-control check is explicit about where it stops holding:
 
 - **At $0^\circ$, the response peak**, every tone the cut removes still sits 10.8--32.1 dB
   above its own continuum. There the entire ground-copy swing would move the tone curve by
@@ -550,7 +550,7 @@ neighbours when the transmitter switches on, comparable to the tones just above 
 It is unusable for a different reason: FM broadcast arrives from a fixed direction on the
 horizon, so the rotation modulates it in the same way as it modulates the injected tone.
 The non-comb channels there swing up to 7.3 dB through a turn against 1.1–3.0 dB in clean
-bands (`explore/60`), so the contaminant is degenerate with the signal and no continuum
+bands (`validation.ipynb`, FM-band check), so the contaminant is degenerate with the signal and no continuum
 estimate can separate them.
 """)
 

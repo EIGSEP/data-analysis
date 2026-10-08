@@ -21,6 +21,7 @@ Moved here 2026-09-21 when the `arp/marjum-2026-07` set was tidied:
 | `rfi_dev_v2.1_delay_scratch.ipynb` | — | In-painting / delay-transform exploration split out of `rfi_dev_v2.1`. Needs that notebook's sections 1–3 run first. |
 | `beam_explorer_bak.ipynb` | `../beam_explorer.ipynb` | Backup copy. |
 | `geometry_explorer_bak.ipynb` | `../geometry_explorer.ipynb` | Backup copy. |
+| `camera_proposal_repair_20261007.ipynb` (+ `.html`) | memo 002 | October proposal code and its executed rendering; memo 002 supersedes its interpretation, and old terrain paths are not maintained. |
 
 Also here:
 
@@ -54,3 +55,7 @@ Added 2026-09-24, the tooth background and tooth selection for beam fit v0009. T
 | `tooth_background_basis_debug.ipynb` (+ `.html`) | Choice of DPSS basis: 150 ns smooth, no reflection modes. |
 | `tooth_selection_debug.ipynb` (+ `.html`) | How `tooth_selection_v0001` fared in v0009; the neighbour-coherence test proposed for v0002. |
 
+## Recent changes
+
+- 2026-10-07: Preserved the camera-proposal diagnostic notebook and rendered
+  HTML here after its results were incorporated into memo 002.

@@ -18,3 +18,11 @@ switch_measurement_061426/
 
 # macOS Finder metadata -- never commit
 .DS_Store
+
+# Generated beam-modulation and self-RFI figures and notebook exports
+/notebooks/christian/beam_modulation/**/*.pdf
+/notebooks/christian/beam_modulation/**/*.png
+/notebooks/christian/beam_modulation_d4/**/*.pdf
+/notebooks/christian/beam_modulation_d4/**/*.png
+/notebooks/christian/selfrfi_2025_2026/**/*.pdf
+/notebooks/christian/selfrfi_2025_2026/**/*.png

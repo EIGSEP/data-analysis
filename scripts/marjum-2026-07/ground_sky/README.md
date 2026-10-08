@@ -53,6 +53,7 @@ Inputs:
 | `joint_fit.py` | Builds `joint_vNNNN`: the calibrated night fit tied across frequency (one T_gnd, a smooth offset) by summing per-frequency marginal likelihoods; T_gnd's stability against the offset order is the test. |
 | `sky_cal.py` | Builds `skycal_vNNNN`: parked night stretches calibrated on the sky (gain from GSM's drift through the beam), and the receiver/ground separation across stretches of different ground fraction. |
 | `raster_sky.py` | Builds `raster_sky_vNNNN`: gain-free regression of raw power in moving windows on GSM, ground, constant, transmitter, Sun and drift columns; T_gnd as the ground/GSM coefficient ratio; low-order sky corrections (Y_lm) tested against ground-fixed ones on held-out blocks; optionally a specularly reflected sky term. |
+| `ground_excess.py` | Builds `ground_excess_vNNNN`: the rotating-antenna regression with the ground split into regions (a band below the terrain horizon against the deeper ground, or azimuth sectors), each region's brightness in GSM kelvin; locates the low-frequency ground excess. |
 | `common.py` | Paths, provenance, and per-file height era (`mode_table.jsonl`, which fills the pointing table's blank eras) and receiver regime (`cal_windows.jsonl`). |
 | `degeneracy_study.py` | Builds the design matrix on the real geometry. Reports Fisher errors on T_gnd, the offset and the sky mean under four prior choices (sky free or 10 % GSM; offset free or known to 1 K). Then runs a simulate-and-recover check: GSM truth at nside 16, fitted at nside 8, with HFSS or the empirical beam as the true beam. Writes `summary.json`. No measured spectra are used. |
 
@@ -163,6 +164,9 @@ These figures use 120 s static bins and radiometer noise only.
   that a good χ² cannot vouch for T_gnd holds regardless.
 
 ## Recent changes
+
+- 2026-10-07: `ground_excess.py`: the low-frequency ground excess is spread over the ground, not
+  concentrated at the horizon or in particular azimuths (memo 008).
 
 - 2026-10-07: sky recovery (`joint_fit.py`, `sky_cal.py`, `raster_sky.py`). Frequency smoothness
   alone does not fix T_gnd, and the parked nights' height lever is too weak. The rotating antenna
