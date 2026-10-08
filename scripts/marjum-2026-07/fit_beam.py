@@ -269,8 +269,8 @@ def main(output, teeth_path, flags, bases, maxiter, concentration_min):
 
     import eigsep_base
     import eigsep_data
-    inputs = [SOURCE, POINT_TABLE, DEFAULT_BEAM_PATH, RELEASE, Path(teeth_path).resolve(),
-              Path(flags).resolve(), CAMPAIGN / 'curation/antenna_resolution.json']
+    inputs = [SOURCE, POINT_TABLE, DEFAULT_BEAM_PATH, RELEASE, Path(teeth_path),
+              Path(flags), CAMPAIGN / 'curation/antenna_resolution.json']
     inputs += [CAMPAIGN / 'data' / Path(f).name for f in raw['files']]
     artifacts = {str(p.relative_to(output)): digest(p) for p in output.rglob('*')
                  if p.is_file() and p.name not in ('provenance.json', 'README.md')}
