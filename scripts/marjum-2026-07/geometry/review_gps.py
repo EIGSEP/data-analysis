@@ -10,7 +10,7 @@ from eigsep_data.paths import get_campaign_root
 CAMPAIGN = Path(get_campaign_root(required=True)).resolve()
 HERE = CAMPAIGN / 'derived/geometry_posterior/v0004'
 OLD = CAMPAIGN / 'derived/geometry_posterior/v0003'
-OLD_EXIF = CAMPAIGN / 'derived/geometry_posterior/v0002/inputs/marjum_2026_07_exif_joint.npz'
+OLD_EXIF = CAMPAIGN / 'derived/geometry_posterior/v0004/inputs/model_v0002/marjum_2026_07_exif_joint.npz'
 
 
 def sha(path):

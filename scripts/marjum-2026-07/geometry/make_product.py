@@ -38,7 +38,11 @@ CAMPAIGN = _campaign()
 ROOT = CAMPAIGN.parent
 HERE = CAMPAIGN / 'derived/geometry_posterior/v0004'
 OLD = CAMPAIGN / 'derived/geometry_posterior/v0003'
-INPUT = CAMPAIGN / 'derived/geometry_posterior/v0002/inputs'
+# The model inputs the run read, copied byte-for-byte from the unpublished
+# geometry_posterior/v0002/inputs (recorded paths still name that directory).
+INPUT = HERE / 'inputs/model_v0002'
+RECORDED_INPUT = 'derived/geometry_posterior/v0002/inputs/'
+DEM_V0001 = CAMPAIGN / 'derived/dem/v0001/marjum_dem.npz'
 DEM = CAMPAIGN / 'derived/dem/v0002/marjum_dem.npz'
 CHAINS = (0, 1, 5, 6, 7)
 PACKAGE = Path(importlib.util.find_spec('eigsep_terrain').submodule_search_locations[0])
@@ -73,8 +77,10 @@ def sources():
     assert sha(OLD / 'provisional_geometry.npz') == old_manifest['geometry_sha256']
     assert sha(DEM) == dem_manifest['files']['marjum_dem.npz']['sha256']
     frozen = json.loads((INPUT / 'input_manifest.json').read_text())
-    for item in frozen['files'].values():
-        assert sha(INPUT.parent / item['frozen']) == item['sha256']
+    for name, item in frozen['files'].items():
+        # The frozen DEM copy is the published dem/v0001, not copied into v0004.
+        path = DEM_V0001 if name == 'dem' else INPUT / Path(item['frozen']).name
+        assert sha(path) == item['sha256']
     for name, item in frozen['feature_cache']['files'].items():
         assert sha(INPUT / 'cv_features' / name) == item['sha256']
     old_run = OLD / 'full_20261006/joint'
@@ -108,7 +114,10 @@ def resolve(recorded):
     if key.startswith('eigsep_terrain/src/eigsep_terrain/'):
         return PACKAGE / key.split('eigsep_terrain/src/eigsep_terrain/', 1)[1]
     if key.startswith(CAMPAIGN.name + '/'):
-        return CAMPAIGN / key.split('/', 1)[1]
+        rel = key.split('/', 1)[1]
+        if rel.startswith(RECORDED_INPUT):
+            return INPUT / rel[len(RECORDED_INPUT):]
+        return CAMPAIGN / rel
     raise KeyError(recorded)
 
 

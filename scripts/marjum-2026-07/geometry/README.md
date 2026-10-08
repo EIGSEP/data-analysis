@@ -38,6 +38,7 @@ those steps means a new release version.
 
 ## Recent changes
 
+- 2026-10-08: The drivers read the model inputs from the v0004 product's own `inputs/model_v0002/` copy instead of the unpublished `geometry_posterior/v0002/inputs`; recorded paths to the old directory are mapped there, and the frozen DEM is checked against `dem/v0001`.
 - 2026-10-08: Moved here from the v0004 product directory and repointed at
   the frozen model copies in `eigsep_terrain`, so v0004 verifies without the
   retired `terrain/` checkout.
