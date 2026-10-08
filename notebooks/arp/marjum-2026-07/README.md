@@ -89,7 +89,7 @@ style block near the top and a `save(fig, name)` helper that writes
 | `lidar_explorer.ipynb` | Platform-LIDAR constraint on the antenna position: range profile, ray footprint, plumb line, interactive fit | `marjum-2026-07/pointing/`, `marjum-2026-07/imgs/fits/vNNNN_marjum_geometry/`, `terrain/` |
 
 `beam_explorer.ipynb` reads `marjum-2026-07/` at run time: data, pointing, and
-the `derived/beam/empirical_raster_v0007` fits (HFSS, PCA, DPSS) per tooth, as
+the `derived/beam/empirical_raster_v0013` fits (HFSS, PCA, DPSS) per tooth, as
 maps, time series and waterfalls.
 
 Not yet converted: `geometry_explorer.ipynb` (camera poses and MCMC draws on the
