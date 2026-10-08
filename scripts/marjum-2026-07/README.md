@@ -28,6 +28,7 @@ worktree that lacks the gitignored raw data.
 | `b3/` | The beam mode-budget / horizon-sensitivity study, formerly `marjum-2026-07/analysis/b3/`. |
 | `tcal/` | The `derived/tcal/` box-air temperature calibration: build and validate. |
 | `ground_sky/` | Ground temperature and sky solved from an assumed beam (`eigsep_sim.design_matrix`); for now, the degeneracy study on the real geometry. |
+| `geometry/` | The geometry posterior v0004 drivers (prepare, chains, audit, finalize, GPS review) behind memo 002; the model code is in `eigsep_terrain`. |
 | `terrain-legacy/` | Hash-pinned source archive for superseded Marjum camera, LIDAR, transmitter, and MCMC studies; historical code, not a current generator. |
 
 Outputs still land in the campaign repository, beside the data they
@@ -93,6 +94,8 @@ Superseded generators are in `debug/` (see `debug/README.md`).
 
 ## Recent changes
 
+- 2026-10-08: Moved the geometry posterior v0004 drivers into `geometry/`, out of
+  the campaign product directory; the published hashes still verify.
 - 2026-10-08: Archived 62 superseded terrain-analysis scripts under
   `terrain-legacy/`, preserving their source hashes while reducing the
   separate terrain checkout.
