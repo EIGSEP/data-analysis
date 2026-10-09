@@ -172,6 +172,7 @@ intermediate state — not the endpoint.
 
 ## Recent changes
 
+- 2026-10-09: `single_ch_beam_fit.ipynb` (executed render: `single_ch_beam_fit.html`) now fits channel 640 on the reference beam v0013's data, masks, split and geometry, with the antenna and transmitter from geometry release v0004, through `eigsep_data.beam_mapping.JointBeamFit`; it previously reproduced the withdrawn v0007 inputs. It reproduces v0013's HFSS baseline and scores exactly for that tooth.
 - 2026-10-08: The geometry, MCMC and LIDAR explorers are marked as showing the historical v0001 geometry; release v0004 (memo 002) is current.
 - 2026-10-08: `beam_explorer.ipynb` evaluates beam product v0013 (the v0012 fit on geometry release v0004) against v0012, takes the antenna and transmitter from the release named in the product's provenance, and honours `EIGSEP_CAMPAIGN_ROOT`.
 - 2026-10-08: Moved historical Marjum camera and MCMC review notebooks and
