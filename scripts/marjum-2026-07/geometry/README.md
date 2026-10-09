@@ -11,6 +11,8 @@ read and write it.
 | `audit_run.py` | check the five completed checkpoints against their chain arrays and inputs; writes `run_integrity.json` |
 | `finalize_product.py` | publish the higher-density state (chains or re-evaluated v0003) with convergence diagnostics |
 | `review_gps.py` | compare old- and UTM-frame camera positions with HEIC GPS fixes; writes `gps_comparison.json` |
+| `geometry_checks.py` | held-out refits of v0004 (each antenna label left out, IMG_2210/2211 transmitter labels withheld, HEIC GPS withheld); writes `derived/geometry_checks/vNNNN` |
+| `lidar_constraint.py` | box-air LIDAR ranges ray-traced through the DEM from a geometry's antenna, bearings applied on the UTM grid (`--frame legacy` reproduces `lidar_constraint` v0001); writes `derived/lidar_constraint/vNNNN` |
 
 Set `EIGSEP_CAMPAIGN_ROOT` to the campaign. The model code is the five
 frozen files in `eigsep_terrain/src/eigsep_terrain/marjum_geometry/`, found
@@ -38,6 +40,7 @@ those steps means a new release version.
 
 ## Recent changes
 
+- 2026-10-09: added `geometry_checks.py` and `lidar_constraint.py`, the independent checks that give v0004 its bounds in memo 002 (`geometry_checks` v0001, `lidar_constraint` v0002). The LIDAR port applies true bearings as UTM grid bearings, which the retired terrain version did not.
 - 2026-10-08: The drivers read the model inputs from the v0004 product's own `inputs/model_v0002/` copy instead of the unpublished `geometry_posterior/v0002/inputs`; recorded paths to the old directory are mapped there, and the frozen DEM is checked against `dem/v0001`.
 - 2026-10-08: Moved here from the v0004 product directory and repointed at
   the frozen model copies in `eigsep_terrain`, so v0004 verifies without the
