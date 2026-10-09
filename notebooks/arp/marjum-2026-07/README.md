@@ -89,7 +89,7 @@ style block near the top and a `save(fig, name)` helper that writes
 | `lidar_explorer.ipynb` | Platform-LIDAR constraint on the antenna position: range profile, ray footprint, plumb line, interactive fit | `marjum-2026-07/pointing/`, `marjum-2026-07/imgs/fits/vNNNN_marjum_geometry/`, `terrain/` |
 
 `beam_explorer.ipynb` reads `marjum-2026-07/` at run time: data, pointing, and
-the `derived/beam/empirical_raster_v0007` fits (HFSS, PCA, DPSS) per tooth, as
+the `derived/beam/empirical_raster_v0013` fits (HFSS, PCA, DPSS) per tooth, as
 maps, time series and waterfalls.
 
 Not yet converted: `geometry_explorer.ipynb` (camera poses and MCMC draws on the
@@ -173,6 +173,7 @@ intermediate state — not the endpoint.
 ## Recent changes
 
 - 2026-10-08: The geometry, MCMC and LIDAR explorers are marked as showing the historical v0001 geometry; release v0004 (memo 002) is current.
+- 2026-10-08: `beam_explorer.ipynb` evaluates beam product v0013 (the v0012 fit on geometry release v0004) against v0012, takes the antenna and transmitter from the release named in the product's provenance, and honours `EIGSEP_CAMPAIGN_ROOT`.
 - 2026-10-08: Moved historical Marjum camera and MCMC review notebooks and
   available renders from the deprecated terrain checkout into `debug/`;
   memo 002 remains the current geometry reference.
