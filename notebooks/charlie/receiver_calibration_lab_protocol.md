@@ -100,7 +100,7 @@ Use the field correlator configuration (`corr_acc_len`, `fft_shift`, ADC gain,
 >    thermistor; load and thermistor are encased together in an aluminium
 >    block.
 > 5. **Ambient 50 Ω reference on the Feed port (`RFANT` / `VNAANT`)**, with
->    its own thermistor (`tempctrl_lna2`, moved from LNA 10). The two load
+>    its own thermistor (`tempctrl_lna1`, moved from LNA 10). The two load
 >    roles are therefore **swapped** relative to items 4–5 above; every
 >    formula for this run uses the ports as wired.
 > 6. SP1 cable fitted, open/short driven by the SP1 control pico (GP27;
@@ -109,14 +109,14 @@ Use the field correlator configuration (`corr_acc_len`, `fft_shift`, ADC gain,
 > 7. VNA as in the field: 1–250 MHz, 1000 points, 100 Hz IFBW, 0 dBm
 >    (ant-side paths) / −40 dBm (`VNARF`).
 >
-> Correlator: the field `corr_config.yaml` (`corr_acc_len` 2²⁶ ≈ 0.268 s,
+> Correlator: the field `corr_config.yaml` (`corr_acc_len` 2^{28}≈ 1.074 s,
 > `fft_shift` 0x015F, ADC gain 4, `corr_scalar` 512).
 >
 > **Picos** (three, DIP code = app id, all under `pico-manager`):
 >
 > | Pico | Job | Streams |
 > |---|---|---|
-> | tempctrl (app 1) | Hot-load heater FET + thermistor (GP26); two read-only thermistors (GP27, GP28) | `tempctrl_load`, `tempctrl_lna1` (LNA 3), `tempctrl_lna2` (ambient reference load) |
+> | tempctrl (app 1) | Hot-load heater FET + thermistor (GP26); two read-only thermistors (GP27, GP28) | `tempctrl_load`, `tempctrl_lna1` (GP27, ambient reference load), `tempctrl_lna2` (GP28, LNA 3) |
 > | potmon (app 2) | SP1 open/short (GP27); SP1 cable thermistor (GP26) | `potmon` (`sp1_term_name`, `pot_az_voltage`) |
 > | rfswitch (app 5) | Switch matrix; three board thermistors | `rfswitch`, `rfswitch_therm` |
 >
@@ -144,7 +144,7 @@ reconnections, VNA sweeps, voltage changes, anything moved.
 > - `tempctrl_load` also carries the heater setpoint in force (`T_target`,
 >   `enabled`, `hysteresis`) per integration;
 > - `rfswitch_therm.temp_therm1` (noise diode) is the noise-source/pad proxy;
-> - `tempctrl_lna2` is the ambient reference load temperature;
+> - `tempctrl_lna1` is the ambient reference load temperature;
 > - `potmon`: the SP1 termination (`sp1_term_name`) and the SP1 cable
 >   thermistor as a raw voltage (`pot_az_voltage`; ignore the derived
 >   `pot_az_*` angle fields);
@@ -157,14 +157,14 @@ reconnections, VNA sweeps, voltage changes, anything moved.
 >
 > **Thermistors.** All four bench thermistors are YSI 44909 (30 kΩ at 25 °C,
 > YSI curve H, rated −55 to +90 °C, ±0.2 °C interchangeable over 0–70 °C),
-> wired `3V3 –[pull-up]– ADC pin –[NTC]– AGND` with 100 nF from pin to AGND.
+> wired `3V3 –[pull-up]– ADC pin –[NTC]– GND`.
 > Measured pull-ups (also in `bench_setup.thermistors`):
 >
 > | Channel | Location | Pull-up |
 > |---|---|---|
 > | `tempctrl_load` | Hot load body (encased together in aluminium) | 9.98 kΩ |
-> | `tempctrl_lna1` | LNA 3 | 9.91 kΩ |
-> | `tempctrl_lna2` | Ambient 50 Ω reference load | 9.97 kΩ |
+> | `tempctrl_lna1` (GP27) | Ambient 50 Ω reference load | 9.97 kΩ |
+> | `tempctrl_lna2` (GP28) | LNA 3 | 9.91 kΩ |
 > | `potmon.pot_az_voltage` | SP1 cable, between two turns of the coil | 9.96 kΩ |
 >
 > The firmware assumes exactly 10 000 Ω (its `T_now` is for heater control
@@ -183,8 +183,7 @@ reconnections, VNA sweeps, voltage changes, anything moved.
 
 ## 4. Switch schedule
 
-Cycle continuously, with dwells about as long as the field's (~110
-integrations, ~30 s):
+Cycle continuously, with dwells  ~10 s):
 
     RFANT (hot load) → RFAMB → RFNON → RFNOFF → RFANT → …
 
@@ -198,7 +197,7 @@ integrations, ~30 s):
 >
 >     RFANT (ambient ref) → RFAMB (hot) → RFNON → RFNOFF → RFSP1 short → RFSP1 open → …
 >
-> 10 s is ~37 integrations, minus ~0.5 s flagged after each switch change.
+> 10 s is ~9 integrations, minus ~0.5 s flagged after each switch change.
 > SP1 is visited every cycle for 10 s per termination (not ≥ 1 min every few
 > cycles), so average SP1 across consecutive cycles.
 
@@ -223,9 +222,9 @@ temperature, which `tcal` needs to follow the noise source's drift.
 > **This run.** Run by `scripts/hot_load_plateaus.py` alongside the observer:
 >
 >     python scripts/hot_load_plateaus.py --targets 47 67 87 \
->         --ambient-min 60 --hold-min 60 --cooldown-min 90 --passes 2
+>         --ambient-min 10 --hold-min 15 --cooldown-min 90 --passes 2
 >
-> 1. Ambient (heater off) for 60 min. It is also the lowest point on the hot
+> 1. Ambient (heater off) for 10 min. It is also the lowest point on the hot
 >    load's own Q line (295→360 K instead of 320→360 K, about 1.7× smaller
 >    slope error), and with the heater off Q ≈ 0 and the hot-load and
 >    reference thermistors should agree.
@@ -237,7 +236,6 @@ temperature, which `tcal` needs to follow the noise source's drift.
 >    0.5 °C hysteresis, so a plateau's mean sits ~0.25 °C below target; use
 >    the logged temperature, not the setpoint.
 > 3. Cool-down, heater off, 90 min.
-> 4. Two passes.
 >
 > The script turns the heater off and stops on any heater trip or sensor
 > error. Restarting `eigsep-panda` resets the heater to off, so restart the
