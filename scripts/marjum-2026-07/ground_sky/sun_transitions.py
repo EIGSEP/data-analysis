@@ -51,7 +51,7 @@ from eigsep_data import MetadataIndex
 from eigsep_sim.design_matrix import HealpixBeam
 
 import sun as sunmod
-from common import CHANNEL_MHZ, HERE, campaign_root, git_rev, sha256, workspace_root
+from common import CHANNEL_MHZ, HERE, campaign_root, git_rev, mount_offsets, sha256, workspace_root
 
 # Defaults: the products built on horizon_profiles_v0003 (sun_events_v0002 from
 # fit_v0007, the counterpart of fit_v0003). --sun-events/--fit name others.
@@ -141,8 +141,7 @@ def main():
     bf = hb.freqs_hz / 1e6
     freqs = np.array([x for x in bf if 45 < x < 235 and not 85 < x < 110])
     beam = hb.select([int(np.argmin(np.abs(bf - x))) for x in freqs])
-    with np.load(campaign / "derived/beam/empirical_raster_v0012/dpss/diagnostics.npz") as d:
-        az_off, psi = float(d["az_offset_deg"]), float(d["psi_deg"])
+    az_off, el_off, psi = mount_offsets(campaign)
     with np.load(campaign / FIT_T, allow_pickle=True) as z:
         fT = z["freqs_mhz"]
         Tlo, Thi = np.nanpercentile(z["data_k"], [5, 95], axis=1)
@@ -211,7 +210,7 @@ def main():
                 if not tx_all:
                     seg = seg[~txon[seg]]
             grid = np.arange(tev - 3 * 3600, tev + 3 * 3600, 30.0)
-            R = np.broadcast_to(mount_rotation(az0 + az_off, el0, psi), (len(grid), 3, 3))
+            R = np.broadcast_to(mount_rotation(az0 + az_off, el0 + el_off, psi), (len(grid), 3, 3))
             geom = sunmod.sun_geometry(grid, era)
             col = sunmod.sun_column(beam, R, geom, "knife")
             arrays[f"grid_{i}"], arrays[f"col_{i}"] = grid, col.astype(np.float32)

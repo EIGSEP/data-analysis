@@ -52,7 +52,7 @@ from eigsep_sim.design_matrix import HorizonProfile, build_design_matrix
 from eigsep_sim.observer import EarthSurface
 
 import sun as sunmod
-from common import ERAS, HERE, HORIZON_PROFILES, campaign_root, git_rev, sha256
+from common import ERAS, HERE, HORIZON_PROFILES, campaign_root, git_rev, mount_offsets, sha256
 from fit_ground_sky import gsm_maps, load_beam
 
 
@@ -106,11 +106,10 @@ def main():
     t = z["t"][keep]
     eras = sorted(set(z["era"][keep]))
     assert len(eras) == 1, eras
-    with np.load(campaign / "derived/beam/empirical_raster_v0012/dpss/diagnostics.npz") as d:
-        az_off, psi = float(d["az_offset_deg"]), float(d["psi_deg"])
+    az_off, el_off, psi = mount_offsets(campaign)
     lat, lon, hgt = MARJUM_PASS
     rg = EarthSurface(lat, lon, hgt).rot_gal2top_stack(Time(t, format="unix")).astype(float)
-    rb = mount_rotation(np.round(z["az"][keep], 1) + az_off, np.round(z["el"][keep], 1), psi)
+    rb = mount_rotation(np.round(z["az"][keep], 1) + az_off, np.round(z["el"][keep], 1) + el_off, psi)
     hz = sunmod.true_horizon(HorizonProfile.from_npz(
         campaign / f"{HORIZON_PROFILES}.npz", ERAS[eras[0]]))
     dm = build_design_matrix(beam, [hz], rg, rb, man["params"]["nside_sky"], nside_int=64)

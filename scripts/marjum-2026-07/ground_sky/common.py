@@ -29,6 +29,33 @@ HORIZON_PROFILES = "curation/horizon_profiles_v0003"
 # The DEM the Sun's terrain trace reads (same grid as the profiles).
 DEM_PATH = "derived/dem/v0003/marjum_dem.npz"
 
+# The empirical beam product: its beam (dpss/empirical_beam.npz) and the mount
+# geometry it was fitted in (dpss/diagnostics.npz). v0013 is v0012 refitted on
+# geometry v0004 and is the reference beam.
+BEAM_PRODUCT = "derived/beam/empirical_raster_v0013"
+
+
+def beam_dir(campaign=None):
+    return Path(campaign or campaign_root()) / BEAM_PRODUCT / "dpss"
+
+
+def mount_offsets(campaign=None):
+    """(az_add, el_add, psi) in degrees for ``mount_rotation(az + az_add, el + el_add, psi)``.
+
+    The beam was fitted with the table az shifted by ``az_offset_deg`` plus the
+    fitted ``az_zero_delta_deg``, the el by the fitted ``el_zero_delta_deg``,
+    and the elevation axle at ``psi_deg``; using the beam in any other frame
+    misplaces it. Before 2026-10-09 these scripts applied ``az_offset_deg`` and
+    ``psi_deg`` only.
+    """
+    from eigsep_data.beam_mapping.tx_fit import PARAM_NAMES
+
+    with np.load(beam_dir(campaign) / "diagnostics.npz") as d:
+        p = dict(zip(PARAM_NAMES, np.asarray(d["params"], float)))
+        return (float(d["az_offset_deg"]) + p["az_zero_delta_deg"],
+                p["el_zero_delta_deg"], float(d["psi_deg"]))
+
+
 # Horizon-profile keys by pointing-table era.
 ERAS = {"~30m": "30m", "~87.5m": "87.5m", "~91m": "91m"}
 

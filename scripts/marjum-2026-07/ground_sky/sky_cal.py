@@ -69,7 +69,9 @@ from eigsep_sim.design_matrix import HorizonProfile, build_design_matrix
 from eigsep_sim.observer import EarthSurface
 
 import sun as sunmod
-from common import CHANNEL_MHZ, ERAS, HERE, HORIZON_PROFILES, campaign_root, git_rev, sha256
+from common import (
+    CHANNEL_MHZ, ERAS, HERE, HORIZON_PROFILES, campaign_root, git_rev, mount_offsets, sha256,
+)
 from fit_ground_sky import gsm_maps, load_beam
 
 # Night stretches of fixed pointing in receiver regime rx-A (mode table, pointing table).
@@ -167,8 +169,7 @@ def main():
     beam = beam.select(use)
     freqs = beam.freqs_hz / 1e6
     gsm = gsm_maps(freqs, 8)
-    with np.load(campaign / "derived/beam/empirical_raster_v0012/dpss/diagnostics.npz") as d:
-        az_off, psi = float(d["az_offset_deg"]), float(d["psi_deg"])
+    az_off, el_off, psi = mount_offsets(campaign)
     lat, lon, hgt = MARJUM_PASS
     index = MetadataIndex(campaign / "data")
 
@@ -179,7 +180,7 @@ def main():
                          args.tcal if "87.5" in st["era"] else None)
         t = df.t.values
         rg = EarthSurface(lat, lon, hgt).rot_gal2top_stack(Time(t, format="unix")).astype(float)
-        rb = mount_rotation(df.az.values + az_off, df.el.values, psi)
+        rb = mount_rotation(df.az.values + az_off, df.el.values + el_off, psi)
         hz = sunmod.true_horizon(HorizonProfile.from_npz(
             campaign / f"{HORIZON_PROFILES}.npz", ERAS[st["era"]]))
         dm = build_design_matrix(beam, [hz], rg, rb, 8, offset_groups=False, nside_int=64)

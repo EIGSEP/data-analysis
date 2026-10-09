@@ -77,7 +77,10 @@ from eigsep_sim.design_matrix import (
 from eigsep_sim.observer import EarthSurface
 
 import sun as sunmod
-from common import ERAS, HERE, HORIZON_PROFILES, campaign_root, git_rev, sha256, workspace_root
+from common import (
+    BEAM_PRODUCT, ERAS, HERE, HORIZON_PROFILES, beam_dir, campaign_root, git_rev, mount_offsets,
+    sha256, workspace_root,
+)
 
 BLUE, ORANGE = "#2a78d6", "#eb6834"
 INK, MUTED = "#0b0b0b", "#52514e"
@@ -87,7 +90,7 @@ def load_beam(name, campaign):
     if name == "hfss":
         path = workspace_root() / "data-analysis/hfss_beam_maps/bowtie_beam.npz"
         return HealpixBeam.from_npz(path, drop_last=True), path
-    path = campaign / "derived/beam/empirical_raster_v0012/dpss/empirical_beam.npz"
+    path = beam_dir(campaign) / "empirical_beam.npz"
     return HealpixBeam.from_npz(path), path
 
 
@@ -175,13 +178,12 @@ def main():
     Y, S = z["T"][:, fsel].T, z["sigma"][:, fsel].T  # (nfreq, nbin)
 
     # Geometry.
-    with np.load(campaign / "derived/beam/empirical_raster_v0012/dpss/diagnostics.npz") as d:
-        az_offset, psi = float(d["az_offset_deg"]), float(d["psi_deg"])
+    az_offset, el_off, psi = mount_offsets(campaign)
     lat, lon, hgt = MARJUM_PASS
     times = Time(z["t"], format="unix")
     rot_g2t = EarthSurface(lat, lon, hgt).rot_gal2top_stack(times).astype(float)
     rot_b2e = mount_rotation(np.round(z["az"], 1) + az_offset,
-                             np.round(z["el"], 1), psi)
+                             np.round(z["el"], 1) + el_off, psi)
     era_keys = np.array([ERAS[e] for e in z["era"]], dtype=object)
     geom = sunmod.sun_geometry(z["t"], era_keys)
     A_sun = sunmod.sun_column(beam, rot_b2e, geom, args.sun_visibility)
@@ -334,7 +336,8 @@ def main():
         },
         "params": {k: (str(v) if isinstance(v, Path) else v)
                    for k, v in vars(args).items() if k not in ("version", "out_dir")},
-        "geometry": {"az_offset_deg": az_offset, "psi_deg": psi,
+        "geometry": {"az_offset_deg": az_offset, "el_offset_deg": el_off, "psi_deg": psi,
+                     "beam_product": BEAM_PRODUCT,
                      "horizon_grid_to_true_deg": (
                          0.0 if args.no_grid_rotation else sunmod.grid_to_true_deg()),
                      "eras": eras, "regimes": regimes},
