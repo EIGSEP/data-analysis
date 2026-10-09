@@ -18,7 +18,7 @@ and its terrain visibility (`sun.py`). The sky is in Galactic HEALPix pixels. Fo
 amplitude `a` is free (it absorbs the front-end loss, since `tcal`
 temperatures are at plane P, and any GSM scale error) and only `δ` has a
 prior. The ground is everything below the
-DEM horizon (`curation/horizon_profiles_v0002.npz`, one profile per height
+DEM horizon (`curation/horizon_profiles_v0003.npz`, one profile per height
 era), at one uniform temperature. `T_off` is an additive offset. Rows are
 normalized by the full-sphere beam integral, so sky plus ground weights sum
 to one. As a result, a uniform shift of the sky and ground against the
@@ -28,13 +28,17 @@ Inputs:
 
 - Site: `eigsep_base.const.MARJUM_PASS`.
 - Mount: `eigsep_base.rotations.mount_rotation(az_table + az_offset, el, psi)`,
-  with `az_offset` and `psi` read from `empirical_raster_v0012`.
+  with `az_offset` (plus the fitted az-zero delta), the fitted el-zero delta and `psi`
+  read from the beam product named once in `common.BEAM_PRODUCT`
+  (`empirical_raster_v0013`, the reference beam, fitted on geometry v0004); see
+  `common.mount_offsets`. Applying them all puts the sky in the frame the beam was
+  fitted in.
 - Pointing: `curation/pointing_table.parquet`, using phase C and
   `quality == "ok"` rows only.
-- Horizon bearings: `horizon_profiles_v0002` bearings are UTM 12N grid
+- Horizon bearings: the horizon-profile bearings are UTM 12N grid
   bearings (the DEM's frame), 1.52° from true at the site. The fit now
   rotates them to true bearings; the first trials did not.
-- Beam: pluggable. Either the HFSS bowtie or an `empirical_beam.npz`, through
+- Beam: pluggable. Either the HFSS bowtie or `common.BEAM_PRODUCT`'s `empirical_beam.npz`, through
   `HealpixBeam.from_npz`.
 
 ## Scripts
@@ -168,7 +172,8 @@ These figures use 120 s static bins and radiometer noise only.
 
 ## Phase-C model, first trials (2026-10-09; not yet a product)
 
-`bin_raw.py` → `global_fit.py`, HFSS beam, rx-A only (07-15 to 07-17 19:41;
+`bin_raw.py` → `global_fit.py` (run before the v0013 / geometry v0004 port: beam-v0012
+mount offsets, horizon profiles v0002), HFSS beam, rx-A only (07-15 to 07-17 19:41;
 6,088 bins at 30, 87.5 and 91 m), smooth gain with 3 h knots.
 
 - **What the data support.** Free per-window gains with free offsets are not
@@ -195,7 +200,12 @@ These figures use 120 s static bins and radiometer noise only.
 ## Recent changes
 
 - 2026-10-09: `bin_raw.py`, `global_fit.py`, `plot_global.py`: one model of
-  raw box-air power over phase C, with a smooth gain; first trials above.
+  raw box-air power over phase C, with a smooth gain; first trials above. `global_fit.py` now reads the beam, mount
+  offsets, horizon profiles and transmitter through `common`/`sun` like the other scripts
+  (merged from main); the first trials ran on v0012 offsets and horizon profiles v0002.
+- 2026-10-09: The beam product is named once (`common.BEAM_PRODUCT`, now `empirical_raster_v0013`, the reference beam refitted on geometry v0004), and every mount rotation now applies the beam fit's full pointing solution (`common.mount_offsets`: az offset plus fitted az-zero delta, el-zero delta, psi). Before, the scripts applied v0012's `az_offset` and `psi` only, leaving out its +0.56 deg el-zero delta (v0013: +0.93 deg). Products from `fit_v0009`, `sun_events_v0003` and the other `_v0003` versions on use this.
+- 2026-10-08: Every script reads `common.HORIZON_PROFILES` (`curation/horizon_profiles_v0003`, the release v0004 antenna) and `common.DEM_PATH` (`derived/dem/v0003`, the mosaic 1 km larger to the west and south), so the antenna, transmitter, horizon and the Sun's terrain trace all come from geometry v0004. `sun_transitions.py` takes `--sun-events` and `--fit` instead of hard-coding v0001/v0003. Products before the `_v0002` (or `fit_v0005`) versions are on v0001 geometry.
+- 2026-10-08: The transmitter now comes from the geometry release the horizon profiles were built on (`sun.transmitter_enu()`), not `curation/transmitter_position.json`, so the antenna and transmitter always come from one fit. That is still release v0001 (same transmitter position as before, so existing products are unchanged); these scripts move to the current release v0004 only when `curation/horizon_profiles` is rebuilt at the v0004 antenna.
 - 2026-10-07: `ground_excess.py`: the low-frequency ground excess is spread over the ground, not
   concentrated at the horizon or in particular azimuths (memo 008).
 

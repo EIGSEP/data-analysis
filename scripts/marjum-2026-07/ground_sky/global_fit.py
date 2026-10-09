@@ -105,7 +105,10 @@ from eigsep_sim.design_matrix import HorizonProfile, build_design_matrix
 from eigsep_sim.observer import EarthSurface
 
 import sun as sunmod
-from common import CHANNEL_MHZ, ERAS, HERE, campaign_root, git_rev, sha256
+from common import (
+    CHANNEL_MHZ, DEM_PATH, ERAS, HERE, HORIZON_PROFILES, campaign_root, git_rev,
+    mount_offsets, sha256,
+)
 from fit_ground_sky import gsm_maps, load_beam
 from raster_sky import real_ylm_maps
 
@@ -134,16 +137,15 @@ def windows_of(df, window_s):
 def columns(df, freqs, beam, nside, lmax, campaign, geom, chunk=1500):
     """Per-bin columns at each frequency: GSM, ground fraction, Y_lm,
     transmitter, and the Sun (K per SFU, knife-edge terrain visibility)."""
-    with np.load(campaign / "derived/beam/empirical_raster_v0012/dpss/diagnostics.npz") as d:
-        az_off, psi = float(d["az_offset_deg"]), float(d["psi_deg"])
+    az_off, el_off, psi = mount_offsets(campaign)
     eras = sorted(set(df.era))
     hz = [sunmod.true_horizon(HorizonProfile.from_npz(
-        campaign / "curation/horizon_profiles_v0002.npz", ERAS[e])) for e in eras]
+        campaign / f"{HORIZON_PROFILES}.npz", ERAS[e])) for e in eras]
     hidx = np.array([eras.index(e) for e in df.era])
     lat, lon, hgt = MARJUM_PASS
     t = df.t.to_numpy()
     rg = EarthSurface(lat, lon, hgt).rot_gal2top_stack(Time(t, format="unix")).astype(float)
-    rb = mount_rotation(df.az.to_numpy() + az_off, df.el.to_numpy(), psi)
+    rb = mount_rotation(df.az.to_numpy() + az_off, df.el.to_numpy() + el_off, psi)
     gsm = gsm_maps(freqs, nside)
     ylm, labels = real_ylm_maps(nside, lmax) if lmax else (np.zeros((0, gsm.shape[1])), [])
     nf, nb = len(freqs), len(df)
@@ -158,8 +160,7 @@ def columns(df, freqs, beam, nside, lmax, campaign, geom, chunk=1500):
         cY[:, :, s] = np.einsum("ftp,kp->fkt", Ask, ylm)
         cN[:, s] = dm.A[:, :, dm.ground][:, :, 0]
         print(f"  columns {s.stop}/{nb}", flush=True)
-    tx = np.array(json.loads((campaign / "curation/transmitter_position.json").read_text())
-                  ["best_estimate_enu_m"])
+    tx = sunmod.transmitter_enu()
     gm = np.radians(sunmod.grid_to_true_deg())
     R = np.array([[np.cos(gm), -np.sin(gm), 0], [np.sin(gm), np.cos(gm), 0], [0, 0, 1]])
     cT = np.zeros((nf, nb))
@@ -482,7 +483,8 @@ def main():
     import hashlib
     gkey = hashlib.sha256(json.dumps({"binned": sha256(args.binned / "binned.npz"),
                                       "bins": hashlib.sha256(df.t.to_numpy().tobytes()).hexdigest(),
-                                      "eras": sorted(set(df.era))}).encode()).hexdigest()
+                                      "eras": sorted(set(df.era)), "dem": DEM_PATH,
+                                      "horizon": HORIZON_PROFILES}).encode()).hexdigest()
     gpath = args.binned / "column_cache" / f"sun_{gkey[:16]}.npz"
     geom = None
     if gpath.exists():
@@ -540,7 +542,9 @@ def main():
     key = hashlib.sha256(json.dumps({
         "binned": sha256(args.binned / "binned.npz"), "beam": sha256(beam_path),
         "freqs": [round(float(x), 6) for x in freqs], "nside": args.nside, "lmax": lmax_c,
-        "bins": hashlib.sha256(df.t.to_numpy().tobytes()).hexdigest()}).encode()).hexdigest()
+        "bins": hashlib.sha256(df.t.to_numpy().tobytes()).hexdigest(),
+        "mount": mount_offsets(campaign), "horizon": HORIZON_PROFILES,
+        "tx": [round(float(x), 3) for x in sunmod.transmitter_enu()]}).encode()).hexdigest()
     cG, cN, cY, ylabels, cT, cS = cached_columns(
         key, args.binned / "column_cache" / f"{key[:16]}.npz",
         lambda: columns(df, freqs, beam, args.nside, lmax_c, campaign, geom))
@@ -704,7 +708,9 @@ def main():
             "code": {"data-analysis": git_rev(HERE), "eigsep_data": git_rev(eigsep_data.__path__[0]),
                      "eigsep_sim": git_rev(Path(eigsep_sim.__file__).parent)},
             "inputs": {"beam_sha256": sha256(beam_path),
-                       "binned_sha256": sha256(args.binned / "binned.npz")}},
+                       "binned_sha256": sha256(args.binned / "binned.npz"),
+                       "mount_offsets_deg": mount_offsets(campaign),
+                       "horizon_profiles": HORIZON_PROFILES, "dem": DEM_PATH}},
         "params": {k: (str(v) if isinstance(v, Path) else v) for k, v in vars(args).items()
                    if k not in ("version", "out_dir")},
         "selection": sel_counts | {"windows": int(win.max() + 1), "windows_kept": int(kept_w.size),

@@ -11,9 +11,11 @@ derived/beam/empirical_raster_v0008-v0011:
 2. Background under each tooth: tx_background.tooth_background (local DPSS,
    150 ns, FM excluded). Broadband dropouts are masked by the gap-ratio test;
    raster flags (sample flags and tooth spikes) are applied.
-3. Geometry: highline pointing convention (psi = 142.164 deg), antenna from the
-   v0001 geometry release, transmitter from curation. A joint scan finds the az
-   offset and polarization centre, then fit_geometry refines the corrections.
+3. Geometry: highline pointing convention (psi = 142.164 deg), antenna and
+   transmitter from the geometry release (v0004 from empirical_raster_v0013;
+   v0012 and earlier used the v0001 antenna and curation's transmitter). A joint
+   scan finds the az offset and polarization centre, then fit_geometry refines
+   the corrections.
 4. Beams: ell_max and a spectral basis (PCA or DPSS) from the normalized HFSS
    fields; JointBeamFit at prior weights 1e-2, 1e-3, 1e-4, chosen on the
    validation stripes, then refitted on all samples and exported.
@@ -36,11 +38,18 @@ import numpy as np
 import pandas as pd
 
 SOURCE = Path(__file__).resolve()
-ROOT = next(p for p in SOURCE.parents if (p / 'marjum-2026-07/data').is_dir())
-CAMPAIGN = ROOT / 'marjum-2026-07'
+
+
+def _campaign():
+    from eigsep_data.paths import get_campaign_root
+    return Path(os.path.abspath(get_campaign_root(required=True)))
+
+
+CAMPAIGN = _campaign()
+# Provenance paths are recorded relative to the workspace holding the campaign.
+ROOT = CAMPAIGN.parent
 POINT_TABLE = CAMPAIGN / 'curation/pointing_table.parquet'
-RELEASE = CAMPAIGN / 'imgs/fits/v0001_marjum_geometry/shared.json'
-TRANSMITTER = CAMPAIGN / 'curation/transmitter_position.json'
+RELEASE = CAMPAIGN / 'imgs/fits/v0004_marjum_geometry/shared.json'
 RASTER = ('2026-07-17 20:26:00', '2026-07-17 21:28:40')
 PSI_DEG = 142.164                 # highline direction, deg ccw from East (known_quantities v0001)
 DF = 250.0 / 1024
@@ -52,6 +61,28 @@ log = logging.getLogger('fit_beam')
 
 def digest(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def repo_root(path):
+    out = subprocess.run(['git', '-C', str(Path(path).parent), 'rev-parse', '--show-toplevel'],
+                         capture_output=True, text=True).stdout.strip()
+    return Path(out) if out else None
+
+
+def workspace_path(path):
+    """Workspace-relative name for a recorded input, as in earlier products: a
+    path under the campaign's workspace, else '<repository>/<path in it>'."""
+    # abspath, not resolve: synced bulk inputs may be symlinks, recorded where
+    # the workspace exposes them.
+    path = Path(os.path.abspath(path))
+    try:
+        return str(path.relative_to(os.path.abspath(ROOT)))
+    except ValueError:
+        top = repo_root(path)
+        common = subprocess.run(['git', '-C', str(top), 'rev-parse', '--git-common-dir'],
+                                capture_output=True, text=True).stdout.strip()
+        # The shared .git names the repository even from a worktree.
+        return f'{(top / common).resolve().parent.name}/{path.relative_to(top)}'
 
 
 def revision(repo):
@@ -144,8 +175,9 @@ def main(output, teeth_path, flags, bases, maxiter, concentration_min):
     log.info('data %s teeth x %s samples; flags: %d samples, %d tooth spikes', *data.data.shape,
              sample_flag.sum(), tooth_flag.sum())
 
-    ant = np.asarray(json.loads(RELEASE.read_text())['antenna_91m_era']['position_enu_m'], float)
-    tx = np.asarray(json.loads(TRANSMITTER.read_text())['best_estimate_enu_m'], float)
+    release = json.loads(RELEASE.read_text())
+    ant = np.asarray(release['antenna_91m_era']['position_enu_m'], float)
+    tx = np.asarray(release['transmitter']['recommended_for_propagation']['position_enu_m'], float)
     hfields, _, hfreqs = read_beam(drop_last=False)
     hnorm, _, _ = bm.normalize_fields(hfields, hfreqs)
     fields_teeth = bm.interpolate_fields(hnorm, hfreqs, freqs)
@@ -237,14 +269,15 @@ def main(output, teeth_path, flags, bases, maxiter, concentration_min):
 
     import eigsep_base
     import eigsep_data
-    inputs = [SOURCE, POINT_TABLE, DEFAULT_BEAM_PATH, RELEASE, TRANSMITTER, Path(teeth_path).resolve(),
-              Path(flags).resolve(), CAMPAIGN / 'curation/antenna_resolution.json']
+    inputs = [SOURCE, POINT_TABLE, DEFAULT_BEAM_PATH, RELEASE, Path(teeth_path),
+              Path(flags), CAMPAIGN / 'curation/antenna_resolution.json']
     inputs += [CAMPAIGN / 'data' / Path(f).name for f in raw['files']]
     artifacts = {str(p.relative_to(output)): digest(p) for p in output.rglob('*')
                  if p.is_file() and p.name not in ('provenance.json', 'README.md')}
     geometry = dict(zip(bm.PARAM_NAMES, map(float, params)))
     provenance = dict(
-        status='exploratory', generator=str(SOURCE.relative_to(ROOT)),
+        status='exploratory', generator=workspace_path(SOURCE),
+        geometry_release=dict(path=workspace_path(RELEASE), release=release['release']),
         pipeline='eigsep_data.beam_mapping (tx_background, tx_fit, beam_basis, tx_export)',
         pointing=raw['point_prov']['compact'],
         pointing_rule='az_deg: commanded azimuth (motor counts plus one pot offset per anchor segment); el_deg: IMU',
@@ -258,17 +291,19 @@ def main(output, teeth_path, flags, bases, maxiter, concentration_min):
                         window_mhz=48.0, excluded_mhz=list(FM_MHZ), limits_mhz=list(BACKGROUND_LIMITS_MHZ),
                         concentration_min=concentration_min if concentration_min is not None
                         else 'legacy floor(2NW)+1 modes (v0009-v0011)'),
-        tooth_selection=dict(path=str(Path(teeth_path).resolve().relative_to(ROOT)), version=selection['version'],
+        tooth_selection=dict(path=workspace_path(teeth_path), version=selection['version'],
                              channels=len(selection['channels'])),
-        flags=dict(path=str(Path(flags).resolve().relative_to(ROOT)), version=flag_prov['version'],
+        flags=dict(path=workspace_path(flags), version=flag_prov['version'],
                    samples=int(sample_flag.sum()), tooth_spikes=int(tooth_flag.sum())),
         spectral_bases=descriptions, lmax=lmax, band_mhz=list(band), raster_utc=list(RASTER),
         split='12 deg stripes of pointing-table azimuth (tx_fit.stripe_split)', maxiter=maxiter,
         n_glitches=raw['n_glitches'],
-        repositories={name: revision(ROOT / name) for name in ('data-analysis', 'eigsep_data', 'eigsep_base')},
+        repositories={name: revision(repo_root(path)) for name, path in
+                      (('data-analysis', SOURCE), ('eigsep_data', eigsep_data.__file__),
+                       ('eigsep_base', eigsep_base.__file__), ('eigsep', RELEASE))},
         package_versions=dict(eigsep_data=getattr(eigsep_data, '__version__', None),
                               eigsep_base=eigsep_base.__version__),
-        input_sha256={str(Path(p).resolve().relative_to(ROOT)): digest(p) for p in inputs},
+        input_sha256={workspace_path(p): digest(p) for p in inputs},
         artifact_sha256=artifacts,
         caveats=['Power-only phase and circular-polarization ambiguities remain; coefficients are HFSS-regularized.',
                  'Commanded azimuth assumes the platform followed the motor; see curation/pointing_table.README.md.',
