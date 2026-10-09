@@ -54,6 +54,9 @@ Inputs:
 | `sky_cal.py` | Builds `skycal_vNNNN`: parked night stretches calibrated on the sky (gain from GSM's drift through the beam), and the receiver/ground separation across stretches of different ground fraction. |
 | `raster_sky.py` | Builds `raster_sky_vNNNN`: gain-free regression of raw power in moving windows on GSM, ground, constant, transmitter, Sun and drift columns; T_gnd as the ground/GSM coefficient ratio; low-order sky corrections (Y_lm) tested against ground-fixed ones on held-out blocks; optionally a specularly reflected sky term. |
 | `ground_excess.py` | Builds `ground_excess_vNNNN`: the rotating-antenna regression with the ground split into regions (a band below the terrain horizon against the deeper ground, or azimuth sectors), each region's brightness in GSM kelvin; locates the low-frequency ground excess. |
+| `bin_raw.py` | Builds `derived/ground_sky/raw_binned_vNNNN`: raw box-air power over all of phase C (not only where `tcal` exists), at each HFSS beam frequency in the six channels midway between transmitter teeth, `flags@v3` (any bit but 9 and 10) and box-air's self-EMI masked, in bins of up to 60 s that close when the pointing moves 1°. Stores pointing (filled across a gap only where both sides agree), transmitter on-fraction, and `tcal@v0003`'s scale and offset where it covers a bin. |
+| `global_fit.py` | Builds `global_vNNNN` from a raw binned product: one model of every bin of the chosen receiver regimes (default rx-A) per frequency, gain × (GSM + T_gnd × ground fraction + low-order sky + transmitter + Sun + offset). The gain is smooth in time (log gain piecewise linear, knots every 3 h, a 5 % prior per knot step) or free per window; offsets per regime or per window; Sun fitted or cut. Gates drop windows whose level or sky-following fails. Held-out blocks score each configuration; gain × `tcal` scale gives the GSM amplitude a; fits where the gain collapses are flagged `diverged`. Beam columns are cached under a key of everything that defines them. |
+| `plot_global.py` | Figures for a `global_vNNNN` directory: fitted parameters against frequency per configuration, and residuals against time. |
 | `common.py` | Paths, provenance, and per-file height era (`mode_table.jsonl`, which fills the pointing table's blank eras) and receiver regime (`cal_windows.jsonl`). |
 | `degeneracy_study.py` | Builds the design matrix on the real geometry. Reports Fisher errors on T_gnd, the offset and the sky mean under four prior choices (sky free or 10 % GSM; offset free or known to 1 K). Then runs a simulate-and-recover check: GSM truth at nside 16, fitted at nside 8, with HFSS or the empirical beam as the true beam. Writes `summary.json`. No measured spectra are used. |
 
@@ -163,8 +166,36 @@ These figures use 120 s static bins and radiometer noise only.
   sample it, so treat the size of this bias as illustrative. The result
   that a good χ² cannot vouch for T_gnd holds regardless.
 
+## Phase-C model, first trials (2026-10-09; not yet a product)
+
+`bin_raw.py` → `global_fit.py`, HFSS beam, rx-A only (07-15 to 07-17 19:41;
+6,088 bins at 30, 87.5 and 91 m), smooth gain with 3 h knots.
+
+- **What the data support.** Free per-window gains with free offsets are not
+  identifiable: where the model's variation misses the data, the fit sends a
+  window's gain to zero and its offset to infinity. Per-window rx-A gains
+  nonetheless stayed within ±4 % over three days, so the smooth gain is
+  justified. rx-B and the rx-transition span (which holds the raster) need
+  their own offsets and gains and are not stable yet; the raster stays with
+  `raster_sky.py`. 07-15 14:49-16:56 is 5-10x low in level and is gated out.
+- **T_gnd** (GSM kelvin) falls from about 420 K at 117 MHz to 210-250 K at
+  195-203 MHz, the same with the empirical beam (within 10 K) and close to the
+  rotating-antenna values of memo 008. It moves by 50-100 K with the gain
+  knot spacing (1.5, 3, 6 h), and l <= 2 sky corrections pull it to 0-280 K,
+  so it is not yet robust. Below 85 MHz it is thousands of kelvin, the
+  low-frequency excess again; 211-227 MHz diverge.
+- **a = gain x tcal scale** is 2.0-2.6 at 117-195 MHz, as memo 008's
+  calibrated fit found. T_gnd near the physical ground temperature in GSM
+  kelvin is consistent with GSM being right and tcal's kelvin scale about
+  twice high (memo 004's open T_NS question); that is not tested here.
+- **Fit quality.** rms 1.9-2.6 % of power at 117-203 MHz, held out 2.0-2.6 %,
+  about 100 radiometer sigma. The 07-17 87.5 m night fits to about 1 %; the
+  07-16 30 m night (box-air self-EMI on) leaves slow ±5-9 % waves.
+
 ## Recent changes
 
+- 2026-10-09: `bin_raw.py`, `global_fit.py`, `plot_global.py`: one model of
+  raw box-air power over phase C, with a smooth gain; first trials above.
 - 2026-10-07: `ground_excess.py`: the low-frequency ground excess is spread over the ground, not
   concentrated at the horizon or in particular azimuths (memo 008).
 
