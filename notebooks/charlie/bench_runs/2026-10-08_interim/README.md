@@ -7,8 +7,10 @@ each section below follows that protocol's numbering and says how this run
 does it. [Gaps](#gaps-against-the-requirements) lists where it falls short,
 with the effect and what would close it.
 
-**Status:** planned. Do not edit after the run except to fill in the
-to-be-recorded items; a later run gets its own folder.
+**Status:** run on 2026-10-08. The bench computer's clock was wrong, so
+every timestamp it wrote reads 2026-10-09 (see [Run log](#run-log-utc)). Do
+not edit after the run except to fill in the to-be-recorded items; a later
+run gets its own folder.
 
 **Automation:** `eigsep_observing`, branch `calibration_scripts` (commit used:
 _to record_). Config `src/eigsep_observing/config/obs_config_switch_bench.yaml`
@@ -50,14 +52,16 @@ the field receiver**. Accepted for the interim run.
 7. VNA as in the field: 1–250 MHz, 1000 points, 100 Hz IFBW, 0 dBm
    (ant-side paths) / −40 dBm (`VNARF`).
 
-Correlator: the field `corr_config.yaml` (`corr_acc_len` 2²⁶ ≈ 0.268 s,
-`fft_shift` 0x015F, ADC gain 4, `corr_scalar` 512).
+Correlator: the field `corr_config.yaml` except `corr_acc_len` 2²⁸ ≈ 1.074 s
+(field: 2²⁶ ≈ 0.268 s); `fft_shift` 0x015F, ADC gain 4, `corr_scalar` 512.
+The copy in this folder, [`corr_config.yaml`](corr_config.yaml), has
+2²⁶ active; the run used 2²⁸.
 
 **Picos** (three, DIP code = app id, all under `pico-manager`):
 
 | Pico | Job | Streams |
 |---|---|---|
-| tempctrl (app 1) | Hot-load heater FET + thermistor (GP26); two read-only thermistors (GP27, GP28) | `tempctrl_load`, `tempctrl_lna1` (LNA 3), `tempctrl_lna2` (ambient reference load) |
+| tempctrl (app 1) | Hot-load heater FET + thermistor (GP26); two read-only thermistors (GP27, GP28) | `tempctrl_load`, `tempctrl_lna1` (GP28, LNA 3), `tempctrl_lna2` (GP27, ambient reference load) |
 | potmon (app 2) | SP1 open/short (GP27); SP1 cable thermistor (GP26) | `potmon` (`sp1_term_name`, `pot_az_voltage`) |
 | rfswitch (app 5) | Switch matrix; three board thermistors | `rfswitch`, `rfswitch_therm` |
 
@@ -85,14 +89,14 @@ log. Heater actions are logged automatically with UTC times by
 
 **Thermistors.** All four bench thermistors are YSI 44909 (30 kΩ at 25 °C,
 YSI curve H, rated −55 to +90 °C, ±0.2 °C interchangeable over 0–70 °C),
-wired `3V3 –[pull-up]– ADC pin –[NTC]– AGND` with 100 nF from pin to AGND.
+wired `3V3 –[pull-up]– ADC pin –[NTC]– GND`, with no filter capacitor.
 Measured pull-ups (also in `bench_setup.thermistors`):
 
 | Channel | Location | Pull-up |
 |---|---|---|
 | `tempctrl_load` | Hot load body (encased together in aluminium) | 9.98 kΩ |
-| `tempctrl_lna1` | LNA 3 | 9.91 kΩ |
-| `tempctrl_lna2` | Ambient 50 Ω reference load | 9.97 kΩ |
+| `tempctrl_lna1` (GP28) | LNA 3 | 9.91 kΩ |
+| `tempctrl_lna2` (GP27) | Ambient 50 Ω reference load | 9.97 kΩ |
 | `potmon.pot_az_voltage` | SP1 cable, between two turns of the coil | 9.96 kΩ |
 
 The firmware assumes exactly 10 000 Ω (its `T_now` is for heater control
@@ -115,7 +119,7 @@ of the ±0.2 °C part tolerance. Good enough for the interim run; see § 12.
 
     RFANT (ambient ref) → RFAMB (hot) → RFNON → RFNOFF → RFSP1 short → RFSP1 open → …
 
-10 s is ~37 integrations, minus ~0.5 s flagged after each switch change.
+10 s is ~9 integrations, minus ~0.5 s flagged after each switch change.
 SP1 is visited every cycle for 10 s per termination (not ≥ 1 min every few
 cycles), so average SP1 across consecutive cycles.
 
@@ -124,21 +128,23 @@ cycles), so average SP1 across consecutive cycles.
 Run by `scripts/hot_load_plateaus.py` alongside the observer:
 
     python scripts/hot_load_plateaus.py --targets 47 67 87 \
-        --ambient-min 60 --hold-min 60 --cooldown-min 90 --passes 2
+        --ambient-min 10 --hold-min 15 --cooldown-min 90 --passes 1
 
-1. Ambient (heater off) for 60 min. It is also the lowest point on the hot
+with the heater hysteresis set to 0.05 °C.
+
+1. Ambient (heater off) for 10 min. It is also the lowest point on the hot
    load's own Q line (295→360 K instead of 320→360 K, about 1.7× smaller
    slope error), and with the heater off Q ≈ 0 and the hot-load and
    reference thermistors should agree.
 2. Plateaus at **47, 67 and 87 °C targets (~320, 340, 360 K)**, not
    320/345/370 K: the YSI 44909 is rated to 90 °C, so the script refuses
-   targets above 88 °C. Each plateau is held 60 min including the ramp, on
+   targets above 88 °C. Each plateau is held 15 min including the ramp, on
    a timer rather than until steady; use only the steady part (the script
    logs a 10-min peak-to-peak every minute). The heater is on/off with
-   0.5 °C hysteresis, so a plateau's mean sits ~0.25 °C below target; use
+   0.05 °C hysteresis, so a plateau's mean sits ~0.025 °C below target; use
    the logged temperature, not the setpoint.
 3. Cool-down, heater off, 90 min.
-4. Two passes.
+4. One pass.
 
 The script turns the heater off and stops on any heater trip or sensor
 error. Restarting `eigsep-panda` resets the heater to off, so restart the
@@ -205,7 +211,7 @@ the lab-LNA caveat of § 1.
 | Field first LNA board (§ 1–2) | Lab LNA 14; flight history unknown | T_NS unaffected; Γ_rec and noise waves may not transfer | Identify and use the field first-stage board |
 | Hot load on `RFANT`, ambient on `RFAMB` (§ 2) | Swapped: hot on `RFAMB`, ambient on `RFANT` | Use the matching paths (`VNAAMB` hot, `VNAANT` ambient) | None needed if the analysis follows the wiring; or rewire |
 | Plateaus ~320 / 345 / 370 K (§ 5) | ~320 / 340 / 360 K | Span 65 K instead of 75 K | Thermistors rated above ~100 °C (higher dynamic range) |
-| Plateau held until steady to ~0.1 K, then ≥ 30 min (§ 5) | Fixed 60 min per plateau; steady part chosen offline | Possibly shorter steady windows | Hold-until-steady logic in the sequencer, or longer holds |
+| Plateau held until steady to ~0.1 K, then ≥ 30 min (§ 5) | Fixed 15 min per plateau, including the ramp; steady part chosen offline | Possibly shorter steady windows | Hold-until-steady logic in the sequencer, or longer holds |
 | Temperatures good to ~0.1 K (§ 5) | ±0.2 °C parts; 2-wire pull-ups (~0.1–0.3 K) | Temperature scale uncertainty of a few tenths of a kelvin | Better thermistors, 4-wire pull-ups or an ice-point / reference-thermometer calibration |
 | ~30 s dwells, 3–5 min cycle (§ 4) | 10 s dwells, 1 min cycle | Fewer integrations per visit, less drift between visits | Change `switch_schedule` |
 | SP1 every few cycles, ≥ 1 min each (§ 4) | Every cycle, 10 s each | Average SP1 across cycles | Change `switch_schedule` |
@@ -215,12 +221,33 @@ the lab-LNA caveat of § 1.
 
 ## Run log (UTC)
 
-_To fill in during the run: every manual action with its UTC time (heater
-restarts, reconnections, manual VNA sweeps, supply voltages, anything moved).
-Heater actions are logged automatically by `hot_load_plateaus.py`._
+**Clock error.** The bench computer's clock was wrong during this run. The
+heater log, the data file names and (presumably) the file headers read
+2026-10-09, starting 01:03:22 UTC; the run actually started at about 17:22
+on 2026-10-08, from the shell history (`HISTTIMEFORMAT='%F %T'`). History
+times are in the local time zone and clock of the machine the history is
+from (_record which machine, and its time zone_). Correct every timestamp by the same
+offset before matching it to anything outside the bench.
+
+Heater program, from the heater log (bench clock): ambient from 01:03:22;
+plateaus at 47, 67 and 87 °C from 01:13:22, 01:28:22 and 01:43:22; cool-down
+from 01:58:22; program complete 03:28:22.
+
+_Manual actions with their times: to fill in._
 
 ## Data and files
 
-_To fill in after the run: where the correlator and VNA files are stored, the
-`hot_load_plateaus` log, the `obs_config_switch_bench.yaml` as used, and
-photos (§ 8)._
+- **Correlator and VNA files** (not tracked by git):
+  `/mnt/data02/eigsep/scratch/switch_bench_tests/`, 889 MB: 52 `corr_*.h5`,
+  10 `ants11_*.h5` and 10 `recs11_*.h5`. File names carry the bench clock
+  (`20261009_010404Z` to `20261009_044126Z`). This is a scratch location;
+  move the files somewhere permanent, with checksums, before a memo uses them.
+  A copy is also on Charlie's laptop in
+  `data-analysis/notebooks/charlie/switch_bench_tests/` (untracked), which is
+  where `hot_load_testing_data.ipynb` reads it from.
+- **Configs as used** (in this folder): [`obs_config_switch_bench.yaml`](obs_config_switch_bench.yaml)
+  and [`corr_config.yaml`](corr_config.yaml) (see § 2 for the `corr_acc_len` difference).
+- **Heater log** (in this folder): [`hot_load_plateaus_20261009T010322Z.log`](hot_load_plateaus_20261009T010322Z.log)
+  (bench clock).
+- **Analysis notebook:** [`../../hot_load_testing_data.ipynb`](../../hot_load_testing_data.ipynb).
+- **Photos (§ 8):** _to add._

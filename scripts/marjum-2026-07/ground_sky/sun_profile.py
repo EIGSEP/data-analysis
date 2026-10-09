@@ -31,7 +31,7 @@ from eigsep_base.rotations import mount_rotation
 from eigsep_sim.design_matrix import HealpixBeam
 
 import sun as sunmod
-from common import ERAS, HERE, campaign_root, git_rev, sha256, workspace_root
+from common import ERAS, HERE, campaign_root, git_rev, mount_offsets, sha256, workspace_root
 
 FREQS = (50.78125, 74.21875, 101.5625, 148.4375, 199.21875, 234.375)
 
@@ -83,11 +83,10 @@ def main():
                               drop_last=True)
     bf = hb.freqs_hz / 1e6
     beam = hb.select([int(np.argmin(np.abs(bf - x))) for x in FREQS])
-    with np.load(campaign / "derived/beam/empirical_raster_v0012/dpss/diagnostics.npz") as d:
-        az_off, psi = float(d["az_offset_deg"]), float(d["psi_deg"])
+    az_off, el_off, psi = mount_offsets(campaign)
     keys = np.array([ERAS[e] for e in era], dtype=object)
     geom = sunmod.sun_geometry(t, keys)
-    rot = mount_rotation(g.az.values + az_off, g.el.values, psi)
+    rot = mount_rotation(g.az.values + az_off, g.el.values + el_off, psi)
     out_dir.mkdir(parents=True)
     np.savez_compressed(
         out_dir / "sun_profile.npz", t=t, freqs_mhz=np.array(FREQS), az=g.az.values,

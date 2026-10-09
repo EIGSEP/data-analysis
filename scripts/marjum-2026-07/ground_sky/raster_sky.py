@@ -58,7 +58,9 @@ from eigsep_sim.design_matrix import HorizonProfile, build_design_matrix
 from eigsep_sim.observer import EarthSurface
 
 import sun as sunmod
-from common import CHANNEL_MHZ, HERE, campaign_root, git_rev, sha256
+from common import (
+    CHANNEL_MHZ, HERE, HORIZON_PROFILES, campaign_root, git_rev, mount_offsets, sha256,
+)
 from fit_ground_sky import gsm_maps, load_beam
 
 
@@ -153,14 +155,13 @@ def main():
     t, az, el = B.t[ok], p.az_deg.to_numpy()[ok], p.el_deg.to_numpy()[ok]
     sl = slice(None, None, args.row_step)
     Y, t, az, el = Y[:, sl], t[sl], az[sl], el[sl]
-    with np.load(campaign / "derived/beam/empirical_raster_v0012/dpss/diagnostics.npz") as d:
-        az_off, psi = float(d["az_offset_deg"]), float(d["psi_deg"])
+    az_off, el_off, psi = mount_offsets(campaign)
     lat, lon, hgt = MARJUM_PASS
     rg = EarthSurface(lat, lon, hgt).rot_gal2top_stack(Time(t, format="unix")).astype(float)
     rg_frozen = np.broadcast_to(rg[len(rg) // 2], rg.shape).copy()
-    rb = mount_rotation(az + az_off, el, psi)
+    rb = mount_rotation(az + az_off, el + el_off, psi)
     hz = sunmod.true_horizon(HorizonProfile.from_npz(
-        campaign / "curation/horizon_profiles_v0002.npz", args.era))
+        campaign / f"{HORIZON_PROFILES}.npz", args.era))
     gsm = gsm_maps(freqs, args.nside)
     ylm, labels = real_ylm_maps(args.nside, args.lmax)
     print(f"{len(t)} rows, {len(freqs)} frequencies, {len(labels)} Y_lm", flush=True)
@@ -175,8 +176,7 @@ def main():
     _, colYf, _ = columns(rg_frozen)
     geom = sunmod.sun_geometry(t, args.era)
     colS = sunmod.sun_column(beam, rb, geom, "knife")
-    tx = np.array(json.loads((campaign / "curation/transmitter_position.json").read_text())
-                  ["best_estimate_enu_m"])
+    tx = sunmod.transmitter_enu()
     v = tx - sunmod.antenna_enu(args.era)
     gm = np.radians(sunmod.grid_to_true_deg())
     v = np.array([[np.cos(gm), -np.sin(gm), 0], [np.sin(gm), np.cos(gm), 0], [0, 0, 1]]) @ (v / np.linalg.norm(v))

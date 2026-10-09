@@ -89,7 +89,7 @@ style block near the top and a `save(fig, name)` helper that writes
 | `lidar_explorer.ipynb` | Platform-LIDAR constraint on the antenna position: range profile, ray footprint, plumb line, interactive fit | `marjum-2026-07/pointing/`, `marjum-2026-07/imgs/fits/vNNNN_marjum_geometry/`, `terrain/` |
 
 `beam_explorer.ipynb` reads `marjum-2026-07/` at run time: data, pointing, and
-the `derived/beam/empirical_raster_v0007` fits (HFSS, PCA, DPSS) per tooth, as
+the `derived/beam/empirical_raster_v0013` fits (HFSS, PCA, DPSS) per tooth, as
 maps, time series and waterfalls.
 
 Not yet converted: `geometry_explorer.ipynb` (camera poses and MCMC draws on the
@@ -100,7 +100,11 @@ Review - Summary") still read local caches and in places hardcode `/mnt/data02/.
 **Geometry results live in memo 002** (`eigsep/memos/memo-002-marjum-2026-07-geometry/`):
 camera poses, antenna and transmitter positions, the joint MCMC, the azimuth zero and
 the LIDAR check. The geometry, MCMC and LIDAR explorers here are for interactive
-poking; where they disagree with the memo, the memo is right.
+poking; where they disagree with the memo, the memo is right. Their saved outputs
+show the historical geometry (release `v0001` and the September joint MCMC); the
+current geometry is release `imgs/fits/v0004_marjum_geometry` (geometry_posterior
+v0004), which memo 002 adopts. `lidar_explorer.ipynb` picks the latest release when
+re-run, but its LIDAR fit was made at the v0001 antenna.
 
 **Frozen checkpoints.** `comb_transition_waterfalls` and `Marjum 2026-07 LIDAR Antenna Constraint` are
 review-gate evidence, kept with their rendered `.html`/`.pdf`. They record a
@@ -168,6 +172,11 @@ intermediate state — not the endpoint.
 
 ## Recent changes
 
+- 2026-10-08: The geometry, MCMC and LIDAR explorers are marked as showing the historical v0001 geometry; release v0004 (memo 002) is current.
+- 2026-10-08: `beam_explorer.ipynb` evaluates beam product v0013 (the v0012 fit on geometry release v0004) against v0012, takes the antenna and transmitter from the release named in the product's provenance, and honours `EIGSEP_CAMPAIGN_ROOT`.
+- 2026-10-08: Moved historical Marjum camera and MCMC review notebooks and
+  available renders from the deprecated terrain checkout into `debug/`;
+  memo 002 remains the current geometry reference.
 - 2026-10-07: Archived the October camera-proposal notebook and its executed
   HTML under `debug/`, with memo 002 identified as the authoritative interpretation.
 - 2026-10-03: files here use pre-memo-001 comb names and are not being edited:

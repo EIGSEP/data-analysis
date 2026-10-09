@@ -21,7 +21,7 @@ alternative hypothesis for timing tests.
 Bearings: the DEM is NAD83(2011) / UTM 12N (EPSG:6341), whose grid north is
 ``grid_to_true_deg()`` (about -1.52 deg) from true north at the site. The Sun's
 true bearing is converted to the grid before the DEM is read. The same rotation
-applies to ``horizon_profiles_v0002``, whose bearings are grid bearings.
+applies to the horizon profiles, whose bearings are grid bearings.
 """
 
 from __future__ import annotations
@@ -37,14 +37,13 @@ from scipy.special import fresnel
 
 from eigsep_base.const import MARJUM_PASS
 
-from common import campaign_root
+from common import DEM_PATH, HORIZON_PROFILES, campaign_root
 
 K_B = 1.380649e-23
 C_LIGHT = 299792458.0
 SFU = 1e-22  # W m^-2 Hz^-1
 R_EARTH = 6371e3
-DEM_PATH = "derived/dem/v0001/marjum_dem.npz"
-HORIZON_JSON = "curation/horizon_profiles_v0002.json"
+HORIZON_JSON = HORIZON_PROFILES + ".json"
 
 
 @lru_cache(maxsize=None)
@@ -91,6 +90,33 @@ def antenna_enu(era):
     return np.array([e, n, meta["eras"][era]["antenna_u_m"]])
 
 
+def geometry_release():
+    """``shared.json`` of the geometry release the horizon profiles were built on.
+
+    The antenna position comes from the horizon-profile product, so the
+    transmitter must come from the same release: mixing releases would put
+    the two ends of the antenna-to-transmitter vector in different fits.
+    The release path and checksum are those the profile recorded.
+    """
+    import hashlib
+
+    meta = json.loads((campaign_root() / HORIZON_JSON).read_text())
+    rec = [i for i in meta["provenance"]["inputs"]
+           if i["path"].endswith("_marjum_geometry/shared.json")]
+    if len(rec) != 1:
+        raise ValueError(f"{HORIZON_JSON} does not name exactly one geometry release")
+    path = campaign_root().parent / rec[0]["path"]
+    if hashlib.sha256(path.read_bytes()).hexdigest() != rec[0]["sha256"]:
+        raise ValueError(f"{path} differs from the release {HORIZON_JSON} was built on")
+    return json.loads(path.read_text())
+
+
+def transmitter_enu():
+    """Transmitter (E, N, U) from the horizon profiles' geometry release."""
+    return np.array(geometry_release()["transmitter"]["recommended_for_propagation"]
+                    ["position_enu_m"], float)
+
+
 def _dem_at(e, n):
     dem, e0, n0, res = _dem()
     x, y = e / res + e0, n / res + n0
@@ -107,7 +133,7 @@ def trace_horizon(bearing_true_deg, era, step_m=0.5, max_m=6000.0):
     """Horizon elevation (deg) and edge distance (m) along true bearings.
 
     Marches the DEM outward from the antenna to the tile edge, with geometric
-    Earth curvature and no refraction (as ``horizon_profiles_v0002``).
+    Earth curvature and no refraction (as the horizon profiles).
     """
     ant = antenna_enu(era)
     r = np.arange(2.0, max_m, step_m)

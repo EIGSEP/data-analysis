@@ -28,6 +28,8 @@ worktree that lacks the gitignored raw data.
 | `b3/` | The beam mode-budget / horizon-sensitivity study, formerly `marjum-2026-07/analysis/b3/`. |
 | `tcal/` | The `derived/tcal/` box-air temperature calibration: build and validate. |
 | `ground_sky/` | Ground temperature and sky solved from an assumed beam (`eigsep_sim.design_matrix`); for now, the degeneracy study on the real geometry. |
+| `geometry/` | The geometry posterior v0004 drivers (prepare, chains, audit, finalize, GPS review) behind memo 002; the model code is in `eigsep_terrain`. |
+| `terrain-legacy/` | Hash-pinned source archive for superseded Marjum camera, LIDAR, transmitter, and MCMC studies; historical code, not a current generator. |
 
 Outputs still land in the campaign repository, beside the data they
 describe. These scripts write there; they do not keep their own copies.
@@ -79,7 +81,7 @@ uncentred-threshold defect. See `marjum-2026-07/flags/v2/README.md`.
 
 | Script | Role |
 |---|---|
-| `fit_beam.py` | Thin driver on `eigsep_data.beam_mapping`; generator of `derived/beam/empirical_raster_v0012` onward. Campaign choices (raster window, pointing, flags, site geometry) live here, the method in the package. `--concentration-min legacy` uses the v0009–v0011 background (15 DPSS modes, which cannot represent a constant); the default 1e-6 keeps 21. |
+| `fit_beam.py` | Thin driver on `eigsep_data.beam_mapping`; generator of `derived/beam/empirical_raster_v0012` onward. Campaign choices (raster window, pointing, flags, site geometry) live here, the method in the package. Antenna and transmitter come from the geometry release `imgs/fits/v0004_marjum_geometry` (v0013 onward; v0012 used v0001 and `curation/transmitter_position.json`). `--concentration-min legacy` uses the v0009–v0011 background (15 DPSS modes, which cannot represent a constant); the default 1e-6 keeps 21. |
 | `build_tooth_selection.py` | Thin driver on `beam_mapping.tx_teeth.select_teeth`; builds `derived/beam/tooth_selection_vNNNN.{json,csv}`. With `--concentration-min legacy` it reproduces `tooth_selection_v0002` exactly; the corrected background selects the same 64 teeth. |
 | `build_raster_flags.py` | Builds `derived/beam/raster_flags_v0001.npz`. |
 
@@ -92,6 +94,13 @@ Superseded generators are in `debug/` (see `debug/README.md`).
 
 ## Recent changes
 
+- 2026-10-08: `build_known_quantities_xlsx.py` builds from geometry release v0004 on DEM v0002 (no uncertainty, GPS points placed on the UTM grid) instead of v0001 and the retired `terrain/` files it could no longer find; `--root` and `--output` let it run from a worktree.
+- 2026-10-08: `fit_beam.py` takes the antenna and transmitter from geometry release v0004 and finds the campaign through `EIGSEP_CAMPAIGN_ROOT` like the other drivers here, so it can run from a worktree.
+- 2026-10-08: Moved the geometry posterior v0004 drivers into `geometry/`, out of
+  the campaign product directory; the published hashes still verify.
+- 2026-10-08: Archived 62 superseded terrain-analysis scripts under
+  `terrain-legacy/`, preserving their source hashes while reducing the
+  separate terrain checkout.
 - 2026-10-03: comb labels follow memo 001 (see "Comb names"): curation and
   flagging generators renamed, `build_mode_table.py` now writes `boxair_emi`
   and a per-file `transmitter` column, its science census excludes both
