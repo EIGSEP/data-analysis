@@ -13,6 +13,7 @@ read and write it.
 | `review_gps.py` | compare old- and UTM-frame camera positions with HEIC GPS fixes; writes `gps_comparison.json` |
 | `geometry_checks.py` | held-out refits of v0004 (each antenna label left out, IMG_2210/2211 transmitter labels withheld, HEIC GPS withheld); writes `derived/geometry_checks/vNNNN` |
 | `lidar_constraint.py` | box-air LIDAR ranges ray-traced through the DEM from a geometry's antenna, bearings applied on the UTM grid (`--frame legacy` reproduces `lidar_constraint` v0001); writes `derived/lidar_constraint/vNNNN` |
+| `tx_feed_orientation.py` | transmitter-feed (rx6/rx1) axes from the IMG_2203 corner picks at a geometry's poses and chain draws (`--geometry v0001` reproduces `tx_feed_orientation` v0001; `--geometry v0004` reports grid and true bearings); writes `derived/tx_feed_orientation/vNNNN` |
 
 Set `EIGSEP_CAMPAIGN_ROOT` to the campaign. The model code is the five
 frozen files in `eigsep_terrain/src/eigsep_terrain/marjum_geometry/`, found
@@ -40,6 +41,7 @@ those steps means a new release version.
 
 ## Recent changes
 
+- 2026-10-10: `tx_feed_orientation.py`, ported from the retired terrain script; it reproduces v0001 to 3e-5 deg per draw and re-solves the feed at release v0004, reporting true bearings (the raster axes are UTM grid axes, 1.52 deg from true north).
 - 2026-10-09: added `geometry_checks.py` and `lidar_constraint.py`, the independent checks that give v0004 its bounds in memo 002 (`geometry_checks` v0001, `lidar_constraint` v0002). The LIDAR port applies true bearings as UTM grid bearings, which the retired terrain version did not.
 - 2026-10-08: The drivers read the model inputs from the v0004 product's own `inputs/model_v0002/` copy instead of the unpublished `geometry_posterior/v0002/inputs`; recorded paths to the old directory are mapped there, and the frozen DEM is checked against `dem/v0001`.
 - 2026-10-08: Moved here from the v0004 product directory and repointed at
