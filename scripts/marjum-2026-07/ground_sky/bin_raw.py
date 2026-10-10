@@ -62,6 +62,7 @@ import pandas as pd
 import eigsep_data
 from eigsep_data import MetadataIndex
 
+from delay_filter import BANDS, delay_lowpass
 from common import (
     CHANNEL_MHZ,
     HERE,
@@ -78,6 +79,8 @@ KEEP_BITS = (1 << 9) | (1 << 10)
 #: Channel offsets from each beam slice: midway between transmitter teeth.
 OFFSETS = np.array([-5, -4, -3, 3, 4, 5])
 MAX_ROW_GAP_S = 5.0
+#: Per-process delay-filter counts, collected per chunk.
+FILTER_STATS = []
 
 
 def ts(iso):
@@ -102,9 +105,13 @@ def emi_files(campaign):
     return {r["file"] for r in rows if r.get("boxair_emi") is True}
 
 
-def reduce_chunk(B, chans, emi, tcal):
+def reduce_chunk(B, chans, emi, tcal, t=None, ant=None, delay_filter=None):
     """Per-row values at each beam frequency (mean over unmasked offset channels),
-    the unmasked sample count, and the tcal scale/offset there."""
+    the unmasked sample count, and the tcal scale/offset there.
+
+    ``delay_filter``: None, or a dict of ``delay_filter.delay_lowpass`` keywords
+    (``tau_ns`` None for its union-mask-only control), applied to the antenna
+    rows ``ant`` after masking."""
     f = B.freqs_mhz
     ch = np.rint(f / CHANNEL_MHZ).astype(int)
     D = B.data.astype(float)
@@ -114,6 +121,12 @@ def reduce_chunk(B, chans, emi, tcal):
     row_emi = B.meta.file.isin(emi).to_numpy()
     bad |= row_emi[:, None] & (np.abs(f - np.round(f)) < 0.15)[None, :]
     D[bad] = np.nan
+    if delay_filter is not None:
+        k = np.flatnonzero(ant)
+        if k.size:
+            D[k], st = delay_lowpass(t[k], f, D[k], **delay_filter)
+            FILTER_STATS.append(st)
+        D[np.flatnonzero(~ant)] = np.nan
     pos = {c: i for i, c in enumerate(ch)}
     idx = np.array([[pos.get(c + o, -1) for o in OFFSETS] for c in chans])
     ok = idx >= 0
@@ -155,7 +168,11 @@ def process_chunk(c, args, chans, episodes, emi):
     ant = (rf == "RFANT") | daemon_off
     tc = B.products.get("tcal")
     tcal = {"scale": np.asarray(tc["scale"])[o], "offset": np.asarray(tc["offset"])[o]} if tc else None
-    Y, N, S, O, row_emi = reduce_chunk(_Ordered(B, o), chans, emi, tcal)
+    dfk = None
+    if args.delay_filter_ns is not None or args.union_mask_only:
+        dfk = {"tau_ns": None if args.union_mask_only else args.delay_filter_ns,
+               "block_s": args.filter_block_s}
+    Y, N, S, O, row_emi = reduce_chunk(_Ordered(B, o), chans, emi, tcal, t, ant, dfk)
     p = B.pointing.iloc[o].reset_index(drop=True)
     good_p = (p.quality.isin(["ok", "suspect"]).to_numpy()
               & np.isfinite(p.az_deg.to_numpy()) & np.isfinite(p.el_deg.to_numpy()))
@@ -217,6 +234,9 @@ def process_chunk(c, args, chans, episodes, emi):
         cur.append(i)
     close(cur)
     print(pd.Timestamp(c, unit="s"), len(bins), flush=True)
+    if FILTER_STATS:
+        bins.append({"_filter_stats": {k: sum(x[k] for x in FILTER_STATS) for k in FILTER_STATS[0]}})
+        FILTER_STATS.clear()
     return bins
 
 
@@ -231,6 +251,11 @@ def main():
     ap.add_argument("--min-rows", type=int, default=1)
     ap.add_argument("--chunk-s", type=float, default=3600.0)
     ap.add_argument("--jobs", type=int, default=8)
+    ap.add_argument("--delay-filter-ns", type=float, default=None,
+                    help="delay low-pass (delay_filter.py) of each integration before binning")
+    ap.add_argument("--union-mask-only", action="store_true",
+                    help="the filter's control: its block-union mask and drops, no filter")
+    ap.add_argument("--filter-block-s", type=float, default=5.0)
     ap.add_argument("--out-dir", type=Path)
     args = ap.parse_args()
 
@@ -246,7 +271,9 @@ def main():
     with ProcessPoolExecutor(args.jobs) as ex:
         parts = list(ex.map(process_chunk, np.arange(a0, a1, args.chunk_s),
                             *zip(*[(args, chans, episodes, emi)] * len(np.arange(a0, a1, args.chunk_s)))))
-    bins = [b_ for p_ in parts for b_ in p_]
+    bins = [b_ for p_ in parts for b_ in p_ if "_filter_stats" not in b_]
+    fst = [b_["_filter_stats"] for p_ in parts for b_ in p_ if "_filter_stats" in b_]
+    filter_stats = {k: int(sum(x[k] for x in fst)) for k in fst[0]} if fst else None
 
     df = pd.DataFrame([{k: v for k, v in b.items() if np.ndim(v) == 0} for b in bins])
     arr = {k: np.stack([b[k] for b in bins]) for k in ("y", "nsamp", "sem", "scale", "offset")}
@@ -284,6 +311,10 @@ def main():
         },
         "params": {k: (str(v) if isinstance(v, Path) else v) for k, v in vars(args).items() if k != "version"},
         "channel_offsets": OFFSETS.tolist(), "keep_flag_bits": [9, 10],
+        "delay_filter": filter_stats and {
+            **filter_stats, "bands_mhz": [list(b) for b in BANDS],
+            "flag_frac_in": filter_stats["flag_in"] / filter_stats["cells"],
+            "flag_frac_union": filter_stats["flag_union"] / filter_stats["cells"]},
         "counts": {
             "bins": int(len(df)), "rows": int(df.n.sum()),
             "bins_pointed": int(np.isfinite(df.az).sum()),
