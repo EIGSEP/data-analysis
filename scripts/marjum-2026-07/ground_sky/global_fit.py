@@ -463,6 +463,8 @@ def main():
     ap.add_argument("--every", type=int, default=2)
     ap.add_argument("--only-mhz", type=float, nargs="*", help="fit only these frequencies (diagnostics)")
     ap.add_argument("--nside", type=int, default=8)
+    ap.add_argument("--beam-lmax", type=int, default=0,
+                    help="fit a body-frame Y_lm correction to the beam up to this l (beam_corr.py); 0: none")
     ap.add_argument("--label", default=None, help="name of this configuration in the output")
     ap.add_argument("--out-dir", type=Path)
     args = ap.parse_args()
@@ -549,6 +551,22 @@ def main():
         key, args.binned / "column_cache" / f"{key[:16]}.npz",
         lambda: columns(df, freqs, beam, args.nside, lmax_c, campaign, geom))
     n_lm = (args.lmax + 1) ** 2 - 1          # real Y_lm are ordered by l
+    if args.beam_lmax:
+        from beam_corr import beam_corr_columns
+        bkey = hashlib.sha256((key + json.dumps({"beam_lmax": args.beam_lmax})).encode()).hexdigest()
+        bpath = args.binned / "column_cache" / f"beamcorr_{bkey[:16]}.npz"
+        bS = None
+        if bpath.exists():
+            with np.load(bpath, allow_pickle=False) as zb:
+                if str(zb["key"]) == bkey:
+                    bS, bN, blabels = zb["cS"], zb["cN"], [str(x) for x in zb["labels"]]
+        if bS is None:
+            bS, bN, blabels = beam_corr_columns(df, freqs, beam, gsm_maps(freqs, args.nside),
+                                                args.beam_lmax, campaign)
+            np.savez(bpath, key=bkey, cS=bS, cN=bN, labels=np.array(blabels, dtype=str))
+        # Check: the uncorrected beam on the coarser grid reproduces C_GSM and C_gnd.
+        print(f"  beam-correction check: max |dC_GSM|/C_GSM {np.max(np.abs(bS[:, 0] / cG - 1)):.4f}, "
+              f"max |dC_gnd| {np.max(np.abs(bN[:, 0] - cN)):.4f}", flush=True)
     cY, ylabels = cY[:, :n_lm], ylabels[:n_lm]
 
     gate = window_gate(Y, cG, win, tt, fit_mask)
@@ -614,6 +632,10 @@ def main():
         xnames = ["T_gnd"] + [f"d_{s}" for s in ylabels]
         if np.any(cT[i][ok_bins] != 0):
             cols.append(cT[i][ok_bins]); xnames.append("tx")
+        if args.beam_lmax:
+            for j, lab in enumerate(blabels[1:], 1):
+                cols += [bS[i, j][ok_bins], bN[i, j][ok_bins]]
+                xnames += [f"bs_{lab}", f"bg_{lab}"]
         if args.sun == "model" and np.any(cS[i][ok_bins] > 0):
             cols.append(cS[i][ok_bins]); xnames.append("S_sun")
         X = np.stack(cols, 1)

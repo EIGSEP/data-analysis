@@ -59,7 +59,8 @@ Inputs:
 | `raster_sky.py` | Builds `raster_sky_vNNNN`: gain-free regression of raw power in moving windows on GSM, ground, constant, transmitter, Sun and drift columns; T_gnd as the ground/GSM coefficient ratio; low-order sky corrections (Y_lm) tested against ground-fixed ones on held-out blocks; optionally a specularly reflected sky term. |
 | `ground_excess.py` | Builds `ground_excess_vNNNN`: the rotating-antenna regression with the ground split into regions (a band below the terrain horizon against the deeper ground, or azimuth sectors), each region's brightness in GSM kelvin; locates the low-frequency ground excess. |
 | `bin_raw.py` | Builds `derived/ground_sky/raw_binned_vNNNN`: raw box-air power over all of phase C (not only where `tcal` exists), at each HFSS beam frequency in the six channels midway between transmitter teeth, `flags@v3` (any bit but 9 and 10) and box-air's self-EMI masked, in bins of up to 60 s that close when the pointing moves 1°. Stores pointing (filled across a gap only where both sides agree), transmitter on-fraction, and `tcal@v0003`'s scale and offset where it covers a bin. |
-| `global_fit.py` | Builds `global_vNNNN` from a raw binned product: one model of every bin of the chosen receiver regimes (default rx-A) per frequency, gain × (GSM + T_gnd × ground fraction + low-order sky + transmitter + Sun + offset). The gain is smooth in time (log gain piecewise linear, knots every 3 h, a 5 % prior per knot step) or free per window; offsets per regime or per window; Sun fitted or cut. Gates drop windows whose level or sky-following fails. Held-out blocks score each configuration; gain × `tcal` scale gives the GSM amplitude a; fits where the gain collapses are flagged `diverged`. Beam columns are cached under a key of everything that defines them. |
+| `global_fit.py` | Builds `global_vNNNN` from a raw binned product: one model of every bin of the chosen receiver regimes (default rx-A) per frequency, gain × (GSM + T_gnd × ground fraction + low-order sky + transmitter + Sun + offset). The gain is smooth in time (log gain piecewise linear, knots every 3 h, a 5 % prior per knot step) or free per window; offsets per regime or per window; Sun fitted or cut. Gates drop windows whose level or sky-following fails. Held-out blocks score each configuration; gain × `tcal` scale gives the GSM amplitude a; fits where the gain collapses are flagged `diverged`. Beam columns are cached under a key of everything that defines them. `--beam-lmax L` adds a body-frame Y_lm correction to the beam (`beam_corr.py`). |
+| `beam_corr.py` | Columns for a low-order beam correction B0 (1 + Σ c_lm Y_lm) in the antenna body frame: per l,m a sky part (GSM above the terrain horizon) and a ground part (solid angle below it), normalized like the design matrix. At l = 0 it reproduces C_GSM and C_gnd, which `global_fit.py` prints as a check. |
 | `plot_global.py` | Figures for a `global_vNNNN` directory: fitted parameters against frequency per configuration, and residuals against time. |
 | `common.py` | Paths, provenance, and per-file height era (`mode_table.jsonl`, which fills the pointing table's blank eras) and receiver regime (`cal_windows.jsonl`). |
 | `degeneracy_study.py` | Builds the design matrix on the real geometry. Reports Fisher errors on T_gnd, the offset and the sky mean under four prior choices (sky free or 10 % GSM; offset free or known to 1 K). Then runs a simulate-and-recover check: GSM truth at nside 16, fitted at nside 8, with HFSS or the empirical beam as the true beam. Writes `summary.json`. No measured spectra are used. |
@@ -199,6 +200,12 @@ mount offsets, horizon profiles v0002), HFSS beam, rx-A only (07-15 to 07-17 19:
 
 ## Recent changes
 
+- 2026-10-10: `beam_corr.py` and `global_fit.py --beam-lmax`: an optional
+  low-order beam correction fitted with the rest of the model. In a trial at
+  148 MHz (rx-A, 10-min gain knots) a correction to l = 2 gave 1.12 % rms and
+  1.95 % held out, against 1.15 % and 1.70 % without it: the beam is not
+  what limits the fit. Most of the residual is a minute-scale fluctuation in
+  sub-5 s bins, which is being characterized before averaging.
 - 2026-10-09: `bin_raw.py`, `global_fit.py`, `plot_global.py`: one model of
   raw box-air power over phase C, with a smooth gain; first trials above. `global_fit.py` now reads the beam, mount
   offsets, horizon profiles and transmitter through `common`/`sun` like the other scripts
