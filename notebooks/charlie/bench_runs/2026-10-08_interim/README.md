@@ -7,9 +7,9 @@ each section below follows that protocol's numbering and says how this run
 does it. [Gaps](#gaps-against-the-requirements) lists where it falls short,
 with the effect and what would close it.
 
-**Status:** run on 2026-10-08. The bench computer's clock was wrong, so
-every timestamp it wrote reads 2026-10-09 (see [Run log](#run-log-utc)). Do
-not edit after the run except to fill in the to-be-recorded items; a later
+**Status:** run on the evening of 2026-10-08 (PDT). File names, the heater
+log and file-header times are in UTC, so they read 2026-10-09 (see
+[Run log](#run-log-utc)). Do not edit after the run except to fill in the to-be-recorded items; a later
 run gets its own folder.
 
 **Automation:** `eigsep_observing`, branch `calibration_scripts` (commit used:
@@ -83,8 +83,15 @@ All of the streams listed in the protocol's § 3 are logged, plus:
 - the full observing config, including the `bench_setup` hardware record,
   is embedded in every corr and VNA file header.
 
-Supply voltages are **not** logged automatically; they go in the written
-log. Heater actions are logged automatically with UTC times by
+Supply voltages are **not** logged automatically; from the written log:
+
+| Supply | Voltage |
+|---|---|
+| LNAs (14, 3, 10) | 4.96 V |
+| Switch board, SNAP and SP1 cable switch | 12.00 V |
+| Hot-load heater | 16.330 V |
+
+Heater actions are logged automatically with UTC times by
 `hot_load_plateaus.py`.
 
 **Thermistors.** All four bench thermistors are YSI 44909 (30 kΩ at 25 °C,
@@ -221,33 +228,96 @@ the lab-LNA caveat of § 1.
 
 ## Run log (UTC)
 
-**Clock error.** The bench computer's clock was wrong during this run. The
-heater log, the data file names and (presumably) the file headers read
-2026-10-09, starting 01:03:22 UTC; the run actually started at about 17:22
-on 2026-10-08, from the shell history (`HISTTIMEFORMAT='%F %T'`). History
-times are in the local time zone and clock of the machine the history is
-from (_record which machine, and its time zone_). Correct every timestamp by the same
-offset before matching it to anything outside the bench.
+**Time zones.** Everything the bench writes with a trailing `Z` (data file
+names, heater-log lines) is UTC, as are the Unix times in the file headers
+(`sync_time`, `obs_config_owner_uploaded_unix`). The ground computer's log
+is in local time (PDT, UTC−7); its distilled version,
+[`eigsep_events_2026-10-08.log`](eigsep_events_2026-10-08.log), gives both. The
+clocks agreed: that log shows the SNAP synchronizing at 17:16:47 PDT, the
+header `sync_time`. Data recorded before the working heater program
+(including a first attempt at 17:22 PDT that stopped on a stale firmware
+watchdog trip) were deleted.
 
-Heater program, from the heater log (bench clock): ambient from 01:03:22;
-plateaus at 47, 67 and 87 °C from 01:13:22, 01:28:22 and 01:43:22; cool-down
-from 01:58:22; program complete 03:28:22.
+| Event | UTC (2026-10-09) | PDT (2026-10-08) | Source |
+|---|---|---|---|
+| SNAP synced | 00:16:47 | 17:16:47 | header `sync_time` |
+| `eigsep-panda` started | 00:19:54 | 17:19:54 | header `obs_config_owner_uploaded_unix` |
+| Heater program: ambient (heater off) | 01:03:22 | 18:03:22 | heater log |
+| Plateau 47 °C | 01:13:22 | 18:13:22 | heater log |
+| Plateau 67 °C | 01:28:22 | 18:28:22 | heater log |
+| Plateau 87 °C | 01:43:22 | 18:43:22 | heater log |
+| Cool-down (heater off) | 01:58:22 | 18:58:22 | heater log |
+| Program complete | 03:28:22 | 20:28:22 | heater log |
+| Data kept (first → last file) | 01:04:04 → 04:41:26 | 18:04:04 → 21:41:26 | file names |
 
-_Manual actions with their times: to fill in._
+**Manual actions during the kept run (18:01–21:41 PDT): none.** The
+switching, VNA sweeps and heater program ran unattended.
+
+The day before the kept run, from the written log and the ground event log
+([`eigsep_events_2026-10-08.log`](eigsep_events_2026-10-08.log), which has a
+key-periods summary): bring-up and short test sessions from 11:00 PDT; the
+rfswitch pico and SP1 cable switch problems below; a power-supply problem
+15:49–17:15 PDT during which the ground computer restarted 8 times and the
+SNAP had to be power-cycled; the SNAP synchronized at 17:16:47 PDT (the
+`sync_time` of every kept file); the SP1 pico was reconnected at 18:02:01 PDT,
+just before the kept run.
+
+## Problems during the day
+
+Each with what was done and its status.
+
+| Problem | What was done | Status |
+|---|---|---|
+| **rfswitch pico could not drive GP8/GP12/GP14 low**, so the switch landed on wrong paths (address bits stuck high) | Diagnosed from the wrong routings and pin voltages; most likely cause is the pico left running into the **unpowered** switch board (its high outputs back-fed the board). Replaced the pico and the switch board. Power-order rule added to the pico-firmware README and `OPERATIONS.md`. | Resolved |
+| **SP1 cable switch stopped switching** | Reset the SP1 (potmon) pico several times and power-cycled the cable switch's 12 V supply; the ground log shows the potmon pico reconnecting at 18:02:01 PDT. Unclear which step fixed it. | Working for the kept run; cause unknown |
+| **SNAP would not connect** | Power-cycled by unplugging and replugging its power (flipping its switch did not help). | Resolved |
+| **Power supply** | Ground computer restarted 8 times 15:49–17:15 PDT; no corr data for most of 16:08–17:16 PDT (ground event log). | Resolved before the kept run |
+| **Version mismatches** between `picohost` / `eigsep_observing` installs on the panda (e.g. the panda ran `main`'s `eigsep_observing`, so tempctrl settings failed with `set_enable(LNA=...)` until 17:18:58 PDT) | Force-reinstalled the `temp_calibration` / `calibration_scripts` versions with `--no-deps`. | Resolved |
+| **Stale tempctrl watchdog trip** after the pico reboot stopped the heater script at its first readout (17:22 PDT) | `hot_load_plateaus.py` now sends keepalives and lets the first plateau's enable clear a pre-existing watchdog trip. | Resolved (code) |
+| **Writer service wrote to an unmounted drive**: the systemd `eigsep-observe-writer` tried `/media/eigsep/T7/data/` all day and every write failed; the data exist only because `eigsep-observe` was also run by hand | Service to be disabled; the writer is run manually with explicit save directories. | Open (see to-do) |
+| **Thermistors very noisy** | None yet; thermistors are being replaced. | Open |
+| **SP1 cable thermistor unverified** (wired by hand in the cable box) | Needs the conversion run on `potmon.pot_az_voltage` to see whether it reads sensibly. | Open |
+
+## To-do
+
+- **Thermistors:** check the SP1 cable thermistor with the conversion in
+  § 3; replace the noisy thermistors with higher-range parts (also closes the
+  370 K and 0.1 K gaps above).
+- **SP1 pico:** move it from the potmon app to a dedicated app for the
+  thermistor(s) and the termination switch.
+- **Hot load:** insulate it (it loses a lot of heat to the room); e.g. a
+  3D-printed case.
+- **Bench layout:** make the setup modular and replace the jumper wires.
+- **Signal chain:** add the optical fibre link and the filters.
+- **Writer service:** disable `eigsep-observe-writer` on the ground computer
+  (`sudo systemctl disable --now eigsep-observe-writer.service`) and always
+  pass `--corr-save-dir` / `--vna-save-dir` when running `eigsep-observe` by
+  hand; or mount the T7 drive.
+- **Code:** tidy `eigsep_observing` (`calibration_scripts`) and its commit
+  history.
+- **This record:** switch-board serial and whether it flew, the P → LNA 14
+  connection, hot-load cable/adapters, SP1 cable length (§ 8); photos; the
+  `eigsep_observing` commit used.
 
 ## Data and files
 
 - **Correlator and VNA files** (not tracked by git):
   `/mnt/data02/eigsep/scratch/switch_bench_tests/`, 889 MB: 52 `corr_*.h5`,
-  10 `ants11_*.h5` and 10 `recs11_*.h5`. File names carry the bench clock
-  (`20261009_010404Z` to `20261009_044126Z`). This is a scratch location;
+  10 `ants11_*.h5` and 10 `recs11_*.h5`. File names are UTC
+  (`20261009_010404Z` to `20261009_044126Z`, i.e. 18:04–21:41 PDT on
+  2026-10-08). This is a scratch location;
   move the files somewhere permanent, with checksums, before a memo uses them.
   A copy is also on Charlie's laptop in
   `data-analysis/notebooks/charlie/switch_bench_tests/` (untracked), which is
   where `hot_load_testing_data.ipynb` reads it from.
 - **Configs as used** (in this folder): [`obs_config_switch_bench.yaml`](obs_config_switch_bench.yaml)
   and [`corr_config.yaml`](corr_config.yaml) (see § 2 for the `corr_acc_len` difference).
+- **Ground-computer event log** (in this folder):
+  [`eigsep_events_2026-10-08.log`](eigsep_events_2026-10-08.log), the day's
+  `eigsep.log` distilled to start/stop, configuration and collapsed
+  warning/error events, with a key-periods summary at the top. The full log
+  was not kept.
 - **Heater log** (in this folder): [`hot_load_plateaus_20261009T010322Z.log`](hot_load_plateaus_20261009T010322Z.log)
-  (bench clock).
+  (UTC).
 - **Analysis notebook:** [`../../hot_load_testing_data.ipynb`](../../hot_load_testing_data.ipynb).
 - **Photos (§ 8):** _to add._
