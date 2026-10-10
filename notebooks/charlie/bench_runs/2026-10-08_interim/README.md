@@ -83,8 +83,15 @@ All of the streams listed in the protocol's § 3 are logged, plus:
 - the full observing config, including the `bench_setup` hardware record,
   is embedded in every corr and VNA file header.
 
-Supply voltages are **not** logged automatically; they go in the written
-log. Heater actions are logged automatically with UTC times by
+Supply voltages are **not** logged automatically; from the written log:
+
+| Supply | Voltage |
+|---|---|
+| LNAs (14, 3, 10) | 4.96 V |
+| Switch board, SNAP and SP1 cable switch | 12.00 V |
+| Hot-load heater | 16.330 V |
+
+Heater actions are logged automatically with UTC times by
 `hot_load_plateaus.py`.
 
 **Thermistors.** All four bench thermistors are YSI 44909 (30 kΩ at 25 °C,
@@ -243,7 +250,54 @@ watchdog trip) were deleted.
 | Program complete | 03:28:22 | 20:28:22 | heater log |
 | Data kept (first → last file) | 01:04:04 → 04:41:26 | 18:04:04 → 21:41:26 | file names |
 
-_Manual actions with their times: to fill in._
+**Manual actions during the kept run (18:01–21:41 PDT): none.** The
+switching, VNA sweeps and heater program ran unattended.
+
+The day before the kept run, from the written log and the ground event log
+([`eigsep_events_2026-10-08.log`](eigsep_events_2026-10-08.log), which has a
+key-periods summary): bring-up and short test sessions from 11:00 PDT; the
+rfswitch pico and SP1 cable switch problems below; a power-supply problem
+15:49–17:15 PDT during which the ground computer restarted 8 times and the
+SNAP had to be power-cycled; the SNAP synchronized at 17:16:47 PDT (the
+`sync_time` of every kept file); the SP1 pico was reconnected at 18:02:01 PDT,
+just before the kept run.
+
+## Problems during the day
+
+Each with what was done and its status.
+
+| Problem | What was done | Status |
+|---|---|---|
+| **rfswitch pico could not drive GP8/GP12/GP14 low**, so the switch landed on wrong paths (address bits stuck high) | Diagnosed from the wrong routings and pin voltages; most likely cause is the pico left running into the **unpowered** switch board (its high outputs back-fed the board). Replaced the pico and the switch board. Power-order rule added to the pico-firmware README and `OPERATIONS.md`. | Resolved |
+| **SP1 cable switch stopped switching** | Reset the SP1 (potmon) pico several times and power-cycled the cable switch's 12 V supply; the ground log shows the potmon pico reconnecting at 18:02:01 PDT. Unclear which step fixed it. | Working for the kept run; cause unknown |
+| **SNAP would not connect** | Power-cycled by unplugging and replugging its power (flipping its switch did not help). | Resolved |
+| **Power supply** | Ground computer restarted 8 times 15:49–17:15 PDT; no corr data for most of 16:08–17:16 PDT (ground event log). | Resolved before the kept run |
+| **Version mismatches** between `picohost` / `eigsep_observing` installs on the panda (e.g. the panda ran `main`'s `eigsep_observing`, so tempctrl settings failed with `set_enable(LNA=...)` until 17:18:58 PDT) | Force-reinstalled the `temp_calibration` / `calibration_scripts` versions with `--no-deps`. | Resolved |
+| **Stale tempctrl watchdog trip** after the pico reboot stopped the heater script at its first readout (17:22 PDT) | `hot_load_plateaus.py` now sends keepalives and lets the first plateau's enable clear a pre-existing watchdog trip. | Resolved (code) |
+| **Writer service wrote to an unmounted drive**: the systemd `eigsep-observe-writer` tried `/media/eigsep/T7/data/` all day and every write failed; the data exist only because `eigsep-observe` was also run by hand | Service to be disabled; the writer is run manually with explicit save directories. | Open (see to-do) |
+| **Thermistors very noisy** | None yet; thermistors are being replaced. | Open |
+| **SP1 cable thermistor unverified** (wired by hand in the cable box) | Needs the conversion run on `potmon.pot_az_voltage` to see whether it reads sensibly. | Open |
+
+## To-do
+
+- **Thermistors:** check the SP1 cable thermistor with the conversion in
+  § 3; replace the noisy thermistors with higher-range parts (also closes the
+  370 K and 0.1 K gaps above).
+- **SP1 pico:** move it from the potmon app to a dedicated app for the
+  thermistor(s) and the termination switch.
+- **Hot load:** insulate it (it loses a lot of heat to the room); e.g. a
+  3D-printed case.
+- **Bench layout:** make the setup modular and replace the jumper wires.
+- **Signal chain:** add the optical fibre link and the filters.
+- **Writer service:** disable `eigsep-observe-writer` on the ground computer
+  (`sudo systemctl disable --now eigsep-observe-writer.service`) and always
+  pass `--corr-save-dir` / `--vna-save-dir` when running `eigsep-observe` by
+  hand; or mount the T7 drive.
+- **Code:** tidy `eigsep_observing` (`calibration_scripts`) and its commit
+  history.
+- **This record:** switch-board serial and whether it flew, the P → LNA 14
+  connection, hot-load cable/adapters, SP1 cable length (§ 8); photos; the
+  `eigsep_observing` commit used.
 
 ## Data and files
 
