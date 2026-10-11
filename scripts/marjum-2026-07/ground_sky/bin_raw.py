@@ -41,6 +41,10 @@ on if any row is inside an episode, with the on fraction), whether box-air's
 self-EMI file flag is set, and where ``tcal@v0003`` covers the bin, its
 mean scale and offset at each frequency (T = scale P + offset at plane P),
 so the fit's gains can be tied to kelvin.
+Housekeeping per bin (``s_<stream>``): the mean of each ``SENSORS`` stream
+over the bin's rows (system current, RF-switch and load temperatures, the
+elevation IMU's accelerations), and the spread of the pointed rows in az and
+el (``az_std``, ``el_std``); ``global_fit.py --gain-regressors`` can use them.
 
 Run::
 
@@ -79,6 +83,10 @@ KEEP_BITS = (1 << 9) | (1 << 10)
 #: Channel offsets from each beam slice: midway between transmitter teeth.
 OFFSETS = np.array([-5, -4, -3, 3, 4, 5])
 MAX_ROW_GAP_S = 5.0
+#: Housekeeping streams averaged per bin, as candidate gain regressors for the
+#: global fit: the ones the in-flight fluctuation followed (memo 007).
+SENSORS = ("system_current_current_a", "rfswitch_therm_temp_therm0", "tempctrl_load_T_now",
+           "imu_el_accel_x", "imu_el_accel_y", "imu_el_accel_z")
 #: Per-process delay-filter counts, collected per chunk.
 FILTER_STATS = []
 
@@ -188,6 +196,8 @@ def process_chunk(c, args, chans, episodes, emi):
     for s_, e_ in episodes:
         tx |= (t >= s_) & (t < e_)
     group = pd.Series(list(zip(era, reg, acc))).astype(str).to_numpy()
+    sens = {c: (pd.to_numeric(meta[c], errors="coerce").to_numpy(float)[o] if c in meta.columns
+                else np.full(len(t), np.nan)) for c in SENSORS}
 
     rows = np.flatnonzero(ant)
     cur = []
@@ -212,8 +222,12 @@ def process_chunk(c, args, chans, episodes, emi):
             "el": float(np.mean(el[gp])) if gp.size else np.nan,
             "az_span": float(np.ptp(az[gp])) if gp.size else np.nan,
             "n_pointed": int(gp.size),
+            "az_std": float(np.std(az[gp])) if gp.size > 1 else np.nan,
+            "el_std": float(np.std(el[gp])) if gp.size > 1 else np.nan,
             "tx_frac": float(tx[k].mean()), "emi": bool(row_emi[k].any()),
             "daemon_off": bool(daemon_off[k].all()),
+            **{f"s_{c}": (float(np.nanmean(v[k])) if np.isfinite(v[k]).any() else np.nan)
+               for c, v in sens.items()},
             "y": y, "nsamp": nsamp, "sem": sem,
             "scale": np.nanmean(S[k], 0) if tcal is not None else np.full(len(chans), np.nan),
             "offset": np.nanmean(O[k], 0) if tcal is not None else np.full(len(chans), np.nan),

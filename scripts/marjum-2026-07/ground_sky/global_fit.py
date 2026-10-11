@@ -53,8 +53,9 @@ radiometer sigma.
 Selection, decided before fitting:
 
 - bins with pointing (measured, or filled across a gap where the pointing on
-  either side agrees, ``bin_raw.py``), before the elevation drive failed at
-  07-18 01:41:38;
+  either side agrees, ``bin_raw.py``). After the elevation drive failed at
+  07-18 01:41:38 the pointing table's elevation is the IMU's, which held the
+  antenna inverted (-176 to -177 deg) until about 02:58; those bins are kept;
 - with ``--sun cut``, only bins with the Sun more than ``--sun-margin-deg``
   behind the terrain edge, and no Sun column; ``--sun model`` (the default) keeps
   the daytime bins, which hold the 07-17 raster;
@@ -70,6 +71,12 @@ Selection, decided before fitting:
   regression on (C_GSM, 1, t) must leave a median residual under
   ``--max-window-resid`` of the power, in the median over frequencies (the
   07-15 night does not follow the sky, memo 008 section 7.2).
+
+Gain regressors (``--gain-regressors``, smooth gain only): bin columns such
+as ``bin_raw.py``'s housekeeping means enter log gain linearly, each
+standardized within its gain segment. Their control,
+``--regressor-shift-s``, takes every column from a time shifted within its
+segment: the same number of free terms, with no alignment to the data.
 
 Validation: bins in alternating ``--block-s`` blocks are held out; the model
 is fitted on the rest and scored on them. Gains and per-window terms come
@@ -113,8 +120,6 @@ from fit_ground_sky import gsm_maps, load_beam
 from raster_sky import real_ylm_maps
 
 FM = (85.0, 110.0)
-#: Elevation drive failure (curation/pointing_table.README.md, known defects).
-EL_FAILURE = pd.Timestamp("2026-07-18T01:41:38Z").timestamp()
 #: Y_lm columns are always built (and cached) to at least this l.
 LMAX_CACHE = 2
 
@@ -373,9 +378,37 @@ def window_gate(y, cG, win, tt, rows):
     return np.nanmedian(out, 0)
 
 
+def gain_regressors(df, names, seg, shift_s=0.0):
+    """Log-gain regressor columns: each bin column in ``names``, centred and
+    scaled to unit rms within each gain segment (missing values 0, the
+    segment mean). ``shift_s``: the control, each bin taking the value of the
+    bin nearest t + shift_s, wrapped around its segment's span, so the column
+    keeps its statistics but loses its alignment with the data."""
+    t = df.t.to_numpy()
+    cols = []
+    for n in names:
+        v = df[n].to_numpy(float)
+        c = np.zeros(len(t))
+        for sname in np.unique(seg):
+            m = np.flatnonzero(seg == sname)
+            m = m[np.argsort(t[m], kind="stable")]
+            x = v[m]
+            if shift_s:
+                ts, span = t[m], t[m].max() - t[m].min()
+                tq = ts.min() + (ts - ts.min() + shift_s) % max(span, 1.0)
+                x = x[np.clip(np.searchsorted(ts, tq), 0, len(m) - 1)]
+            ok = np.isfinite(x)
+            if ok.sum() > 1 and np.std(x[ok]) > 0:
+                c[m[ok]] = (x[ok] - x[ok].mean()) / np.std(x[ok])
+        cols.append(c)
+    return np.stack(cols, 1) if cols else np.zeros((len(t), 0))
+
+
 def fit_smooth(out, y0, w, fin, train, sig_rad, X, xnames, cG, groups, gnames, H, knot_t,
-               knot_seg, sc, ok_bins, resid_store, i, nbins, step_sigma):
-    """Fit the smooth-gain model on the training rows and on all rows."""
+               knot_seg, sc, ok_bins, resid_store, i, nbins, step_sigma, reg_names=()):
+    """Fit the smooth-gain model on the training rows and on all rows. The last
+    len(reg_names) columns of H are gain regressors, not knots."""
+    nkn = H.shape[1] - len(reg_names)
     M = SmoothGainModel(cG, X, xnames, groups, len(gnames), H, knot_seg, step_sigma)
     for name, rows in (("train", fin & train), ("all", fin)):
         sol = M.fit(y0, w, rows)
@@ -399,21 +432,23 @@ def fit_smooth(out, y0, w, fin, train, sig_rad, X, xnames, cG, groups, gnames, H
         # Diverged: a gain knot below 1 % of the median knot, or an offset over
         # 10x the median GSM column (the gain -> 0, offset -> infinity mode
         # the data fall into where the model's variation does not match).
-        gk = np.exp(a)
+        gk = np.exp(a[:nkn])
+        res["gain_regressors"] = dict(zip(reg_names, a[nkn:].tolist()))
+        res["gain_regressors_err_scaled"] = dict(zip(reg_names, err[M.nx + M.ng + nkn:].tolist()))
         res["diverged"] = bool(np.any(gk < 0.01 * np.median(gk))
                                or np.any(np.abs(o) > 10 * np.median(cG[rows])))
         if name == "train":
             # Score held-out bins only where every gain knot they lean on has
             # training bins (a stretch inside one held-out block has none).
-            sup = (H[rows] > 0.25).sum(0) > 0
-            te = fin & ~train & ~np.any((H > 0) & ~sup[None, :], axis=1)
+            sup = (H[rows, :nkn] > 0.25).sum(0) > 0
+            te = fin & ~train & ~np.any((H[:, :nkn] > 0) & ~sup[None, :], axis=1)
             res["n_test"] = int(te.sum())
             res["test_rms_frac"] = float(np.sqrt(np.mean((r / np.where(fin, y0, 1))[te] ** 2)))
             res["test_chi2"] = float(np.mean((r * w)[te] ** 2))
             res["test_rms_radiometer_sigma"] = float(np.sqrt(np.mean((r / sig_rad)[te] ** 2)))
         else:
-            res["gain_knots"] = {"t": knot_t.tolist(), "segment": knot_seg.tolist(),
-                                 "gain": np.exp(a).tolist()}
+            res["gain_knots"] = {"t": knot_t[:nkn].tolist(), "segment": knot_seg[:nkn].tolist(),
+                                 "gain": np.exp(a[:nkn]).tolist()}
             res["rms_radiometer_sigma"] = float(np.sqrt(np.mean((r / sig_rad)[rows] ** 2)))
             tmp = np.full(nbins, np.nan)
             tmp[np.flatnonzero(ok_bins)[fin]] = (r / y0)[fin]
@@ -465,6 +500,11 @@ def main():
     ap.add_argument("--nside", type=int, default=8)
     ap.add_argument("--beam-lmax", type=int, default=0,
                     help="fit a body-frame Y_lm correction to the beam up to this l (beam_corr.py); 0: none")
+    ap.add_argument("--gain-regressors", nargs="*", default=[],
+                    help="bin columns (bin_raw.py s_<stream>, az_std, el_std) whose standardized "
+                         "values enter log gain linearly (smooth gain only)")
+    ap.add_argument("--regressor-shift-s", type=float, default=0.0,
+                    help="control: take each regressor from t + this, wrapped within its segment")
     ap.add_argument("--label", default=None, help="name of this configuration in the output")
     ap.add_argument("--out-dir", type=Path)
     args = ap.parse_args()
@@ -502,12 +542,7 @@ def main():
     # --sun cut drops the Sun-visible bins from the fit, not from the columns,
     # so every configuration shares one column cache.
     fit_mask = hidden if args.sun == "cut" else np.ones(len(df), bool)
-    # The elevation drive failed at 07-18 01:41:38 UTC (pointing_table README,
-    # known defects); the elevation after it is not known. A fit mask, like
-    # the Sun cut, so the column cache is shared.
-    fit_mask = fit_mask & (df.t.to_numpy() < EL_FAILURE)
     fit_mask &= df.regime.isin(args.regimes).to_numpy()
-    sel_counts["before_el_failure"] = int((df.t.to_numpy() < EL_FAILURE).sum())
     Yall, nsamp = z["y"][keep], z["nsamp"][keep]
     scale = z["scale"][keep]
 
@@ -616,6 +651,14 @@ def main():
     if args.gain == "smooth":
         seg = (df.regime + "|" + df.acc.astype(str)).to_numpy()[ok_bins]
         H, knot_t, knot_seg = gain_basis(t[ok_bins], seg, args.knot_s)
+        if args.gain_regressors:
+            R = gain_regressors(df[ok_bins].reset_index(drop=True), args.gain_regressors, seg,
+                                args.regressor_shift_s)
+            H = np.hstack([H, R])
+            knot_t = np.r_[knot_t, np.full(R.shape[1], np.nan)]
+            knot_seg = np.r_[knot_seg, [f"regressor:{n}" for n in args.gain_regressors]]
+            print(f"  gain regressors: {', '.join(args.gain_regressors)}"
+                  + (f" (shifted {args.regressor_shift_s:.0f} s)" if args.regressor_shift_s else ""), flush=True)
         print(f"  smooth gain: {H.shape[1]} knots in {len(set(seg))} segments", flush=True)
     else:
         H = knot_t = knot_seg = None
@@ -643,7 +686,7 @@ def main():
         if args.gain == "smooth":
             fit_smooth(out, y0, w, fin, train[ok_bins], sig_rad, X, xnames, cG[i][ok_bins], groups,
                        gnames, H, knot_t, knot_seg, SC[i][ok_bins], ok_bins, resid_store, i, len(df),
-                       args.gain_step_sigma)
+                       args.gain_step_sigma, args.gain_regressors)
             results.append(out)
             a_ = out["all"]
             print(f"{x:6.1f} MHz  T_gnd {a_['theta']['T_gnd']:8.1f}  offsets "
