@@ -65,9 +65,20 @@ The copy in this folder, [`corr_config.yaml`](corr_config.yaml), has
 | potmon (app 2) | SP1 open/short (GP27); SP1 cable thermistor (GP26) | `potmon` (`sp1_term_name`, `pot_az_voltage`) |
 | rfswitch (app 5) | Switch matrix; three board thermistors | `rfswitch`, `rfswitch_therm` |
 
-Switch-board thermistors (`rfswitch_therm`, thermistor i on GP(26+i)):
-`temp_therm0` = common/crossbar switch, `temp_therm1` = **noise diode**,
-`temp_therm2` = internal VNA calibration load.
+Switch-board thermistors (`rfswitch_therm`, thermistor i on GP(26+i)). On
+this bench board GP26 and GP27 are swapped relative to the field board:
+
+| Stream | Pin | Bench board (this run) | Field board |
+|---|---|---|---|
+| `temp_therm0` | GP26 | internal VNA calibration load | switch monitor |
+| `temp_therm1` | GP27 | switch monitor | internal VNA calibration load |
+| `temp_therm2` | GP28 | **noise diode** | **noise diode** |
+
+The `obs_config_switch_bench.yaml` used for this run, and embedded in every
+file header, has these labels wrong: it calls `temp_therm1` the noise diode
+and `temp_therm2` the VNA calibration load, and sets `t_ns_field:
+temp_therm1`. The table above is correct (checked on the boards by Charlie,
+2026-10-12); use `temp_therm2` for the noise diode.
 
 ## § 3. Logging
 
@@ -75,7 +86,7 @@ All of the streams listed in the protocol's § 3 are logged, plus:
 
 - `tempctrl_load` also carries the heater setpoint in force (`T_target`,
   `enabled`, `hysteresis`) per integration;
-- `rfswitch_therm.temp_therm1` (noise diode) is the noise-source/pad proxy;
+- `rfswitch_therm.temp_therm2` (noise diode, GP28) is the noise-source/pad proxy;
 - `tempctrl_lna2` is the ambient reference load temperature;
 - `potmon`: the SP1 termination (`sp1_term_name`) and the SP1 cable
   thermistor as a raw voltage (`pot_az_voltage`; ignore the derived
