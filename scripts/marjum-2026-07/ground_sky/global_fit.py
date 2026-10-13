@@ -373,20 +373,22 @@ class SmoothGainModel:
             method="trf", x_scale="jac", xtol=1e-10, ftol=1e-10, gtol=1e-10, max_nfev=3000)
 
 
-def fast_basis(t, az, el, seg, knot_s, max_move_deg=1.0, gap_s=90.0):
+def fast_basis(t, az, el, seg, knot_s, max_move_deg=1.0, gap_s=90.0, max_el_deg=None):
     """Log-gain basis for the shared fast gain: piecewise-linear knots every
     knot_s within each run of bins at one pointing (one gain segment, no gap
-    over gap_s, az and el within max_move_deg of the run's first bin), each
+    over gap_s, az within max_move_deg and el within max_el_deg, default
+    max_move_deg, of the run's first bin), each
     column centred over its run and one dropped per run, so the fast gain
     averages to zero over a run and leaves the run's level to the slow gain.
     Runs shorter than knot_s get none: while the antenna moves, a fast gain
     would take up the pointing signal. Returns (F, run) with run = -1 outside."""
     n = len(t)
+    max_el_deg = max_move_deg if max_el_deg is None else max_el_deg
     run = -np.ones(n, int)
     r, j0 = -1, None
     for i in range(n):
         if (j0 is None or seg[i] != seg[j0] or t[i] - t[i - 1] > gap_s
-                or abs(az[i] - az[j0]) > max_move_deg or abs(el[i] - el[j0]) > max_move_deg):
+                or abs((az[i] - az[j0] + 180) % 360 - 180) > max_move_deg or abs(el[i] - el[j0]) > max_el_deg):
             r, j0 = r + 1, i
         run[i] = r
     cols = []
@@ -594,6 +596,9 @@ def main():
                          "fixed-pointing runs (smooth gain only; 0: none)")
     ap.add_argument("--fast-sigma", type=float, default=0.01, help="prior on each fast-gain coefficient")
     ap.add_argument("--fast-max-move-deg", type=float, default=0.5)
+    ap.add_argument("--fast-max-el-deg", type=float, default=None,
+                    help="elevation tolerance of a fixed-pointing run (default --fast-max-move-deg); "
+                         "the 30 m elevation record wobbles by degrees at a fixed commanded pointing")
     ap.add_argument("--fast-iter", type=int, default=8)
     ap.add_argument("--fast-fmin", type=float, default=0.0,
                     help="frequencies (MHz) the fast gain is fitted on and scored at: converged ones in range")
@@ -866,7 +871,7 @@ def main():
         # alternate converged frequencies and scored on the others: at a
         # held-out frequency it adds no free parameter.
         F, run = fast_basis(t[ok_bins], df.az.to_numpy()[ok_bins], df.el.to_numpy()[ok_bins], seg,
-                            args.fast_knot_s, args.fast_max_move_deg)
+                            args.fast_knot_s, args.fast_max_move_deg, max_el_deg=args.fast_max_el_deg)
         conv = np.flatnonzero([not (r_["all"]["diverged"] or r_["train"]["diverged"])
                                and args.fast_fmin <= f_ <= args.fast_fmax for r_, f_ in zip(results, freqs)])
         ftrain = np.zeros(len(freqs), bool)
