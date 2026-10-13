@@ -78,6 +78,14 @@ standardized within its gain segment. Their control,
 ``--regressor-shift-s``, takes every column from a time shifted within its
 segment: the same number of free terms, with no alignment to the data.
 
+Shared fast gain (``--fast-knot-s``, smooth gain only): a log gain common to
+all frequencies, F (c + d x_f) with x_f the frequency scaled to [-1, 1], so a
+gain and a tilt. Its knots fall only inside runs of bins at one pointing
+(``fast_basis``), centred over each run, so it cannot take up the signal of a
+pointing change. It is fitted on alternate converged frequencies in
+``--fast-fmin``..``--fast-fmax`` (alternating with the per-frequency fits)
+and scored on the others, where it adds no free parameter.
+
 Validation: bins in alternating ``--block-s`` blocks are held out; the model
 is fitted on the rest and scored on them. Gains and per-window terms come
 from each window's training bins.
@@ -312,10 +320,12 @@ def gain_basis(t, seg, knot_s):
 
 
 class SmoothGainModel:
-    """y = exp(H a) [C_GSM + X th + o_group]: the gain is smooth in time."""
+    """y = exp(H a + lg0) [C_GSM + X th + o_group]: the gain is smooth in time;
+    lg0, a fixed log gain (the shared fast gain of ``--fast-knot-s``), is 0 by default."""
 
-    def __init__(self, cG, X, xnames, groups, n_groups, H, knot_seg, step_sigma):
+    def __init__(self, cG, X, xnames, groups, n_groups, H, knot_seg, step_sigma, lg0=None):
         self.cG, self.X, self.xnames = cG, X, xnames
+        self.lg0 = np.zeros(len(cG)) if lg0 is None else lg0
         self.groups, self.ng, self.H = groups, n_groups, H
         self.nx, self.nk = X.shape[1], H.shape[1]
         # Prior on log-gain steps between adjacent knots of one segment.
@@ -331,7 +341,7 @@ class SmoothGainModel:
         return self.cG + self.X @ th + o[self.groups]
 
     def gain(self, p):
-        return np.exp(self.H @ self.split(p)[2])
+        return np.exp(self.H @ self.split(p)[2] + self.lg0)
 
     def predict(self, p):
         th, o, _ = self.split(p)
@@ -348,18 +358,92 @@ class SmoothGainModel:
 
     def start(self, y, rows):
         """Gains from y / C_GSM with no ground, offsets or corrections."""
-        a, *_ = np.linalg.lstsq(self.H[rows], np.log(y[rows] / self.cG[rows]), rcond=None)
+        a, *_ = np.linalg.lstsq(self.H[rows], np.log(y[rows] / self.cG[rows]) - self.lg0[rows], rcond=None)
         return np.r_[np.zeros(self.nx + self.ng), a]
 
     def penalty(self, p):
         return self.D @ self.split(p)[2]
 
-    def fit(self, y, w, rows):
+    def fit(self, y, w, rows, x0=None):
         zero = np.zeros((self.D.shape[0], self.nx + self.ng))
         return least_squares(
-            lambda p: np.r_[((self.predict(p) - y) * w)[rows], self.penalty(p)], self.start(y, rows),
+            lambda p: np.r_[((self.predict(p) - y) * w)[rows], self.penalty(p)],
+            self.start(y, rows) if x0 is None else x0,
             jac=lambda p: np.vstack([self.jac(p, rows, w), np.hstack([zero, self.D])]),
             method="trf", x_scale="jac", xtol=1e-10, ftol=1e-10, gtol=1e-10, max_nfev=3000)
+
+
+def fast_basis(t, az, el, seg, knot_s, max_move_deg=1.0, gap_s=90.0):
+    """Log-gain basis for the shared fast gain: piecewise-linear knots every
+    knot_s within each run of bins at one pointing (one gain segment, no gap
+    over gap_s, az and el within max_move_deg of the run's first bin), each
+    column centred over its run and one dropped per run, so the fast gain
+    averages to zero over a run and leaves the run's level to the slow gain.
+    Runs shorter than knot_s get none: while the antenna moves, a fast gain
+    would take up the pointing signal. Returns (F, run) with run = -1 outside."""
+    n = len(t)
+    run = -np.ones(n, int)
+    r, j0 = -1, None
+    for i in range(n):
+        if (j0 is None or seg[i] != seg[j0] or t[i] - t[i - 1] > gap_s
+                or abs(az[i] - az[j0]) > max_move_deg or abs(el[i] - el[j0]) > max_move_deg):
+            r, j0 = r + 1, i
+        run[i] = r
+    cols = []
+    for k in range(r + 1):
+        m = np.flatnonzero(run == k)
+        span = t[m[-1]] - t[m[0]]
+        if span < knot_s:
+            run[m] = -1
+            continue
+        kt = np.linspace(t[m[0]], t[m[-1]], int(np.ceil(span / knot_s)) + 1)
+        I = np.eye(kt.size)
+        for j in range(kt.size - 1):
+            c = np.zeros(n)
+            c[m] = np.interp(t[m], kt, I[j])
+            c[m] -= c[m].mean()
+            cols.append(c)
+    return (np.stack(cols, 1) if cols else np.zeros((n, 0))), run
+
+
+def joint_fast(pf, F, xf, ftrain, sigma, n_iter, step_args):
+    """Shared fast log gain F (c + d x_f) across frequencies, by alternation:
+    each training frequency's smooth-gain model is fitted with the current
+    shared gain fixed, then (c, d) are solved by weighted least squares on the
+    log residuals of all training frequencies at once, with a Gaussian prior
+    sigma on every coefficient. Returns (c, d, history)."""
+    K = F.shape[1]
+    b = np.zeros(2 * K)
+    x0 = {}
+    hist = []
+    for it in range(n_iter):
+        N = np.eye(2 * K) / sigma**2
+        v = -b / sigma**2
+        cost = 0.0
+        for i in np.flatnonzero(ftrain):
+            P = pf[i]
+            lg0 = F @ (b[:K] + xf[i] * b[K:])
+            M = SmoothGainModel(P["cG"], P["X"], P["xnames"], *step_args, lg0=lg0)
+            sol = M.fit(P["y0"], P["w"], P["fin"], x0.get(i))
+            x0[i] = sol.x
+            fin = P["fin"]
+            z = np.where(fin, np.log(np.where(fin, P["y0"], 1) / np.maximum(M.predict(sol.x), 1e-30)), 0.0)
+            wl = np.where(fin, (P["w"] * P["y0"]) ** 2, 0.0)        # 1 / var of log y
+            cost += float(np.sum(wl * z**2))
+            Fw = F * wl[:, None]
+            A = F.T @ Fw
+            N[:K, :K] += A; N[:K, K:] += xf[i] * A; N[K:, :K] += xf[i] * A; N[K:, K:] += xf[i] ** 2 * A
+            g = Fw.T @ z
+            v[:K] += g; v[K:] += xf[i] * g
+        db = np.linalg.solve(N, v)
+        b += db
+        hist.append({"iter": it, "chi2_train_freqs": cost, "max_step": float(np.max(np.abs(db))) if K else 0.0,
+                     "rms_c": float(np.std(F @ b[:K])), "rms_d": float(np.std(F @ b[K:]))})
+        print(f"  fast gain iter {it}: chi2 {cost:.4g}  max step {hist[-1]['max_step']:.2e}  "
+              f"rms gain {100 * hist[-1]['rms_c']:.3f}%  rms tilt {100 * hist[-1]['rms_d']:.3f}%", flush=True)
+        if K == 0 or hist[-1]["max_step"] < 1e-4:
+            break
+    return b[:K], b[K:], hist
 
 
 def window_gate(y, cG, win, tt, rows):
@@ -505,6 +589,15 @@ def main():
                          "values enter log gain linearly (smooth gain only)")
     ap.add_argument("--regressor-shift-s", type=float, default=0.0,
                     help="control: take each regressor from t + this, wrapped within its segment")
+    ap.add_argument("--fast-knot-s", type=float, default=0.0,
+                    help="shared fast log gain and tilt across frequencies, knots this often within "
+                         "fixed-pointing runs (smooth gain only; 0: none)")
+    ap.add_argument("--fast-sigma", type=float, default=0.01, help="prior on each fast-gain coefficient")
+    ap.add_argument("--fast-max-move-deg", type=float, default=0.5)
+    ap.add_argument("--fast-iter", type=int, default=8)
+    ap.add_argument("--fast-fmin", type=float, default=0.0,
+                    help="frequencies (MHz) the fast gain is fitted on and scored at: converged ones in range")
+    ap.add_argument("--fast-fmax", type=float, default=1e4)
     ap.add_argument("--label", default=None, help="name of this configuration in the output")
     ap.add_argument("--out-dir", type=Path)
     args = ap.parse_args()
@@ -557,6 +650,7 @@ def main():
         j = int(np.argmin(np.abs(bf - x)))
         if abs(bf[j] - x) < 1e-3 and (args.beam == "hfss" or beam.meta["empirical_frequency_mask"][j]):
             use.append(j)
+    freqs_grid = bf[use]
     if args.only_mhz:
         use = [j for j in use if np.min(np.abs(bf[j] - np.array(args.only_mhz))) < 1.0]
     freqs = bf[use]
@@ -576,15 +670,25 @@ def main():
     # The columns are cached with Y_lm to at least LMAX_CACHE, so runs at a
     # lower lmax share one cache; the key holds everything that defines them.
     lmax_c = max(args.lmax, LMAX_CACHE)
-    key = hashlib.sha256(json.dumps({
-        "binned": sha256(args.binned / "binned.npz"), "beam": sha256(beam_path),
-        "freqs": [round(float(x), 6) for x in freqs], "nside": args.nside, "lmax": lmax_c,
-        "bins": hashlib.sha256(df.t.to_numpy().tobytes()).hexdigest(),
-        "mount": mount_offsets(campaign), "horizon": HORIZON_PROFILES,
-        "tx": [round(float(x), 3) for x in sunmod.transmitter_enu()]}).encode()).hexdigest()
-    cG, cN, cY, ylabels, cT, cS = cached_columns(
-        key, args.binned / "column_cache" / f"{key[:16]}.npz",
-        lambda: columns(df, freqs, beam, args.nside, lmax_c, campaign, geom))
+    def column_key(fr):
+        return hashlib.sha256(json.dumps({
+            "binned": sha256(args.binned / "binned.npz"), "beam": sha256(beam_path),
+            "freqs": [round(float(x), 6) for x in fr], "nside": args.nside, "lmax": lmax_c,
+            "bins": hashlib.sha256(df.t.to_numpy().tobytes()).hexdigest(),
+            "mount": mount_offsets(campaign), "horizon": HORIZON_PROFILES,
+            "tx": [round(float(x), 3) for x in sunmod.transmitter_enu()]}).encode()).hexdigest()
+    key = column_key(freqs)
+    # A --only-mhz run reads the full grid's cache, if there is one, and takes its rows.
+    key_grid = column_key(freqs_grid)
+    path_grid = args.binned / "column_cache" / f"{key_grid[:16]}.npz"
+    if args.only_mhz and path_grid.exists():
+        cG, cN, cY, ylabels, cT, cS = cached_columns(key_grid, path_grid, lambda: None)
+        sub = [int(np.argmin(np.abs(freqs_grid - x))) for x in freqs]
+        cG, cN, cY, cT, cS = cG[sub], cN[sub], cY[sub], cT[sub], cS[sub]
+    else:
+        cG, cN, cY, ylabels, cT, cS = cached_columns(
+            key, args.binned / "column_cache" / f"{key[:16]}.npz",
+            lambda: columns(df, freqs, beam, args.nside, lmax_c, campaign, geom))
     n_lm = (args.lmax + 1) ** 2 - 1          # real Y_lm are ordered by l
     if args.beam_lmax:
         from beam_corr import beam_corr_columns
@@ -664,6 +768,7 @@ def main():
         H = knot_t = knot_seg = None
     results = []
     resid_store = np.full(Y.shape, np.nan)
+    pf = []
     for i, x in enumerate(freqs):
         y = Y[i][ok_bins]
         fin = np.isfinite(y) & (y > 0)
@@ -683,6 +788,8 @@ def main():
             cols.append(cS[i][ok_bins]); xnames.append("S_sun")
         X = np.stack(cols, 1)
         out = {"freq_mhz": float(x)}
+        pf.append({"y0": y0, "w": w, "fin": fin, "X": X, "xnames": xnames, "cG": cG[i][ok_bins],
+                   "sig_rad": sig_rad})
         if args.gain == "smooth":
             fit_smooth(out, y0, w, fin, train[ok_bins], sig_rad, X, xnames, cG[i][ok_bins], groups,
                        gnames, H, knot_t, knot_seg, SC[i][ok_bins], ok_bins, resid_store, i, len(df),
@@ -753,6 +860,52 @@ def main():
               f"  held-out rms {100 * out['train']['test_rms_frac']:.2f}%  status {a_['status']}",
               flush=True)
 
+    fast_info, resid_fast = None, None
+    if args.fast_knot_s and args.gain == "smooth":
+        # Shared fast gain and tilt (log gain linear in frequency), fitted on
+        # alternate converged frequencies and scored on the others: at a
+        # held-out frequency it adds no free parameter.
+        F, run = fast_basis(t[ok_bins], df.az.to_numpy()[ok_bins], df.el.to_numpy()[ok_bins], seg,
+                            args.fast_knot_s, args.fast_max_move_deg)
+        conv = np.flatnonzero([not (r_["all"]["diverged"] or r_["train"]["diverged"])
+                               and args.fast_fmin <= f_ <= args.fast_fmax for r_, f_ in zip(results, freqs)])
+        ftrain = np.zeros(len(freqs), bool)
+        ftrain[conv[::2]] = True
+        xf = (freqs - freqs[conv].mean()) / (np.ptp(freqs[conv]) / 2 if conv.size > 1 else 1.0)
+        print(f"  fast gain: {F.shape[1]} knots in {len(set(run[run >= 0]))} fixed-pointing runs "
+              f"({(run >= 0).sum()} bins); training frequencies {np.round(freqs[ftrain], 1).tolist()}", flush=True)
+        step_args = (groups, len(gnames), H, knot_seg, args.gain_step_sigma)
+        c_, d_, hist = joint_fast(pf, F, xf, ftrain, args.fast_sigma, args.fast_iter, step_args)
+        resid_fast = np.full(Y.shape, np.nan)
+        era_k = df.era.to_numpy()[ok_bins]
+        for i, P in enumerate(pf):
+            lg0 = F @ (c_ + xf[i] * d_)
+            M = SmoothGainModel(P["cG"], P["X"], P["xnames"], *step_args, lg0=lg0)
+            sol = M.fit(P["y0"], P["w"], P["fin"])
+            th, o, a = M.split(sol.x)
+            r = P["y0"] - M.predict(sol.x)
+            fin = P["fin"]
+            q = np.where(fin, r / np.where(fin, P["y0"], 1), np.nan)
+            tmp = np.full(len(df), np.nan)
+            tmp[np.flatnonzero(ok_bins)] = q
+            resid_fast[i] = tmp
+            q0 = resid_store[i][ok_bins]
+            res = {"role": "train" if ftrain[i] else ("test" if i in conv else "outside"),
+                   "status": int(sol.status), "T_gnd": float(th[0]),
+                   "diverged": bool(np.any(np.exp(a) < 0.01 * np.median(np.exp(a)))
+                                    or np.any(np.abs(o) > 10 * np.median(P["cG"][fin]))),
+                   "rms_frac": float(np.sqrt(np.nanmean(q**2))),
+                   "rms_frac_base": float(np.sqrt(np.nanmean(q0**2))),
+                   "by_era": {e: {"rms_frac": float(np.sqrt(np.nanmean(q[era_k == e] ** 2))),
+                                  "rms_frac_base": float(np.sqrt(np.nanmean(q0[era_k == e] ** 2)))}
+                              for e in sorted(set(era_k)) if np.isfinite(q[era_k == e]).any()}}
+            results[i]["fast"] = res
+            print(f"{freqs[i]:6.1f} MHz  fast-gain {res['role']:5s}  T_gnd {res['T_gnd']:8.1f} "
+                  f"(base {results[i]['all']['theta']['T_gnd']:8.1f})  rms {100 * res['rms_frac']:.2f}% "
+                  f"(base {100 * res['rms_frac_base']:.2f}%)" + ("  DIVERGED" if res["diverged"] else ""), flush=True)
+        fast_info = {"knot_s": args.fast_knot_s, "sigma": args.fast_sigma, "n_knots": int(F.shape[1]),
+                     "runs": int(len(set(run[run >= 0]))), "bins_in_runs": int((run >= 0).sum()),
+                     "train_freqs": freqs[ftrain].tolist(), "x_of_freq": xf.tolist(), "iterations": hist}
     out_dir.mkdir(parents=True, exist_ok=True)
     win_info = [{"window": int(k), "t0": float(t[win == k].min()), "t1": float(t[win == k].max()),
                  "era": df.era[win == k].iloc[0], "regime": df.regime[win == k].iloc[0],
@@ -763,7 +916,8 @@ def main():
     np.savez_compressed(out_dir / f"{label}_resid.npz", freqs_mhz=freqs, t=t, resid_frac=resid_store,
                         kept=ok_bins, window=win, era=df.era.to_numpy().astype(str),
                         regime=df.regime.to_numpy().astype(str), az=df.az.to_numpy(), el=df.el.to_numpy(),
-                        cGSM=cG, cGnd=cN)
+                        cGSM=cG, cGnd=cN,
+                        **({"resid_frac_fast": resid_fast} if resid_fast is not None else {}))
     (out_dir / f"{label}.json").write_text(json.dumps({
         "provenance": {
             "product": "ground_sky_global", "version": args.version, "label": label,
@@ -782,7 +936,7 @@ def main():
                                    "windows_dropped_static_own_offset": int(static_own.sum()),
                                    "windows_dropped_level": int(level_bad.sum()),
                                    "bins_fitted": int(ok_bins.sum())},
-        "offset_groups": gnames, "windows": win_info, "ylm_labels": ylabels,
+        "fast_gain": fast_info, "offset_groups": gnames, "windows": win_info, "ylm_labels": ylabels,
         "results": results}, indent=1))
 
 
