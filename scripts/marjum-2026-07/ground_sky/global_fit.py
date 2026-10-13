@@ -23,7 +23,15 @@ bin b, at each frequency, is modelled as
 - ``T_g``: one ground temperature below the DEM horizon, ``C_gnd`` the ground
   fraction. A uniform shift of the sky is degenerate with ground and offset
   (sky fraction = 1 - ground fraction), so ``T_g`` is relative to GSM's
-  monopole, and the sky corrections start at l = 1.
+  monopole, and the sky corrections start at l = 1. With ``--ground diffuse``
+  the ground instead reflects the sky diffusely:
+  T_g(t) = (1 - R) ``--ground-tphys`` + R Sbar(t), where Sbar is GSM averaged
+  over the open sky (above the era's horizon profile) with Lambertian
+  cos(zenith) weights (``--diffuse-weight uniform``: unweighted, which counts the
+  sky near the horizon more). R is the one free parameter, as T_g is for
+  ``--ground constant``, so the two compare at equal freedom; only the change of
+  Sbar with LST tells them apart. ``--ground diffuse-free`` fits
+  T_g(t) = T_0 + R Sbar(t), with one more parameter.
 - ``d_lm``: real spherical harmonics in Galactic coordinates, 1 <= l <= ``--lmax``.
 - ``x_tx``: the transmitter, the beam toward it times the fraction of the bin it
   was on (box-gnd transitions).
@@ -185,6 +193,35 @@ def cached_columns(key, path, build):
     path.parent.mkdir(parents=True, exist_ok=True)
     np.savez(path, key=key, cG=cG, cN=cN, cY=cY, labels=np.array(labels, dtype=str), cT=cT, cS=cS)
     return cG, cN, cY, labels, cT, cS
+
+
+def diffuse_sky(df, freqs, weight, campaign, nside=32, step_s=60.0, lst_shift_h=0.0):
+    """Sbar per bin and frequency, (nf, nb): GSM averaged over the directions
+    above the era's true horizon profile, weighted by cos(zenith) (``cos``,
+    a Lambertian ground) or not (``uniform``). Computed on a step_s grid and
+    interpolated; the sky turns 0.25 deg per minute. ``lst_shift_h`` evaluates
+    the sky that many sidereal hours later (a control: same smoothness, wrong
+    sky)."""
+    import healpy
+    eras = sorted(set(df.era))
+    d = np.array(healpy.pix2vec(nside, np.arange(healpy.nside2npix(nside))))
+    maps = gsm_maps(freqs, nside)
+    es = EarthSurface(*MARJUM_PASS)
+    t = df.t.to_numpy()
+    out = np.zeros((len(freqs), len(t)))
+    for e in eras:
+        hz = sunmod.true_horizon(HorizonProfile.from_npz(campaign / f"{HORIZON_PROFILES}.npz", ERAS[e]))
+        open_ = hz.visible(d) & (d[2] > 0)
+        wt = (d[2] if weight == "cos" else np.ones(d.shape[1])) * open_
+        m = (df.era == e).to_numpy()
+        grid = np.unique(np.floor(t[m] / step_s)) * step_s
+        grid = np.union1d(grid, grid + step_s)
+        rg = es.rot_gal2top_stack(Time(grid + lst_shift_h * 3600 * 0.9972696, format="unix")).astype(float)
+        sg = np.zeros((len(freqs), len(grid)))
+        for k, R in enumerate(rg):
+            sg[:, k] = maps[:, healpy.vec2pix(nside, *(R.T @ d))] @ wt / wt.sum()
+        out[:, m] = np.array([np.interp(t[m], grid, s) for s in sg])
+    return out
 
 
 def sun_geometry_bins(df, step_s=120.0):
@@ -463,6 +500,13 @@ def main():
     ap.add_argument("--every", type=int, default=2)
     ap.add_argument("--only-mhz", type=float, nargs="*", help="fit only these frequencies (diagnostics)")
     ap.add_argument("--nside", type=int, default=8)
+    ap.add_argument("--ground", choices=["constant", "diffuse", "diffuse-free"], default="constant",
+                    help="ground temperature: one constant T_g, or diffusely reflected sky "
+                         "(1-R) T_phys + R Sbar(t) with R free, or T_0 + R Sbar(t)")
+    ap.add_argument("--ground-tphys", type=float, default=290.0)
+    ap.add_argument("--diffuse-weight", choices=["cos", "uniform"], default="cos")
+    ap.add_argument("--diffuse-lst-shift-h", type=float, default=0.0,
+                    help="control: build Sbar from the sky this many sidereal hours away")
     ap.add_argument("--label", default=None, help="name of this configuration in the output")
     ap.add_argument("--out-dir", type=Path)
     args = ap.parse_args()
@@ -551,6 +595,9 @@ def main():
     n_lm = (args.lmax + 1) ** 2 - 1          # real Y_lm are ordered by l
     cY, ylabels = cY[:, :n_lm], ylabels[:n_lm]
 
+    Sbar = diffuse_sky(df, freqs, args.diffuse_weight, campaign,
+                       lst_shift_h=args.diffuse_lst_shift_h) if args.ground != "constant" else None
+
     gate = window_gate(Y, cG, win, tt, fit_mask)
     good_w = gate < args.max_window_resid       # NaN (no bins to test) is not kept
     # Level gate: raw power over GSM through the beam, per window (median over
@@ -610,8 +657,18 @@ def main():
         sig = np.sqrt(sig_rad**2 + (args.floor * y) ** 2)
         w = np.where(fin, 1 / sig, 0.0)
         y0 = np.where(fin, y, 0.0)
-        cols = [cN[i][ok_bins], *cY[i][:, ok_bins]]
-        xnames = ["T_gnd"] + [f"d_{s}" for s in ylabels]
+        # The fixed part of the model (coefficient 1): GSM, plus with --ground
+        # diffuse the ground's emission at T_phys; the ground's free terms follow.
+        cfix = cG[i][ok_bins]
+        if args.ground == "constant":
+            cols, xnames = [cN[i][ok_bins]], ["T_gnd"]
+        elif args.ground == "diffuse":
+            cfix = cfix + args.ground_tphys * cN[i][ok_bins]
+            cols, xnames = [cN[i][ok_bins] * (Sbar[i][ok_bins] - args.ground_tphys)], ["R_diffuse"]
+        else:
+            cols, xnames = [cN[i][ok_bins], cN[i][ok_bins] * Sbar[i][ok_bins]], ["T_gnd", "R_diffuse"]
+        cols += list(cY[i][:, ok_bins])
+        xnames += [f"d_{s}" for s in ylabels]
         if np.any(cT[i][ok_bins] != 0):
             cols.append(cT[i][ok_bins]); xnames.append("tx")
         if args.sun == "model" and np.any(cS[i][ok_bins] > 0):
@@ -619,17 +676,23 @@ def main():
         X = np.stack(cols, 1)
         out = {"freq_mhz": float(x)}
         if args.gain == "smooth":
-            fit_smooth(out, y0, w, fin, train[ok_bins], sig_rad, X, xnames, cG[i][ok_bins], groups,
+            if Sbar is not None:
+                sb = Sbar[i][ok_bins][fin]
+                out["Sbar_k"] = {"min": float(sb.min()), "max": float(sb.max()), "mean": float(sb.mean())}
+            fit_smooth(out, y0, w, fin, train[ok_bins], sig_rad, X, xnames, cfix, groups,
                        gnames, H, knot_t, knot_seg, SC[i][ok_bins], ok_bins, resid_store, i, len(df),
                        args.gain_step_sigma)
             results.append(out)
             a_ = out["all"]
-            print(f"{x:6.1f} MHz  T_gnd {a_['theta']['T_gnd']:8.1f}  offsets "
-                  + " ".join(f"{k}:{v:.0f}" for k, v in list(a_["offsets"].items())[:4])
+            print(f"{x:6.1f} MHz  " + "  ".join(f"{k} {a_['theta'][k]:.3g}±{a_['theta_err_scaled'][k]:.2g}"
+                                                 for k in ("T_gnd", "R_diffuse") if k in a_["theta"])
+                  + "  offsets " + " ".join(f"{k}:{v:.0f}" for k, v in list(a_["offsets"].items())[:4])
                   + f"  chi2/dof {a_['chi2_per_dof']:.1f}  rms {100 * a_['rms_frac']:.2f}%"
                   f"  held-out rms {100 * out['train']['test_rms_frac']:.2f}%  status {a_['status']}"
                   + ("  DIVERGED" if a_["diverged"] or out["train"]["diverged"] else ""), flush=True)
             continue
+        if args.ground != "constant":
+            sys.exit("--ground diffuse needs --gain smooth")
         M = Model(cG[i][ok_bins], X, xnames, wk, groups, len(gnames), tt[ok_bins], args.drift,
                   lin_offset=args.offsets == "window")
         for name, rows in (("train", fin & train[ok_bins]), ("all", fin)):
