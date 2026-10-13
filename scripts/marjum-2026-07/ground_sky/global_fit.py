@@ -31,7 +31,16 @@ bin b, at each frequency, is modelled as
   sky near the horizon more). R is the one free parameter, as T_g is for
   ``--ground constant``, so the two compare at equal freedom; only the change of
   Sbar with LST tells them apart. ``--ground diffuse-free`` fits
-  T_g(t) = T_0 + R Sbar(t), with one more parameter.
+  T_g(t) = T_0 + R Sbar(t), with one more parameter. ``--ground beam`` is the
+  alternative at the same freedom: the beam's response below the horizon is
+  overestimated by a fraction eps, and that response really falls on the sky.
+  To first order the ground term becomes
+  T_phys C_gnd + eps C_gnd (C_GSM / (1 - C_gnd) - T_phys): the sky replacing
+  the ground is the beam-weighted sky of the current pointing, not the
+  hemisphere average, so it changes with pointing as well as with LST.
+  ``--ground pickup`` (same freedom) keeps the ground at T_phys and adds
+  k Sbar(t) without the ground fraction: sky entering by a path that does not
+  turn with the antenna (cable, box, tether) instead of by the ground.
 - ``d_lm``: real spherical harmonics in Galactic coordinates, 1 <= l <= ``--lmax``.
 - ``x_tx``: the transmitter, the beam toward it times the fraction of the bin it
   was on (box-gnd transitions).
@@ -500,7 +509,7 @@ def main():
     ap.add_argument("--every", type=int, default=2)
     ap.add_argument("--only-mhz", type=float, nargs="*", help="fit only these frequencies (diagnostics)")
     ap.add_argument("--nside", type=int, default=8)
-    ap.add_argument("--ground", choices=["constant", "diffuse", "diffuse-free"], default="constant",
+    ap.add_argument("--ground", choices=["constant", "diffuse", "diffuse-free", "beam", "pickup"], default="constant",
                     help="ground temperature: one constant T_g, or diffusely reflected sky "
                          "(1-R) T_phys + R Sbar(t) with R free, or T_0 + R Sbar(t)")
     ap.add_argument("--ground-tphys", type=float, default=290.0)
@@ -596,7 +605,7 @@ def main():
     cY, ylabels = cY[:, :n_lm], ylabels[:n_lm]
 
     Sbar = diffuse_sky(df, freqs, args.diffuse_weight, campaign,
-                       lst_shift_h=args.diffuse_lst_shift_h) if args.ground != "constant" else None
+                       lst_shift_h=args.diffuse_lst_shift_h) if args.ground.startswith("diffuse") or args.ground == "pickup" else None
 
     gate = window_gate(Y, cG, win, tt, fit_mask)
     good_w = gate < args.max_window_resid       # NaN (no bins to test) is not kept
@@ -665,6 +674,13 @@ def main():
         elif args.ground == "diffuse":
             cfix = cfix + args.ground_tphys * cN[i][ok_bins]
             cols, xnames = [cN[i][ok_bins] * (Sbar[i][ok_bins] - args.ground_tphys)], ["R_diffuse"]
+        elif args.ground == "beam":
+            n_ = cN[i][ok_bins]
+            cfix = cfix + args.ground_tphys * n_
+            cols, xnames = [n_ * (cG[i][ok_bins] / (1 - n_) - args.ground_tphys)], ["eps_beam"]
+        elif args.ground == "pickup":
+            cfix = cfix + args.ground_tphys * cN[i][ok_bins]
+            cols, xnames = [Sbar[i][ok_bins]], ["k_pickup"]
         else:
             cols, xnames = [cN[i][ok_bins], cN[i][ok_bins] * Sbar[i][ok_bins]], ["T_gnd", "R_diffuse"]
         cols += list(cY[i][:, ok_bins])
@@ -685,7 +701,7 @@ def main():
             results.append(out)
             a_ = out["all"]
             print(f"{x:6.1f} MHz  " + "  ".join(f"{k} {a_['theta'][k]:.3g}±{a_['theta_err_scaled'][k]:.2g}"
-                                                 for k in ("T_gnd", "R_diffuse") if k in a_["theta"])
+                                                 for k in ("T_gnd", "R_diffuse", "eps_beam", "k_pickup") if k in a_["theta"])
                   + "  offsets " + " ".join(f"{k}:{v:.0f}" for k, v in list(a_["offsets"].items())[:4])
                   + f"  chi2/dof {a_['chi2_per_dof']:.1f}  rms {100 * a_['rms_frac']:.2f}%"
                   f"  held-out rms {100 * out['train']['test_rms_frac']:.2f}%  status {a_['status']}"
