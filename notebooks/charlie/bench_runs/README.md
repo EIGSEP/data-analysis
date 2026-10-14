@@ -1,7 +1,7 @@
 # Bench runs
 
 One folder per bench session of the receiver calibration measurement, named
-`<UTC date>_<tag>`. Each folder holds the run's configs, logs and written
+`<local date>_<tag>` (the lab's date, PDT/PST; times inside are UTC). Each folder holds the run's configs, logs and written
 notes, and a `README.md` that records the setup as built, the run log, where
 the data are, and the gaps against the requirements in
 [`../receiver_calibration_lab_protocol.md`](../receiver_calibration_lab_protocol.md).
@@ -10,4 +10,4 @@ changed on the bench.
 
 | Run | Purpose | Status |
 |---|---|---|
-| [`2026-10-08_interim`](2026-10-08_interim/README.md) | Interim T_NS through the switch: hot load on `RFAMB`, lab LNA 14 | run 2026-10-08 (bench clock wrong; see its run log) |
+| [`2026-10-08_interim`](2026-10-08_interim/README.md) | Interim T_NS through the switch: hot load on `RFAMB`, lab LNA 14 | run 2026-10-08 PDT |
