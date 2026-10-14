@@ -1,0 +1,206 @@
+# Ground-computer event log, 2026-10-08 (switch/hot-load bench, interim run)
+#
+# Distilled from the full eigsep.log of the ground computer (merged from
+# eigsep.log, .1 and .2; 137,584 entries) by keeping start/stop and
+# configuration events and collapsing repeated messages into one line
+# "[xN, until HH:MM:SS]". Per-integration acc_cnt lines and individual RF
+# switch steps are dropped; any other WARNING/ERROR is kept (collapsed).
+# Times: local PDT, with UTC in parentheses (data file names are UTC).
+# Ignored: stale-stream warnings for picos not on this bench
+# (imu_az, imu_el, lidar, motor, omon, poton, system_current, tempctrl, tempctrl_lna).
+# The full log is not kept; this file is the record.
+#
+# KEY PERIODS (PDT, 2026-10-08)
+#   11:00-14:26  Bench bring-up and test sessions. SNAP synced 11:08 at
+#                corr_acc_len 2^26 (0.268 s), re-initialised 13:34 at 2^28
+#                (1.074 s). Several short manual eigsep-observe runs writing
+#                to /home/eigsep/data/; RF switch cycling in sessions
+#                between 11:31 and 14:26.
+#                eigsep-panda's tempctrl settings failed (panda still had the
+#                main-branch eigsep_observing: set_enable(LNA=...)).
+#   15:49-17:15  Power-supply problem: the ground computer restarted 8 times
+#                (host-health starts); no corr data from the SNAP for most of
+#                16:08-17:16.
+#   17:16:47     SNAP synchronized at corr_acc_len 2^28 (1.074 s): the
+#                sync_time in every file of the kept run.
+#   17:18-17:50  First switching/VNA session after recovery; last tempctrl
+#                apply_settings failure at 17:18:58.
+#   18:01-21:41  THE KEPT RUN. eigsep-observe 18:01:23-21:41:25 writing to
+#                data/ (corr files from 18:05:41, 52 files), RF switch
+#                cycling 18:02-21:41, 10 VNA S11 sweeps (~23 min apart, ant +
+#                rec files each).
+#                Heater program 18:03-20:28 (see hot_load_plateaus log).
+#                Panda connected throughout; no dropped integrations until
+#                shutdown.
+#   All day      A second eigsep-observe (the systemd writer service) tried to
+#                write to /media/eigsep/T7/data/, which was not mounted:
+#                every one of those writes failed. The manual eigsep-observe
+#                runs wrote the data that exist.
+
+2026-10-08 11:00:46 PDT (18:00:46Z)  Ground computer: host-health service started (boot, power-up or service restart)
+2026-10-08 11:03:43 PDT (18:03:43Z)  eigsep-observe started (integration 0.537 s, file 129 s)
+2026-10-08 11:03:43 PDT (18:03:43Z)  WARNING panda unreachable / eigsep-panda not running (no heartbeat) [x44, until 11:30:51]
+2026-10-08 11:03:43 PDT (18:03:43Z)  fpga-init: Connecting to Eigsep correlator at 10.10.10.12. [x2, until 11:07:57]
+2026-10-08 11:03:43 PDT (18:03:43Z)  ERROR corr header missing 'wiring' (SNAP header not republished) [x21, until 18:01:23]
+2026-10-08 11:03:53 PDT (18:03:53Z)  SNAP: bitstream programmed
+2026-10-08 11:03:53 PDT (18:03:53Z)  SNAP: ADC initialization (re-init) started
+2026-10-08 11:03:53 PDT (18:03:53Z)  ERROR no corr data from SNAP [x28, until 11:08:24]
+2026-10-08 11:03:53 PDT (18:03:53Z)  WARNING eigsep_observing.fpga: Config declared acc_bins=1 but firmware v0.0 emits acc_bins=2; using the firmware value. Update corr_config.yaml to match the flashed bitstream.
+2026-10-08 11:04:04 PDT (18:04:04Z)  SNAP: ADC alignment retries [x15, until 11:08:18]
+2026-10-08 11:08:08 PDT (18:08:08Z)  SNAP: bitstream programmed
+2026-10-08 11:08:08 PDT (18:08:08Z)  SNAP: ADC initialization (re-init) started
+2026-10-08 11:08:26 PDT (18:08:26Z)  SNAP: Setting CORR_ACC_LEN: 67108864
+2026-10-08 11:08:26 PDT (18:08:26Z)  SNAP: Synchronized at 1791482906.0782924.
+2026-10-08 11:08:26 PDT (18:08:26Z)  fpga-init: Starting observation.
+2026-10-08 11:08:26 PDT (18:08:26Z)  SNAP: Integration time is 0.268435456 seconds.
+2026-10-08 11:08:26 PDT (18:08:26Z)  WARNING potmon sensor streams stale (not publishing) [x30, until 11:49:13]
+2026-10-08 11:08:26 PDT (18:08:26Z)  WARNING tempctrl sensor streams stale (not publishing) [x96, until 11:55:52]
+2026-10-08 11:08:26 PDT (18:08:26Z)  WARNING rfswitch sensor streams stale (not publishing) [x44, until 11:56:28]
+2026-10-08 11:09:38 PDT (18:09:38Z)  SNAP: SNAP re-synchronized from 1783559280.4497857 to 1791482906.0782924; rolling to new file.
+2026-10-08 11:09:38 PDT (18:09:38Z)  ERROR corr file write FAILED: /media/eigsep/T7/data does not exist (drive not mounted?) - data lost [x247, until 13:21:42]
+2026-10-08 11:09:38 PDT (18:09:38Z)  Corr file writes to /media/eigsep/T7/data/ (first: corr_20261008_180938Z.h5) [x124, until 13:21:42]
+2026-10-08 11:09:44 PDT (18:09:44Z)  WARNING slow SNAP (TAPCP) transactions [x10, until 12:11:54]
+2026-10-08 11:09:44 PDT (18:09:44Z)  WARNING dropped / missed integrations [x33, until 12:11:54]
+2026-10-08 11:10:42 PDT (18:10:42Z)  linear-range product omitted from corr headers (fit at a different corr_acc_len) [x177, until 13:35:04]
+2026-10-08 11:15:38 PDT (18:15:38Z)  eigsep-observe started (integration 0.268 s, file 64 s)
+2026-10-08 11:16:42 PDT (18:16:42Z)  Corr file writes to /home/eigsep/data/ (first: corr_20261008_181642Z.h5) [x39, until 11:57:22]
+2026-10-08 11:31:47 PDT (18:31:47Z)  RF switch cycling active [x246, until 11:56:36]
+2026-10-08 11:32:37 PDT (18:32:37Z)  WARNING panda: Tempctrl apply_settings failed (RuntimeError: Command failed on tempctrl: PicoTempCtrl.set_enable() got an unexpected keyword argument 'LNA'); will retry in 60s. [x50, until 11:56:38]
+2026-10-08 11:56:51 PDT (18:56:51Z)  WARNING panda unreachable / eigsep-panda not running (no heartbeat) [x427, until 13:07:17]
+2026-10-08 11:57:22 PDT (18:57:22Z)  eigsep-observe stopped (Ctrl+C)
+2026-10-08 12:11:56 PDT (19:11:56Z)  WARNING potmon sensor streams stale (not publishing) [x2, until 12:17:53]
+2026-10-08 12:14:58 PDT (19:14:58Z)  WARNING tempctrl sensor streams stale (not publishing) [x5, until 12:17:34]
+2026-10-08 12:27:23 PDT (19:27:23Z)  WARNING rfswitch sensor streams stale (not publishing) [x2, until 12:27:23]
+2026-10-08 12:52:01 PDT (19:52:01Z)  WARNING rfswitch sensor streams stale (not publishing) [x5, until 12:58:56]
+2026-10-08 12:52:01 PDT (19:52:01Z)  WARNING tempctrl sensor streams stale (not publishing) [x3, until 12:52:46]
+2026-10-08 12:53:17 PDT (19:53:17Z)  WARNING potmon sensor streams stale (not publishing)
+2026-10-08 13:07:23 PDT (20:07:23Z)  RF switch cycling active [x140, until 13:21:52]
+2026-10-08 13:07:24 PDT (20:07:24Z)  WARNING panda: Tempctrl apply_settings failed (RuntimeError: Command failed on tempctrl: PicoTempCtrl.set_enable() got an unexpected keyword argument 'LNA'); will retry in 60s. [x29, until 13:21:23]
+2026-10-08 13:08:14 PDT (20:08:14Z)  eigsep-observe started (integration 0.268 s, file 64 s)
+2026-10-08 13:09:18 PDT (20:09:18Z)  Corr file writes to /home/eigsep/data/ (first: corr_20261008_200918Z.h5) [x14, until 13:22:17]
+2026-10-08 13:15:55 PDT (20:15:55Z)  WARNING slow SNAP (TAPCP) transactions
+2026-10-08 13:15:55 PDT (20:15:55Z)  WARNING dropped / missed integrations [x6, until 13:20:26]
+2026-10-08 13:22:06 PDT (20:22:06Z)  WARNING panda unreachable / eigsep-panda not running (no heartbeat) [x114, until 13:40:34]
+2026-10-08 13:22:17 PDT (20:22:17Z)  eigsep-observe stopped (Ctrl+C)
+2026-10-08 13:22:35 PDT (20:22:35Z)  fpga-init: Observation interrupted by user.
+2026-10-08 13:22:35 PDT (20:22:35Z)  fpga-init: Observing done.
+2026-10-08 13:22:45 PDT (20:22:45Z)  ERROR no corr data from SNAP [x71, until 13:34:08]
+2026-10-08 13:33:48 PDT (20:33:48Z)  fpga-init: Connecting to Eigsep correlator at 10.10.10.12.
+2026-10-08 13:33:59 PDT (20:33:59Z)  SNAP: bitstream programmed
+2026-10-08 13:33:59 PDT (20:33:59Z)  SNAP: ADC initialization (re-init) started
+2026-10-08 13:34:09 PDT (20:34:09Z)  SNAP: ADC alignment retries
+2026-10-08 13:34:16 PDT (20:34:16Z)  SNAP: Setting CORR_ACC_LEN: 268435456
+2026-10-08 13:34:17 PDT (20:34:17Z)  SNAP: Synchronized at 1791491657.0022392.
+2026-10-08 13:34:17 PDT (20:34:17Z)  fpga-init: Starting observation.
+2026-10-08 13:34:17 PDT (20:34:17Z)  SNAP: Integration time is 1.073741824 seconds.
+2026-10-08 13:34:18 PDT (20:34:18Z)  WARNING SNAP sensor streams stale (not publishing) [x2, until 13:34:18]
+2026-10-08 13:35:04 PDT (20:35:04Z)  SNAP: SNAP re-synchronized from 1791482906.0782924 to 1791491657.0022392; rolling to new file.
+2026-10-08 13:35:04 PDT (20:35:04Z)  Corr file writes to /media/eigsep/T7/data/ (first: corr_20261008_203504Z.h5) [x30, until 15:39:37]
+2026-10-08 13:35:04 PDT (20:35:04Z)  ERROR corr file write FAILED: /media/eigsep/T7/data does not exist (drive not mounted?) - data lost [x60, until 15:39:37]
+2026-10-08 13:36:18 PDT (20:36:18Z)  eigsep-observe started (integration 1.074 s, file 258 s)
+2026-10-08 13:39:44 PDT (20:39:44Z)  WARNING panda: Tempctrl apply_settings failed (RuntimeError: Command failed on tempctrl: PicoTempCtrl.set_enable() got an unexpected keyword argument 'LNA'); will retry in 60s. [x90, until 14:25:59]
+2026-10-08 13:39:53 PDT (20:39:53Z)  RF switch cycling active [x419, until 14:26:38]
+2026-10-08 13:40:35 PDT (20:40:35Z)  Corr file writes to /home/eigsep/data/ (first: corr_20261008_204035Z.h5) [x13, until 14:26:29]
+2026-10-08 13:46:22 PDT (20:46:22Z)  WARNING panda unreachable / eigsep-panda not running (no heartbeat) [x6, until 13:46:57]
+2026-10-08 13:54:32 PDT (20:54:32Z)  eigsep-observe stopped (Ctrl+C)
+2026-10-08 13:54:44 PDT (20:54:44Z)  eigsep-observe started (integration 1.074 s, file 258 s)
+2026-10-08 13:55:43 PDT (20:55:43Z)  VNA S11 files written (/home/eigsep/data.) [x3, until 13:59:01]
+2026-10-08 13:55:57 PDT (20:55:57Z)  WARNING panda unreachable / eigsep-panda not running (no heartbeat) [x6, until 13:56:17]
+2026-10-08 14:19:03 PDT (21:19:03Z)  WARNING slow SNAP (TAPCP) transactions [x16, until 15:41:26]
+2026-10-08 14:20:55 PDT (21:20:55Z)  WARNING panda unreachable / eigsep-panda not running (no heartbeat) [x22, until 14:23:55]
+2026-10-08 14:21:13 PDT (21:21:13Z)  eigsep-observe stopped (Ctrl+C)
+2026-10-08 14:24:07 PDT (21:24:07Z)  eigsep-observe started (integration 1.074 s, file 258 s)
+2026-10-08 14:25:48 PDT (21:25:48Z)  VNA S11 files written (/home/eigsep/data.)
+2026-10-08 14:26:29 PDT (21:26:29Z)  eigsep-observe stopped (Ctrl+C)
+2026-10-08 14:26:52 PDT (21:26:52Z)  WARNING panda unreachable / eigsep-panda not running (no heartbeat) [x462, until 15:43:45]
+2026-10-08 14:35:16 PDT (21:35:16Z)  RF switch cycling active
+2026-10-08 14:54:52 PDT (21:54:52Z)  RF switch cycling active [x18, until 15:11:04]
+2026-10-08 15:22:03 PDT (22:22:03Z)  RF switch cycling active [x2, until 15:23:28]
+2026-10-08 15:40:08 PDT (22:40:08Z)  RF switch cycling active [x2, until 15:40:38]
+2026-10-08 15:49:50 PDT (22:49:50Z)  Ground computer: host-health service started (boot, power-up or service restart)
+2026-10-08 15:50:01 PDT (22:50:01Z)  eigsep-observe started (integration 0.537 s, file 129 s)
+2026-10-08 15:50:01 PDT (22:50:01Z)  fpga-init: Connecting to Eigsep correlator at 10.10.10.12. [x92, until 17:16:18]
+2026-10-08 15:50:11 PDT (22:50:11Z)  ERROR no corr data from SNAP [x10, until 15:51:41]
+2026-10-08 15:50:12 PDT (22:50:12Z)  SNAP: bitstream programmed
+2026-10-08 15:50:12 PDT (22:50:12Z)  SNAP: ADC initialization (re-init) started
+2026-10-08 15:50:12 PDT (22:50:12Z)  WARNING eigsep_observing.fpga: Config declared acc_bins=1 but firmware v0.0 emits acc_bins=2; using the firmware value. Update corr_config.yaml to match the flashed bitstream.
+2026-10-08 15:50:23 PDT (22:50:23Z)  SNAP: ADC alignment retries [x18, until 15:51:39]
+2026-10-08 15:50:41 PDT (22:50:41Z)  WARNING panda unreachable / eigsep-panda not running (no heartbeat) [x4, until 15:53:41]
+2026-10-08 15:51:28 PDT (22:51:28Z)  SNAP: bitstream programmed
+2026-10-08 15:51:28 PDT (22:51:28Z)  SNAP: ADC initialization (re-init) started
+2026-10-08 15:51:46 PDT (22:51:46Z)  SNAP: Setting CORR_ACC_LEN: 268435456
+2026-10-08 15:51:46 PDT (22:51:46Z)  SNAP: Synchronized at 1791499906.455005.
+2026-10-08 15:51:46 PDT (22:51:46Z)  fpga-init: Starting observation.
+2026-10-08 15:51:46 PDT (22:51:46Z)  SNAP: Integration time is 1.073741824 seconds.
+2026-10-08 15:51:58 PDT (22:51:58Z)  RF switch cycling active
+2026-10-08 15:53:22 PDT (22:53:22Z)  WARNING rfswitch sensor streams stale (not publishing) [x2, until 15:53:22]
+2026-10-08 15:59:09 PDT (22:59:09Z)  Ground computer: host-health service started (boot, power-up or service restart)
+2026-10-08 15:59:17 PDT (22:59:17Z)  eigsep-observe started (integration 0.537 s, file 129 s)
+2026-10-08 15:59:27 PDT (22:59:27Z)  ERROR no corr data from SNAP [x5, until 16:00:07]
+2026-10-08 15:59:59 PDT (22:59:59Z)  WARNING panda unreachable / eigsep-panda not running (no heartbeat)
+2026-10-08 16:07:56 PDT (23:07:56Z)  Ground computer: host-health service started (boot, power-up or service restart)
+2026-10-08 16:08:08 PDT (23:08:08Z)  eigsep-observe started (integration 0.537 s, file 129 s)
+2026-10-08 16:08:18 PDT (23:08:18Z)  ERROR no corr data from SNAP [x73, until 16:22:18]
+2026-10-08 16:08:47 PDT (23:08:47Z)  WARNING panda unreachable / eigsep-panda not running (no heartbeat) [x7, until 16:14:47]
+2026-10-08 16:17:06 PDT (23:17:06Z)  Ground computer: host-health service started (boot, power-up or service restart)
+2026-10-08 16:17:17 PDT (23:17:17Z)  eigsep-observe started (integration 0.537 s, file 129 s)
+2026-10-08 16:17:57 PDT (23:17:57Z)  WARNING panda unreachable / eigsep-panda not running (no heartbeat) [x5, until 16:21:57]
+2026-10-08 16:28:28 PDT (23:28:28Z)  Ground computer: host-health service started (boot, power-up or service restart)
+2026-10-08 16:28:40 PDT (23:28:40Z)  eigsep-observe started (integration 0.537 s, file 129 s)
+2026-10-08 16:28:50 PDT (23:28:50Z)  ERROR no corr data from SNAP [x261, until 17:16:41]
+2026-10-08 16:29:19 PDT (23:29:19Z)  WARNING panda unreachable / eigsep-panda not running (no heartbeat) [x24, until 16:52:20]
+2026-10-08 16:53:53 PDT (23:53:53Z)  Ground computer: host-health service started (boot, power-up or service restart)
+2026-10-08 16:54:07 PDT (23:54:07Z)  eigsep-observe started (integration 0.537 s, file 129 s)
+2026-10-08 16:54:44 PDT (23:54:44Z)  WARNING panda unreachable / eigsep-panda not running (no heartbeat) [x17, until 17:10:45]
+2026-10-08 17:11:54 PDT (00:11:54Z)  Ground computer: host-health service started (boot, power-up or service restart)
+2026-10-08 17:12:05 PDT (00:12:05Z)  eigsep-observe started (integration 0.537 s, file 129 s)
+2026-10-08 17:14:51 PDT (00:14:51Z)  Ground computer: host-health service started (boot, power-up or service restart)
+2026-10-08 17:15:01 PDT (00:15:01Z)  eigsep-observe started (integration 0.537 s, file 129 s)
+2026-10-08 17:15:14 PDT (00:15:14Z)  SNAP: bitstream programmed
+2026-10-08 17:15:14 PDT (00:15:14Z)  SNAP: ADC initialization (re-init) started
+2026-10-08 17:15:14 PDT (00:15:14Z)  WARNING eigsep_observing.fpga: Config declared acc_bins=1 but firmware v0.0 emits acc_bins=2; using the firmware value. Update corr_config.yaml to match the flashed bitstream.
+2026-10-08 17:15:25 PDT (00:15:25Z)  SNAP: ADC alignment retries [x16, until 17:16:40]
+2026-10-08 17:15:42 PDT (00:15:42Z)  WARNING panda unreachable / eigsep-panda not running (no heartbeat) [x3, until 17:17:42]
+2026-10-08 17:16:29 PDT (00:16:29Z)  SNAP: bitstream programmed
+2026-10-08 17:16:29 PDT (00:16:29Z)  SNAP: ADC initialization (re-init) started
+2026-10-08 17:16:47 PDT (00:16:47Z)  SNAP: Setting CORR_ACC_LEN: 268435456
+2026-10-08 17:16:47 PDT (00:16:47Z)  SNAP: Synchronized at 1791505007.4982107.
+2026-10-08 17:16:47 PDT (00:16:47Z)  fpga-init: Starting observation.
+2026-10-08 17:16:47 PDT (00:16:47Z)  SNAP: Integration time is 1.073741824 seconds.
+2026-10-08 17:17:58 PDT (00:17:58Z)  tempctrl watchdog_timeout_ms changed within an integration (settings pushed) [x3, until 17:17:58]
+2026-10-08 17:18:05 PDT (00:18:05Z)  RF switch cycling active [x275, until 17:47:16]
+2026-10-08 17:18:58 PDT (00:18:58Z)  eigsep-observe started (integration 1.074 s, file 258 s)
+2026-10-08 17:18:58 PDT (00:18:58Z)  WARNING panda: Tempctrl apply_settings failed (RuntimeError: Command failed on tempctrl: PicoTempCtrl.set_enable() got an unexpected keyword argument 'LNA'); will retry in 60s. [x55, until 17:45:55]
+2026-10-08 17:19:19 PDT (00:19:19Z)  eigsep-observe stopped (Ctrl+C)
+2026-10-08 17:19:20 PDT (00:19:20Z)  Corr file writes to data/ (first: corr_20261009_001920Z.h5) [x9, until 17:49:59]
+2026-10-08 17:19:58 PDT (00:19:58Z)  eigsep-observe started (integration 1.074 s, file 258 s)
+2026-10-08 17:21:05 PDT (00:21:05Z)  SNAP: SNAP re-synchronized from 1783559280.4497857 to 1791505007.4982107; rolling to new file.
+2026-10-08 17:21:05 PDT (00:21:05Z)  Corr file writes to /media/eigsep/T7/data/ (first: corr_20261009_002105Z.h5) [x62, until 21:43:11]
+2026-10-08 17:21:05 PDT (00:21:05Z)  ERROR corr file write FAILED: /media/eigsep/T7/data does not exist (drive not mounted?) - data lost [x123, until 21:43:11]
+2026-10-08 17:21:44 PDT (00:21:44Z)  VNA S11 files written (./data.) [x2, until 17:22:32]
+2026-10-08 17:26:41 PDT (00:26:41Z)  WARNING slow SNAP (TAPCP) transactions [x3, until 18:00:29]
+2026-10-08 17:44:43 PDT (00:44:43Z)  VNA S11 files written (./data.) [x2, until 17:45:32]
+2026-10-08 17:46:27 PDT (00:46:27Z)  eigsep-observe stopped (Ctrl+C)
+2026-10-08 17:46:45 PDT (00:46:45Z)  WARNING panda unreachable / eigsep-panda not running (no heartbeat) [x94, until 18:01:55]
+2026-10-08 17:49:58 PDT (00:49:58Z)  eigsep-observe started (integration 1.074 s, file 258 s)
+2026-10-08 17:49:59 PDT (00:49:59Z)  eigsep-observe stopped (Ctrl+C)
+2026-10-08 17:58:02 PDT (00:58:02Z)  WARNING potmon sensor streams stale (not publishing) [x3, until 18:00:02]
+2026-10-08 18:01:23 PDT (01:01:23Z)  eigsep-observe started (integration 1.074 s, file 258 s)
+2026-10-08 18:02:01 PDT (01:02:01Z)  panda: potmon: unhealthy (connected=False, stale=False) [x33, until 18:02:01]
+2026-10-08 18:02:01 PDT (01:02:01Z)  panda: potmon: reconnected
+2026-10-08 18:02:03 PDT (01:02:03Z)  RF switch cycling active [x1265, until 21:41:18]
+2026-10-08 18:02:07 PDT (01:02:07Z)  VNA S11 files written (./data/.) [x3, until 18:04:52]
+2026-10-08 18:05:41 PDT (01:05:41Z)  Corr file writes to data/ (first: corr_20261009_010541Z.h5) [x52, until 21:41:26]
+2026-10-08 18:27:03 PDT (01:27:03Z)  VNA S11 files written (./data/.) [x2, until 18:27:52]
+2026-10-08 18:50:02 PDT (01:50:02Z)  VNA S11 files written (./data/.) [x2, until 18:50:51]
+2026-10-08 19:12:51 PDT (02:12:51Z)  VNA S11 files written (./data/.) [x2, until 19:13:40]
+2026-10-08 19:35:51 PDT (02:35:51Z)  VNA S11 files written (./data/.) [x2, until 19:36:39]
+2026-10-08 19:36:56 PDT (02:36:56Z)  WARNING slow SNAP (TAPCP) transactions
+2026-10-08 19:58:50 PDT (02:58:50Z)  VNA S11 files written (./data/.) [x2, until 19:59:38]
+2026-10-08 20:21:39 PDT (03:21:39Z)  VNA S11 files written (./data/.) [x2, until 20:22:28]
+2026-10-08 20:44:38 PDT (03:44:38Z)  VNA S11 files written (./data/.) [x2, until 20:45:27]
+2026-10-08 21:07:28 PDT (04:07:28Z)  VNA S11 files written (./data/.) [x2, until 21:08:16]
+2026-10-08 21:30:17 PDT (04:30:17Z)  VNA S11 files written (./data/.) [x2, until 21:31:06]
+2026-10-08 21:41:25 PDT (04:41:25Z)  eigsep-observe stopped (Ctrl+C)
+2026-10-08 21:41:33 PDT (04:41:33Z)  WARNING panda unreachable / eigsep-panda not running (no heartbeat) [x12, until 21:43:23]
+2026-10-08 21:43:04 PDT (04:43:04Z)  WARNING dropped / missed integrations [x7, until 21:43:11]

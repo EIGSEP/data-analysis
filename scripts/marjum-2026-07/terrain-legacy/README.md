@@ -8,6 +8,12 @@ and feed checks, and the MCMC pilot, review, and finalization drivers.
 They are provenance for older studies, not a maintained pipeline: many
 use working-directory paths and caches that have since moved.
 
+The `terrain/` checkout was retired on 2026-10-09: its history is at
+`/mnt/data02/git/terrain-archive.git`, the directory itself (with the caches
+and fit outputs these scripts read) at
+`/mnt/data02/eigsep-retired/terrain-2026-10-09/`, and the files that tracked
+provenance cites in `marjum-2026-07/derived/terrain_legacy/v0001/`.
+
 The five files used by the published geometry-posterior v0004 model
 (`marjum_mcmc_b21.py`, `marjum_mcmc.py`, `marjum_bundle.py`,
 `marjum_camera.py`, `marjum_fitio.py`) are byte-identical copies in
@@ -19,6 +25,7 @@ those records rather than treating these exploratory scripts as current.
 
 ## Recent changes
 
+- 2026-10-09: `terrain/` is retired; added where its history, files and inventory now live.
 - 2026-10-08: Pointed to the new homes of the v0004 model files and drivers.
 - 2026-10-08: Archived the superseded terrain analysis code with exact
   source hashes so the separate terrain checkout can be reduced without
