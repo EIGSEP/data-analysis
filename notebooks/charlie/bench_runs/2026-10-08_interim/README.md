@@ -34,8 +34,9 @@ the field receiver**. Accepted for the interim run.
 
 ## § 2. Hardware configuration
 
-1. Switch board with the rfswitch pico and the field state names. Whether it
-   is the field unit is to be recorded (§ 8).
+1. The field switch board, with the rfswitch pico and the field state names.
+   (A spare board was swapped in briefly while diagnosing the rfswitch pico,
+   then the field board was put back before the kept run.)
 2. Lab LNA 14 on the common port; cable or adapter to be recorded (§ 8).
 3. LNA 14 → LNA 3 → LNA 10 → SNAP C000122, no filters or attenuators.
 4. **Hot load on the "Amb/Hot Load" port (`RFAMB` / `VNAAMB`)**, not
@@ -201,7 +202,7 @@ compare integrations just before each 20-min sweep with the rest.
 Recorded in `bench_setup` in the config (embedded in every
 file header). LNA modules: lab labels 14 / 3 / 10, **no record of which, if
 any, flew**. Downstream chain: LNA 14 → LNA 3 → LNA 10 → SNAP, no filters
-or attenuators. Still to fill in: switch-board serial and whether it flew,
+or attenuators. Switch board: the field board. Still to fill in: its serial,
 the P → LNA 14 connection, the hot-load cable/adapters, the SP1 cable
 length.
 
@@ -279,7 +280,7 @@ Each with what was done and its status.
 
 | Problem | What was done | Status |
 |---|---|---|
-| **rfswitch pico could not drive GP8/GP12/GP14 low**, so the switch landed on wrong paths (address bits stuck high) | Diagnosed from the wrong routings and pin voltages; most likely cause is the pico left running into the **unpowered** switch board (its high outputs back-fed the board). Replaced the pico and the switch board. Power-order rule added to the pico-firmware README and `OPERATIONS.md`. | Resolved |
+| **rfswitch pico could not drive GP8/GP12/GP14 low**, so the switch landed on wrong paths (address bits stuck high) | Diagnosed from the wrong routings and pin voltages; most likely cause is the pico left running into the **unpowered** switch board (its high outputs back-fed the board). Replaced the pico; a spare switch board was tried to rule the board out, then the field board was put back. Power-order rule added to the pico-firmware README and `OPERATIONS.md`. | Resolved |
 | **SP1 cable switch stopped switching** | Reset the SP1 (potmon) pico several times and power-cycled the cable switch's 12 V supply; the ground log shows the potmon pico reconnecting at 18:02:01 PDT. Unclear which step fixed it. | Working for the kept run; cause unknown |
 | **SNAP would not connect** | Power-cycled by unplugging and replugging its power (flipping its switch did not help). | Resolved |
 | **Power supply** | Ground computer restarted 8 times 15:49–17:15 PDT; no corr data for most of 16:08–17:16 PDT (ground event log). | Resolved before the kept run |
@@ -300,13 +301,29 @@ Each with what was done and its status.
   3D-printed case.
 - **Bench layout:** make the setup modular and replace the jumper wires.
 - **Signal chain:** add the optical fibre link and the filters.
+- **Receiver:** move the bench to the field receiver, or a closer proxy of
+  it. The measured T_NS is the noise source's excess *as this receiver takes
+  it*: the noise source's own mismatch cannot be corrected (its switch paths
+  cannot be measured), so it depends on Γ_rec, and with lab LNA 14 it does not
+  transfer directly to the field calibration.
+- **Γ_NS at P:** measure the noise-source path's reflection at P on the
+  field switch board, with the VNA (cable calibrated with the S911T standards
+  at its end) on the switch's LNA port, LNA disconnected, switch on `RFNON`
+  and `RFNOFF` (they should agree, the diode being behind the 30 dB pad), and
+  on `RFAMB` and `RFANT` as a check against the S11 chain's Γ at P. Repeat at
+  several board temperatures. With Γ_NS at P the noise source's mismatch can
+  be corrected for any receiver, so the bench T_NS transfers to the field
+  receiver's Γ_rec. It does not capture changes over time in the field.
+- **SNAP warm-up:** let the SNAP reach a steady temperature
+  (`fpga_temp.temp_c`) before the run starts; the reference load's power rose
+  with the SNAP's temperature during this run.
 - **Writer service:** disable `eigsep-observe-writer` on the ground computer
   (`sudo systemctl disable --now eigsep-observe-writer.service`) and always
   pass `--corr-save-dir` / `--vna-save-dir` when running `eigsep-observe` by
   hand; or mount the T7 drive.
 - **Code:** tidy `eigsep_observing` (`calibration_scripts`) and its commit
   history.
-- **This record:** switch-board serial and whether it flew, the P → LNA 14
+- **This record:** switch-board serial, the P → LNA 14
   connection, hot-load cable/adapters, SP1 cable length (§ 8); photos; the
   `eigsep_observing` commit used.
 
