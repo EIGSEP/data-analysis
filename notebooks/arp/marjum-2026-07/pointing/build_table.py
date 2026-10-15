@@ -36,7 +36,7 @@ v2.0 **meaning changes** -- ``az_deg`` is the *commanded* azimuth: motor
     (``fuse.commanded_azimuth``). On 07-17 the platform followed the motor
     through a 27 deg potentiometer slip: the unfitted HFSS beam's held-out
     test RMS is 0.071 with commanded az against 0.197 with the v1 fused az
-    (data-analysis single_ch_beam_fit_debug.ipynb), and the az and el drives
+    (data-analysis single_ch_beam_fit.ipynb at e0ffa78), and the az and el drives
     never run together (Aaron, 2026-09-23/24). Anchor rule, option (b)
     (Aaron, 2026-09-24): a new segment starts at every motor re-home, data
     gap and big slew (> 20 deg); its offset is the median pot - motor over
@@ -414,7 +414,7 @@ def main():
             "from each other by platform slip during the slew.",
             "The 07-17 20:41-20:53 'slip' in v1 fused az is a potentiometer "
             "slip; the platform followed the motor (beam-fit evidence in "
-            "data-analysis single_ch_beam_fit_debug.ipynb). az_fused_deg "
+            "data-analysis single_ch_beam_fit.ipynb at e0ffa78). az_fused_deg "
             "keeps the v1 value for audit.",
             "Commanded az assumes the platform follows the motor between big "
             "slews; this is validated on the 07-17 beam-scan raster only.",
