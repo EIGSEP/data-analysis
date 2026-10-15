@@ -142,7 +142,8 @@ SLIP_RAMP_DEG_PER_HR = 90.0
 # in-file rate); 20 deg/s is 4x that and sits in a sparse valley between real
 # motion and the glitch population (counts barely move between the 20, 30
 # and 50 deg/s thresholds). None of the existing flags catch these: they pass
-# as quality=="ok" with no UNCOMMANDED_MOTION.
+# as quality=="ok" with no UNCOMMANDED_MOTION. Since v2.1 the flag itself sets
+# quality "suspect" (build_table.py).
 #
 # Scope caveat: the wrap-cluster mechanism is established for the
 # post-EL-failure era. Applied campaign-wide, pre-failure firings of this
@@ -462,7 +463,10 @@ def detect_el_solution_glitch(el_deg, times, file_index,
     with ``dt_min < dt < dt_max`` and both elevations finite, computes
     ``|el[i+1] - el[i]| / dt`` and flags **both** i and i+1 if it exceeds
     ``thresh_deg_per_s`` -- the transition identifies a bad pair; which
-    member is the bad one is not determined by the rate alone.
+    member is the bad one is not determined by the rate alone. The
+    difference is wrapped into +/-180 deg (v2.1), so a pass through nadir
+    (el +180 -> -180) is not a slew; unwrapped, those passes fired the flag
+    on 126 rows of v2.0 (memo 003).
 
     Reference implementation: beam-analyst's
     ``notebooks/arp/marjum-2026-07/detect_el_slew_glitch.py``, which this
@@ -478,7 +482,7 @@ def detect_el_solution_glitch(el_deg, times, file_index,
 
     same_file = fi[1:] == fi[:-1]
     dt = np.diff(t)
-    d_el = np.abs(np.diff(el))
+    d_el = np.abs(wrap180(np.diff(el)))
     testable = (same_file & np.isfinite(d_el) & np.isfinite(dt)
                 & (dt > dt_min) & (dt < dt_max))
 
