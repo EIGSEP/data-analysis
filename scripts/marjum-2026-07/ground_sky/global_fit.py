@@ -41,6 +41,9 @@ bin b, at each frequency, is modelled as
   ``--ground pickup`` (same freedom) keeps the ground at T_phys and adds
   k Sbar(t) without the ground fraction: sky entering by a path that does not
   turn with the antenna (cable, box, tether) instead of by the ground.
+  ``--ground hk`` (same freedom) keeps the ground at T_phys and adds k times a
+  housekeeping stream (``--hk-stream``, centred) from ``--hk``: a daily
+  systematic, which over phase C shares its phase with the sky.
 - ``d_lm``: real spherical harmonics in Galactic coordinates, 1 <= l <= ``--lmax``.
 - ``x_tx``: the transmitter, the beam toward it times the fraction of the bin it
   was on (box-gnd transitions).
@@ -509,10 +512,13 @@ def main():
     ap.add_argument("--every", type=int, default=2)
     ap.add_argument("--only-mhz", type=float, nargs="*", help="fit only these frequencies (diagnostics)")
     ap.add_argument("--nside", type=int, default=8)
-    ap.add_argument("--ground", choices=["constant", "diffuse", "diffuse-free", "beam", "pickup"], default="constant",
+    ap.add_argument("--ground", choices=["constant", "diffuse", "diffuse-free", "beam", "pickup", "hk"], default="constant",
                     help="ground temperature: one constant T_g, or diffusely reflected sky "
                          "(1-R) T_phys + R Sbar(t) with R free, or T_0 + R Sbar(t)")
     ap.add_argument("--ground-tphys", type=float, default=290.0)
+    ap.add_argument("--hk", type=Path, help="npz of per-bin housekeeping means (key t, then one key per "
+                    "stream) for every bin of --binned; bins missing any stream are not fitted")
+    ap.add_argument("--hk-stream", help="stream used by --ground hk")
     ap.add_argument("--diffuse-weight", choices=["cos", "uniform"], default="cos")
     ap.add_argument("--diffuse-lst-shift-h", type=float, default=0.0,
                     help="control: build Sbar from the sky this many sidereal hours away")
@@ -559,6 +565,13 @@ def main():
     fit_mask = fit_mask & (df.t.to_numpy() < EL_FAILURE)
     fit_mask &= df.regime.isin(args.regimes).to_numpy()
     sel_counts["before_el_failure"] = int((df.t.to_numpy() < EL_FAILURE).sum())
+    if args.hk:
+        with np.load(args.hk) as zh:
+            assert np.array_equal(zh["t"], z["t"]), "--hk bins differ from --binned"
+            hk = {k: zh[k][keep] for k in zh.files if k != "t"}
+        hk_ok = np.all([np.isfinite(v) for v in hk.values()], axis=0)
+        fit_mask = fit_mask & hk_ok
+        sel_counts["with_hk"] = int(hk_ok.sum())
     Yall, nsamp = z["y"][keep], z["nsamp"][keep]
     scale = z["scale"][keep]
 
@@ -678,6 +691,10 @@ def main():
             n_ = cN[i][ok_bins]
             cfix = cfix + args.ground_tphys * n_
             cols, xnames = [n_ * (cG[i][ok_bins] / (1 - n_) - args.ground_tphys)], ["eps_beam"]
+        elif args.ground == "hk":
+            cfix = cfix + args.ground_tphys * cN[i][ok_bins]
+            v_ = hk[args.hk_stream][ok_bins]
+            cols, xnames = [v_ - np.nanmean(v_)], ["k_hk"]
         elif args.ground == "pickup":
             cfix = cfix + args.ground_tphys * cN[i][ok_bins]
             cols, xnames = [Sbar[i][ok_bins]], ["k_pickup"]
@@ -701,7 +718,7 @@ def main():
             results.append(out)
             a_ = out["all"]
             print(f"{x:6.1f} MHz  " + "  ".join(f"{k} {a_['theta'][k]:.3g}±{a_['theta_err_scaled'][k]:.2g}"
-                                                 for k in ("T_gnd", "R_diffuse", "eps_beam", "k_pickup") if k in a_["theta"])
+                                                 for k in ("T_gnd", "R_diffuse", "eps_beam", "k_pickup", "k_hk") if k in a_["theta"])
                   + "  offsets " + " ".join(f"{k}:{v:.0f}" for k, v in list(a_["offsets"].items())[:4])
                   + f"  chi2/dof {a_['chi2_per_dof']:.1f}  rms {100 * a_['rms_frac']:.2f}%"
                   f"  held-out rms {100 * out['train']['test_rms_frac']:.2f}%  status {a_['status']}"
