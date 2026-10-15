@@ -603,6 +603,12 @@ def main():
     ap.add_argument("--fast-fmin", type=float, default=0.0,
                     help="frequencies (MHz) the fast gain is fitted on and scored at: converged ones in range")
     ap.add_argument("--fast-fmax", type=float, default=1e4)
+    ap.add_argument("--swing-max-el-std", type=float, default=None,
+                    help="drop bins of --swing-eras whose IMU elevation scatter within the bin exceeds this (deg)")
+    ap.add_argument("--swing-max-el-dev", type=float, default=None,
+                    help="drop bins of --swing-eras whose elevation is further than this (deg) from the median "
+                         "of the bins within 5 min: the box swinging at a fixed commanded pointing")
+    ap.add_argument("--swing-eras", nargs="*", default=["~30m"])
     ap.add_argument("--label", default=None, help="name of this configuration in the output")
     ap.add_argument("--out-dir", type=Path)
     args = ap.parse_args()
@@ -641,6 +647,18 @@ def main():
     # so every configuration shares one column cache.
     fit_mask = hidden if args.sun == "cut" else np.ones(len(df), bool)
     fit_mask &= df.regime.isin(args.regimes).to_numpy()
+    # The 30 m elevation record (IMU) wobbles by degrees while the elevation
+    # motor holds still: the box swings. These cuts drop the swinging bins.
+    swing = np.zeros(len(df), bool)
+    if args.swing_max_el_std is not None:
+        swing |= df.el_std.to_numpy() > args.swing_max_el_std
+    if args.swing_max_el_dev is not None:
+        med = pd.Series(df.el.to_numpy(), index=pd.to_datetime(df.t.to_numpy(), unit="s")).rolling(
+            "600s", center=True, min_periods=3).median().to_numpy()
+        swing |= np.abs(df.el.to_numpy() - med) > args.swing_max_el_dev
+    swing &= df.era.isin(args.swing_eras).to_numpy()
+    fit_mask &= ~swing
+    sel_counts["swing_cut"] = int((swing & df.regime.isin(args.regimes).to_numpy()).sum())
     Yall, nsamp = z["y"][keep], z["nsamp"][keep]
     scale = z["scale"][keep]
 
