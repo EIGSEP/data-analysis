@@ -44,6 +44,9 @@ bin b, at each frequency, is modelled as
   ``--ground hk`` (same freedom) keeps the ground at T_phys and adds k times a
   housekeeping stream (``--hk-stream``, centred) from ``--hk``: a daily
   systematic, which over phase C shares its phase with the sky.
+  ``--hk-extra`` adds further centred housekeeping streams, one coefficient
+  each, on top of any ``--ground`` choice: the joint test of whether a sky
+  term survives with a temperature in the same fit.
 - ``d_lm``: real spherical harmonics in Galactic coordinates, 1 <= l <= ``--lmax``.
 - ``x_tx``: the transmitter, the beam toward it times the fraction of the bin it
   was on (box-gnd transitions).
@@ -519,6 +522,8 @@ def main():
     ap.add_argument("--hk", type=Path, help="npz of per-bin housekeeping means (key t, then one key per "
                     "stream) for every bin of --binned; bins missing any stream are not fitted")
     ap.add_argument("--hk-stream", help="stream used by --ground hk")
+    ap.add_argument("--hk-extra", nargs="*", default=[],
+                    help="housekeeping streams from --hk added as extra centred columns (k_<stream>)")
     ap.add_argument("--diffuse-weight", choices=["cos", "uniform"], default="cos")
     ap.add_argument("--diffuse-lst-shift-h", type=float, default=0.0,
                     help="control: build Sbar from the sky this many sidereal hours away")
@@ -565,6 +570,8 @@ def main():
     fit_mask = fit_mask & (df.t.to_numpy() < EL_FAILURE)
     fit_mask &= df.regime.isin(args.regimes).to_numpy()
     sel_counts["before_el_failure"] = int((df.t.to_numpy() < EL_FAILURE).sum())
+    if args.hk_extra and not args.hk:
+        sys.exit("--hk-extra needs --hk")
     if args.hk:
         with np.load(args.hk) as zh:
             assert np.array_equal(zh["t"], z["t"]), "--hk bins differ from --binned"
@@ -700,6 +707,9 @@ def main():
             cols, xnames = [Sbar[i][ok_bins]], ["k_pickup"]
         else:
             cols, xnames = [cN[i][ok_bins], cN[i][ok_bins] * Sbar[i][ok_bins]], ["T_gnd", "R_diffuse"]
+        for s_ in args.hk_extra:
+            v_ = hk[s_][ok_bins]
+            cols.append(v_ - np.nanmean(v_)); xnames.append(f"k_{s_}")
         cols += list(cY[i][:, ok_bins])
         xnames += [f"d_{s}" for s in ylabels]
         if np.any(cT[i][ok_bins] != 0):
@@ -718,7 +728,8 @@ def main():
             results.append(out)
             a_ = out["all"]
             print(f"{x:6.1f} MHz  " + "  ".join(f"{k} {a_['theta'][k]:.3g}±{a_['theta_err_scaled'][k]:.2g}"
-                                                 for k in ("T_gnd", "R_diffuse", "eps_beam", "k_pickup", "k_hk") if k in a_["theta"])
+                                                 for k in ["T_gnd", "R_diffuse", "eps_beam", "k_pickup", "k_hk"]
+                                                 + [f"k_{s_}" for s_ in args.hk_extra] if k in a_["theta"])
                   + "  offsets " + " ".join(f"{k}:{v:.0f}" for k, v in list(a_["offsets"].items())[:4])
                   + f"  chi2/dof {a_['chi2_per_dof']:.1f}  rms {100 * a_['rms_frac']:.2f}%"
                   f"  held-out rms {100 * out['train']['test_rms_frac']:.2f}%  status {a_['status']}"
