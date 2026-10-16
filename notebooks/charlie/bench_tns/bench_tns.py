@@ -16,7 +16,9 @@ Timestamps are UTC: the run started 2026-10-08 ~18:03 PDT, 2026-10-09 01:03 UTC.
 What comes from the packages, and what is here:
 
 - eigsep_data: the metadata index, per-state selections, contiguous visits
-  (here one per dwell), and the spectra (Selection.load_bundle);
+  (here one per dwell), the spectra (Selection.load_bundle), and the RFI
+  detectors (flagging.detectors: overflow_mask, transient_track,
+  persistent_track);
 - eigsep_cal: the switched ratio Q (dicke.calc_Tant_star), the S11
   calibration to plane P (S11, with the packaged switch-path and internal-OSL
   characterizations) and the mismatch factor (dicke.mismatch);
@@ -34,9 +36,11 @@ T_r the same in every switch state (no receiver noise waves). Substituting
 into Q gives Q = (M_hot T_hot - M_ref T_ref) / T_NS, with
 T_NS = (P_NON - P_ref) / g: the noise source's excess over the reference as
 this receiver takes it. That definition absorbs the noise source's own
-mismatch, which cannot be corrected (its switch paths cannot be measured), so
-T_NS depends on Gamma_rec and does not transfer to a different receiver. Loss
-in the switch paths (their available gain) is not yet included.
+mismatch, so it depends on Gamma_rec. With the lab measurement of the noise
+source's reflection at P (GAMMA_NS_FILE), its mismatch M_ns can be removed:
+tnon_terms gives T_NON, the noise-source path's temperature at P when on,
+which does not depend on the receiver. Loss in the switch paths (their
+available gain) is not yet included.
 """
 import warnings
 from pathlib import Path
@@ -47,6 +51,7 @@ import pandas as pd
 from eigsep_cal import S11
 from eigsep_cal.dicke import calc_Tant_star, mismatch
 from eigsep_data import MetadataIndex
+from eigsep_data.flagging.detectors import overflow_mask, persistent_track, transient_track
 
 DATA = Path("/mnt/data02/eigsep/scratch/switch_bench_tests")
 ANTENNA = "box-air"
@@ -63,6 +68,10 @@ STEADY_K_PER_MIN = 1.0
 #: The bench S11 files (ants11_*, recs11_*), and the S11 DUT names of the loads.
 S11_PATTERN = "*s11_*.h5"
 S11_DUT = {HOT: "amb", REF: "ant"}
+#: Lab measurement of the noise-source path's reflection at P (VNA on the field
+#: board's LNA port, switch on RFNON/RFNOFF), 2026-10-15. Board temperature not
+#: varied yet.
+GAMMA_NS_FILE = Path("/mnt/data02/eigsep/scratch/rfn_sparameters_10_15.npz")
 #: Channels outside this band are masked (MHz).
 BAND_MHZ = (50.0, 245.0)
 
@@ -94,6 +103,7 @@ def add_temperatures(meta):
     meta["T_hot"] = thermistor_K(meta["tempctrl_load_resistance"], PULLUP["tempctrl_load"])
     meta["T_ref"] = thermistor_K(meta["tempctrl_lna2_resistance"], PULLUP["tempctrl_lna2"])
     meta["T_diode_board"] = meta["rfswitch_therm_temp_therm2"] + 273.15
+    meta["T_lna3"] = thermistor_K(meta["tempctrl_lna1_resistance"], PULLUP["tempctrl_lna1"])
     return meta
 
 
@@ -113,15 +123,38 @@ def load_state(idx, state):
     return meta, np.asarray(b.freqs_mhz), np.asarray(b.data, float), b
 
 
-def dwell_means(meta, spec, skip_first=0):
+def rfi_flags(spec, freqs):
+    """Per-sample RFI flags for one state's integrations (time-ordered), from
+    eigsep_data's detectors: int32 wraps (overflow_mask), departures from a
+    smooth time trend per channel (transient_track), and steady narrowband
+    channels (persistent_track, which checks 45-235 MHz only).
+
+    Wrapped samples are replaced by their channel's median log power before the
+    two tracks run, so they don't drag the baselines (they stay flagged).
+    Returns per-sample flags (wraps | transients) and per-channel persistent
+    flags."""
+    wrap = overflow_mask(spec)
+    valid = ~np.all(spec == 0, axis=1)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        logp = np.log10(np.where(spec > 0, spec, np.nan))
+    fill = np.nanmedian(logp[valid], axis=0)
+    logp = np.where(np.isfinite(logp), logp, fill)
+    trans, _, _ = transient_track(logp, valid)
+    persist, _ = persistent_track(logp, valid, freqs)
+    return wrap | trans, persist
+
+
+def dwell_means(meta, spec, flags=None, skip_first=0):
     """Weighted mean spectrum of each dwell of one state.
 
-    Weight = integration time; wrapped samples (negative counts) and all-zero
-    rows get zero weight; the first `skip_first` integrations of each dwell
-    are dropped. Returns a table (one row per dwell) and the (ndwell, nchan)
-    mean powers."""
+    Weight = integration time; flagged samples (`flags`, per sample; by
+    default only int32 wraps) and all-zero rows get zero weight; the first
+    `skip_first` integrations of each dwell are dropped. Returns a table (one
+    row per dwell) and the (ndwell, nchan) mean powers."""
+    if flags is None:
+        flags = overflow_mask(spec)
     keep = (meta["pos_in_dwell"].to_numpy() >= skip_first) & (meta["dwell"].to_numpy() >= 0)
-    good = (spec > 0) & ~np.all(spec == 0, axis=1)[:, None] & keep[:, None]
+    good = ~flags & ~np.all(spec == 0, axis=1)[:, None] & keep[:, None]
     w = np.where(good, meta["integration_time"].to_numpy()[:, None], 0.0)
     rows, P = [], []
     for d, g in meta[keep].groupby("dwell"):
@@ -221,10 +254,10 @@ def mismatch_factors(s, freqs, t):
     return M, g, g_rec
 
 
-def fit_q(x, Q, use):
-    """Straight-line fit Q = a + b x, per channel, with numpy.polyfit, over the
-    cycles in `use`. `x` is (ncycle,) for one abscissa or (ncycle, nchan) when
-    it differs by channel (the mismatch-corrected temperatures). Non-finite
+def fit_line(x, Q, use):
+    """Straight-line fit y = a + b x, per channel, with numpy.polyfit, over the
+    cycles in `use` (`Q` is the ordinate y). `x` is (ncycle,) for one abscissa
+    or (ncycle, nchan) when it differs by channel. Non-finite
     points are left out per channel; a channel with fewer than 4 points gets
     NaN. Returns intercept a, slope b, the slope's standard error (from
     polyfit's covariance, i.e. from the residuals), the number of cycles
@@ -256,40 +289,96 @@ def sigma_q(cyc, cp, tau_s):
     return np.sqrt(sig[HOT] ** 2 + ((Q - 1) * sig[REF]) ** 2 + (Q * sig[NON]) ** 2) / np.abs(D)
 
 
-def channel_mask(freqs, fit, sq, use, band=BAND_MHZ, chi2_factor=3.0,
-                 max_rel_err=0.05, outlier_sigma=5.0, window=33):
+def channel_mask(freqs, fit, sq, use, persistent, band=BAND_MHZ, chi2_factor=3.0,
+                 max_rel_err=0.05):
     """Channels to leave out of T_NS, by reason (True = masked):
 
     - band: outside `band`;
-    - chi2: the residuals of the fit, in units of radiometer noise, have a
-      mean square more than `chi2_factor` times the in-band median (drift or
-      interference in that channel);
+    - persistent: a steady narrowband emitter in any state (rfi_flags);
+    - chi2: the fit residuals, in units of radiometer noise, have a mean square
+      more than `chi2_factor` times the in-band median (drift or interference);
     - rel_err: the slope's standard error exceeds `max_rel_err` of the slope,
-      or the slope is not positive (a weak or absent noise-source step);
-    - outlier: 1/slope departs from its running median over `window` channels
-      by more than `outlier_sigma` robust sigmas (1.4826 x MAD).
+      or the slope is not positive (a weak or absent noise-source step).
 
-    Medians are used here only to find bad channels. Returns the per-reason
-    masks, their union, and the per-channel chi2."""
+    The last two are about the fit, not RFI. Medians are used here only to
+    find bad channels. Returns the per-reason masks, their union, and the
+    per-channel chi2."""
     inband = (freqs >= band[0]) & (freqs <= band[1])
     z = fit["res"] / sq
     with np.errstate(invalid="ignore", divide="ignore"), warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
         chi2 = np.nanmean(np.where(use[:, None], z ** 2, np.nan), axis=0)
-    m = {"band": ~inband}
-    m["chi2"] = inband & ~(chi2 <= chi2_factor * np.nanmedian(chi2[inband]))
+    m = {"band": ~inband, "persistent": inband & persistent}
+    m["chi2"] = inband & ~(chi2 <= chi2_factor * np.nanmedian(chi2[inband & ~persistent]))
     m["rel_err"] = inband & ~((fit["b"] > 0) & (fit["sb"] / fit["b"] <= max_rel_err))
-    tns = np.where(inband & ~m["chi2"] & ~m["rel_err"], 1 / fit["b"], np.nan)
-    med = pd.Series(tns).rolling(window, center=True, min_periods=window // 3).median().to_numpy()
-    dev = tns - med
-    mad = 1.4826 * np.nanmedian(np.abs(dev))
-    m["outlier"] = np.abs(dev) > outlier_sigma * mad
-    m["any"] = m["band"] | m["chi2"] | m["rel_err"] | m["outlier"]
+    m["any"] = m["band"] | m["persistent"] | m["chi2"] | m["rel_err"]
     return m, chi2
 
 
+def gamma_ns(freqs):
+    """The noise-source path's reflection at P (RFNON) on the correlator
+    channels, linear in frequency (NaN outside the measured range), and the
+    largest |Gamma_RFNON - Gamma_RFNOFF| (they should agree, the diode being
+    behind the 30 dB pad)."""
+    d = np.load(GAMMA_NS_FILE)
+    f = d["freqs"] / 1e6
+    on = np.interp(freqs, f, d["RFNON"].real, left=np.nan, right=np.nan) \
+        + 1j * np.interp(freqs, f, d["RFNON"].imag, left=np.nan, right=np.nan)
+    return on, float(np.abs(d["RFNON"] - d["RFNOFF"]).max())
+
+
+def tnon_terms(Q, M, M_ns, T_hot, T_ref):
+    """Regressor and ordinate for the noise source's temperature at P.
+
+    With the noise source's mismatch M_ns known, the model gives
+    M_hot T_hot - M_ref T_ref = Q (M_ns T_NON - M_ref T_ref), i.e.
+    y = M_hot T_hot - (1 - Q) M_ref T_ref = T_NON * x with x = Q M_ns, where
+    T_NON is the noise-source path's source temperature at P when on: a
+    property of the source, not of the receiver. All temperatures in K.
+    Returns (x, y), each (ncycle, nchan)."""
+    T_hot = np.asarray(T_hot)[:, None]
+    T_ref = np.asarray(T_ref)[:, None]
+    y = M[HOT] * T_hot - (1 - Q) * M[REF] * T_ref
+    return Q * M_ns, y
+
+
 def snap_temperature(idx, t):
-    """The SNAP's FPGA temperature (deg C, `fpga_temp.temp_c`, logged about every
+    """The SNAP's FPGA temperature (deg C, `fpga_temp_temp_c`, logged about every
     20 s) interpolated linearly to times `t` (unix)."""
     ft = idx.select().meta[["time_best", "fpga_temp_temp_c"]].dropna()
     return np.interp(t, ft["time_best"], ft["fpga_temp_temp_c"])
+
+
+def lna3_temperature(idx, t):
+    """LNA 3's thermistor (K, tempctrl_lna1 on GP28, measured pull-up)
+    interpolated linearly to times `t` (unix)."""
+    m = add_temperatures(idx.select().meta)[["time_best", "T_lna3"]].dropna()
+    return np.interp(t, m["time_best"], m["T_lna3"])
+
+
+def vna_sweeps(meta, gap_s=60.0):
+    """Start and end times (unix) of each VNA sweep: runs of rows whose switch
+    state is a VNA* state, split where they are more than gap_s apart."""
+    t = np.sort(meta.loc[meta["rfswitch"].astype(str).str.startswith("VNA"), "time_best"].to_numpy())
+    if t.size == 0:
+        return np.empty((0, 2))
+    cut = np.flatnonzero(np.diff(t) > gap_s)
+    starts = np.r_[t[0], t[cut + 1]]
+    ends = np.r_[t[cut], t[-1]]
+    return np.c_[starts, ends]
+
+
+#: Integrations this long before a VNA sweep starts (and after it ends) are
+#: excluded: the VNA service disturbs the receiver for up to ~17 s before it
+#: takes the switch (power +120 % to +280 % in any state), § 12 of the notebook.
+SWEEP_GUARD_S = (20.0, 5.0)
+
+
+def near_sweep(meta, sweeps, guard=SWEEP_GUARD_S):
+    """Rows of `meta` within guard[0] s before a sweep's start or guard[1] s
+    after its end (sweeps from vna_sweeps)."""
+    t = meta["time_best"].to_numpy()
+    out = np.zeros(t.size, bool)
+    for t0, t1 in sweeps:
+        out |= (t > t0 - guard[0]) & (t < t1 + guard[1])
+    return out
