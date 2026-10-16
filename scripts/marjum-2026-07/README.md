@@ -96,14 +96,13 @@ Superseded generators are in `debug/` (see `debug/README.md`).
 
 | Script | Role |
 |---|---|
-| `build_dem_sw_mosaic.py` | Builds `derived/dem/v0003` (4 x 5 tiles, 1 km more to the west and south of v0002, same grid). |
-| `build_dem_mosaic.py` | Builds a larger mosaic of the same 0.5 m 3DEP project on the same grid, keeping a base version pixel for pixel; generator of `derived/dem/v0004` (v0003 plus 6 km to the south): `build_dem_mosaic.py v0004 --east 90 93 --north 38 48 --fetch`. |
+| `build_dem_sw_mosaic.py` | Builds the float32 DEM mosaics on the v0002 grid from the 0.5 m 3DEP tiles, keeping a base version pixel for pixel: `derived/dem/v0003` with the defaults (4 x 5 tiles, 1 km more to the west and south of v0002), `derived/dem/v0004` with `--version v0004 --base v0003 --north 38 48` (v0003 plus 6 km to the south). |
 | `build_horizon_profiles.py` | Traces `curation/horizon_profiles_vNNNN` from the geometry release antenna on a DEM cache (`--dem`). |
 | `coverage_certificate.py` | Checks, bearing by bearing on the USGS 1 arc-second DEM, that terrain beyond the DEM cannot rise above a traced horizon; writes `curation/horizon_profiles_vNNNN_coverage.{json,npz}` and exits non-zero if any bearing can rise. |
 
 ## Recent changes
 
-- 2026-10-16: added `build_dem_mosaic.py` (DEM v0004) and `coverage_certificate.py`, which shows that terrain outside DEM v0004 cannot change `horizon_profiles_v0004`. v0003's south edge cut the skyline; its other edges do not matter. `build_horizon_profiles.py` no longer writes the stale DEM v0002 limitation note.
+- 2026-10-16: `build_dem_sw_mosaic.py` takes the version, base and tile ranges as options (defaults reproduce DEM v0003) and builds DEM v0004; added `coverage_certificate.py`, which shows that terrain outside DEM v0004 cannot change `horizon_profiles_v0004`. v0003's south edge cut the skyline; its other edges do not matter. `build_horizon_profiles.py` no longer writes the stale DEM v0002 limitation note.
 - 2026-10-08: `build_known_quantities_xlsx.py` builds from geometry release v0004 on DEM v0002 (no uncertainty, GPS points placed on the UTM grid) instead of v0001 and the retired `terrain/` files it could no longer find; `--root` and `--output` let it run from a worktree.
 - 2026-10-08: `fit_beam.py` takes the antenna and transmitter from geometry release v0004 and finds the campaign through `EIGSEP_CAMPAIGN_ROOT` like the other drivers here, so it can run from a worktree.
 - 2026-10-08: Moved the geometry posterior v0004 drivers into `geometry/`, out of

@@ -43,9 +43,7 @@ Needs numpy, Pillow and pyproj.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
-import subprocess
 import sys
 import urllib.request
 import zipfile
@@ -58,29 +56,15 @@ from pyproj import Transformer
 
 from eigsep_data.paths import get_campaign_root
 
-EARTH_R_M = 6371e3
-ERAS = ("30m", "87.5m", "91m")
+# the horizon's own geometry, so the check and the trace cannot drift apart
+from build_horizon_profiles import EARTH_R_M, ERAS, Grid, git_state, sha256
+
 STEP_M = 10.0            # coarse march step, a third of a 1 arc-second pixel
 CORE_PX = 3600           # 1 arc-second tile without its 6-pixel buffer
 BUFFER_PX = 6
 COARSE_URL = "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/1/TIFF/current/"
 COARSE_TILES = ("n39w113", "n39w114", "n39w115", "n40w113", "n40w114", "n40w115")
 DZ_MARGIN_M = 5.0
-
-
-def sha256(path):
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for block in iter(lambda: f.read(1 << 20), b""):
-            h.update(block)
-    return h.hexdigest()
-
-
-def git_state(repo):
-    run = lambda *a: subprocess.run(["git", "-C", str(repo), *a], capture_output=True,
-                                    text=True, check=True).stdout.strip()
-    return run("rev-parse", "HEAD"), bool(run("status", "--porcelain",
-                                              "--untracked-files=no"))
 
 
 def fetch_coarse(tiles_dir):
@@ -115,7 +99,9 @@ def npy_shape(npz, name):
 
 
 class Mosaic:
-    """Extent and edge range of a DEM cache, as build_horizon_profiles.Grid."""
+    """A DEM cache's extent, with Grid's edge rule, without loading its heights."""
+
+    edge_range = Grid.edge_range
 
     def __init__(self, path):
         with np.load(path) as z:
@@ -127,27 +113,12 @@ class Mosaic:
         self.extent_e = ((0 - self.e0) * self.res, (nx - 1 - self.e0) * self.res)
         self.extent_n = ((0 - self.n0) * self.res, (ny - 1 - self.n0) * self.res)
 
-    def edge_range(self, e, n, ux, uy):
-        lim = []
-        for u, p, (lo, hi) in ((ux, e, self.extent_e), (uy, n, self.extent_n)):
-            hi = hi - self.res
-            if u > 1e-12:
-                lim.append((hi - p) / u)
-            elif u < -1e-12:
-                lim.append((lo - p) / u)
-        return min(lim)
-
     def edge_side(self, e, n, ux, uy):
         """Which mosaic side ('E', 'W', 'N', 'S') a ray leaves through."""
-        lim = {}
-        for u, p, (lo, hi), (pos, neg) in ((ux, e, self.extent_e, "EW"),
-                                           (uy, n, self.extent_n, "NS")):
-            hi = hi - self.res
-            if u > 1e-12:
-                lim[pos] = (hi - p) / u
-            elif u < -1e-12:
-                lim[neg] = (lo - p) / u
-        return min(lim, key=lim.get)
+        if abs(uy) <= 1e-12 or (abs(ux) > 1e-12 and
+                                self.edge_range(e, n, ux, 0) <= self.edge_range(e, n, 0, uy)):
+            return "E" if ux > 0 else "W"
+        return "N" if uy > 0 else "S"
 
 
 class Coarse:
