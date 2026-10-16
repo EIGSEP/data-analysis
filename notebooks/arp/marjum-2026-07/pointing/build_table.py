@@ -48,7 +48,7 @@ v2.0 **meaning changes** -- ``az_deg`` is the *commanded* azimuth: motor
     pot/motor divergence, not platform slip. ``quality`` no longer marks
     commanded rows suspect for a missing per-sample pot; AZ_SLEW rows are
     suspect.
-v2.1 ``EL_SOLUTION_GLITCH`` (memo 003, Known defects): the detector wraps the
+v3 ``EL_SOLUTION_GLITCH`` (memo 003, Known defects): the detector wraps the
     elevation difference into +/-180 deg, so passes through nadir no longer
     fire it (126 rows of v2.0, 31 in the 07-17 raster), and the flag now sets
     ``quality == "suspect"`` on both members of a flagged pair, since the
@@ -85,7 +85,7 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-VERSION = "v2.1"
+VERSION = "v3"
 SCHEMA_VERSION = 5
 
 # Nominal platform height per curation height_era, and its uncertainty.
@@ -173,7 +173,7 @@ def load_eras(campaign_dir):
 
 
 def label_eras(file_names, data_dir, eras, pattern="corr_*.h5"):
-    """Per-sample height_era / phase by source file (v2.1).
+    """Per-sample height_era / phase by source file (v3).
 
     A mode-table block covers the ``n_files`` files from ``file_first`` to
     ``file_last`` in name order. v2.0 labelled by the block's time interval,
@@ -369,7 +369,7 @@ def main():
         "version": VERSION,
         "schema_version": SCHEMA_VERSION,
         "generated_utc": generated,
-        "generated_by": ("Claude Code session for C. H. Bye (v2.1); Claude Code "
+        "generated_by": ("Claude Code session for C. H. Bye (v3); Claude Code "
                          "session for Aaron (v2.0); pointing-analyst (v1.x)"),
         "generator": "data-analysis/notebooks/arp/marjum-2026-07/pointing/build_table.py",
         "generator_commit": commit,
@@ -423,7 +423,7 @@ def main():
             "post-EL-failure era only; pre-failure firings of the same "
             ">20 deg/s slew criterion are a different, less-understood "
             "population and should not be assumed to be the same glitch.",
-            "v2.1: EL_SOLUTION_GLITCH wraps the elevation difference (nadir "
+            "v3: EL_SOLUTION_GLITCH wraps the elevation difference (nadir "
             "passes no longer fire it) and sets quality 'suspect' on both "
             "members of a flagged pair; the rate does not say which is bad. "
             "height_era and phase are labelled by source file.",

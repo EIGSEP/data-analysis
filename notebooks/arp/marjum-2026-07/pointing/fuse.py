@@ -142,7 +142,7 @@ SLIP_RAMP_DEG_PER_HR = 90.0
 # in-file rate); 20 deg/s is 4x that and sits in a sparse valley between real
 # motion and the glitch population (counts barely move between the 20, 30
 # and 50 deg/s thresholds). None of the existing flags catch these: they pass
-# as quality=="ok" with no UNCOMMANDED_MOTION. Since v2.1 the flag itself sets
+# as quality=="ok" with no UNCOMMANDED_MOTION. Since v3 the flag itself sets
 # quality "suspect" (build_table.py).
 #
 # Scope caveat: the wrap-cluster mechanism is established for the
@@ -464,7 +464,7 @@ def detect_el_solution_glitch(el_deg, times, file_index,
     ``|el[i+1] - el[i]| / dt`` and flags **both** i and i+1 if it exceeds
     ``thresh_deg_per_s`` -- the transition identifies a bad pair; which
     member is the bad one is not determined by the rate alone. The
-    difference is wrapped into +/-180 deg (v2.1), so a pass through nadir
+    difference is wrapped into +/-180 deg (v3), so a pass through nadir
     (el +180 -> -180) is not a slew; unwrapped, those passes fired the flag
     on 126 rows of v2.0 (memo 003).
 
