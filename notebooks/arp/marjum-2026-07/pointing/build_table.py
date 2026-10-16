@@ -36,7 +36,7 @@ v2.0 **meaning changes** -- ``az_deg`` is the *commanded* azimuth: motor
     (``fuse.commanded_azimuth``). On 07-17 the platform followed the motor
     through a 27 deg potentiometer slip: the unfitted HFSS beam's held-out
     test RMS is 0.071 with commanded az against 0.197 with the v1 fused az
-    (data-analysis single_ch_beam_fit_debug.ipynb), and the az and el drives
+    (data-analysis single_ch_beam_fit.ipynb at e0ffa78), and the az and el drives
     never run together (Aaron, 2026-09-23/24). Anchor rule, option (b)
     (Aaron, 2026-09-24): a new segment starts at every motor re-home, data
     gap and big slew (> 20 deg); its offset is the median pot - motor over
@@ -48,6 +48,18 @@ v2.0 **meaning changes** -- ``az_deg`` is the *commanded* azimuth: motor
     pot/motor divergence, not platform slip. ``quality`` no longer marks
     commanded rows suspect for a missing per-sample pot; AZ_SLEW rows are
     suspect.
+v3 ``EL_SOLUTION_GLITCH`` (memo 003, Known defects): the detector wraps the
+    elevation difference into +/-180 deg, so passes through nadir no longer
+    fire it (126 rows of v2.0, 31 in the 07-17 raster), and the flag now sets
+    ``quality == "suspect"`` on both members of a flagged pair, since the
+    rate does not say which one is bad (231 rows that v2.0 left "ok"). On
+    the 07-17 raster, 60 flagged rows are solver jumps of +/-120 or 180 deg
+    in ``el_deg`` that v2.0 marked "ok" with ``el_sigma_deg`` 0.24.
+    ``height_era`` and ``phase`` are labelled by source file, not by the
+    mode-table block's time interval, which left the edges of every block
+    blank (167,585 rows, 13.6%); every row now has an era, and its nominal
+    height where LIDAR does not measure one. The provenance records the mode
+    table's SHA-256. Every other column is unchanged.
 
 Run::
 
@@ -62,6 +74,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import glob
 import hashlib
 import importlib.util
 import json
@@ -72,7 +85,7 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-VERSION = "v2.0"
+VERSION = "v3"
 SCHEMA_VERSION = 5
 
 # Nominal platform height per curation height_era, and its uncertainty.
@@ -141,7 +154,8 @@ def sha256(path, chunk=1 << 20):
 
 
 def load_eras(campaign_dir):
-    """Era/phase intervals from data-archivist's mode table."""
+    """Era/phase blocks from data-archivist's mode table: each block's time
+    interval, era and phase, and its first and last file and file count."""
     path = os.path.join(campaign_dir, "curation", "mode_table.jsonl")
     if not os.path.exists(path):
         return []
@@ -153,20 +167,39 @@ def load_eras(campaign_dir):
                 tzinfo=dt.timezone.utc).timestamp(),
             dt.datetime.strptime(r["t_end_utc"], "%Y-%m-%dT%H:%M:%SZ").replace(
                 tzinfo=dt.timezone.utc).timestamp(),
-            r.get("height_era"), r.get("phase")))
+            r.get("height_era"), r.get("phase"),
+            r["file_first"], r["file_last"], int(r["n_files"])))
     return out
 
 
-def label_eras(times, eras):
-    """Per-sample height_era / phase, from the mode table's intervals."""
-    n = times.size
-    era = np.array([""] * n, dtype=object)
-    phase = np.array([""] * n, dtype=object)
-    for t0, t1, h, p in eras:
-        sel = (times >= t0) & (times <= t1)
-        if sel.any():
-            era[sel] = h or ""
-            phase[sel] = p or ""
+def label_eras(file_names, data_dir, eras, pattern="corr_*.h5"):
+    """Per-sample height_era / phase by source file (v3).
+
+    A mode-table block covers the ``n_files`` files from ``file_first`` to
+    ``file_last`` in name order. v2.0 labelled by the block's time interval,
+    from its first file's timestamp to its last file's, which left samples at
+    the edges of every block unlabelled -- a one-file block covered almost
+    none of its own samples -- so 167,585 rows (13.6%) had no era (memo 003).
+    """
+    names = sorted(os.path.basename(p)
+                   for p in glob.glob(os.path.join(data_dir, pattern)))
+    pos = {f: i for i, f in enumerate(names)}
+    by_file = {}
+    for _, _, h, p, first, last, n_files in eras:
+        i0, i1 = pos.get(first), pos.get(last)
+        if i0 is None or i1 is None:
+            continue                          # block outside this data directory
+        if i1 - i0 + 1 != n_files:
+            raise ValueError(f"mode-table block {first}..{last} lists {n_files} "
+                             f"files; the data directory has {i1 - i0 + 1}")
+        for f in names[i0:i1 + 1]:
+            if f in by_file:
+                raise ValueError(f"{f} is in two mode-table blocks")
+            by_file[f] = (h or "", p or "")
+    uniq, inv = np.unique(np.asarray(file_names), return_inverse=True)
+    lab = [by_file.get(f, ("", "")) for f in uniq]
+    era = np.array([e for e, _ in lab], dtype=object)[inv]
+    phase = np.array([p for _, p in lab], dtype=object)[inv]
     return era, phase
 
 
@@ -205,7 +238,7 @@ def build(data_dir, t_start, t_stop, campaign_dir, index=None):
     flags[~np.isfinite(el)] |= fuse.FLAG_NO_ESTIMATE
 
     eras = load_eras(campaign_dir)
-    era, phase = label_eras(d["time"], eras)
+    era, phase = label_eras(d["file_name"], data_dir, eras)
 
     # Height: era nominal, overridden by LIDAR ground returns where geometry
     # allows the rangefinder to actually see the ground.
@@ -247,7 +280,8 @@ def build(data_dir, t_start, t_stop, campaign_dir, index=None):
         | fallback_no_pot                              # az has no absolute ref
         | ((flags & (fuse.FLAG_EL_NO_IMU               # el from motor alone
                      | fuse.FLAG_AZ_SLEW               # platform may lag/slip
-                     | fuse.FLAG_UNCOMMANDED)) != 0))  # swinging within a sample
+                     | fuse.FLAG_UNCOMMANDED           # swinging within a sample
+                     | fuse.FLAG_EL_SOLUTION_GLITCH)) != 0))  # el solver jump
     quality[value_suspect] = QUALITY_SUSPECT
     quality[(flags & fuse.FLAG_NO_ESTIMATE) != 0] = QUALITY_GAP
 
@@ -335,7 +369,8 @@ def main():
         "version": VERSION,
         "schema_version": SCHEMA_VERSION,
         "generated_utc": generated,
-        "generated_by": "Claude Code session for Aaron (v2.0); pointing-analyst (v1.x)",
+        "generated_by": ("Claude Code session for C. H. Bye (v3); Claude Code "
+                         "session for Aaron (v2.0); pointing-analyst (v1.x)"),
         "generator": "data-analysis/notebooks/arp/marjum-2026-07/pointing/build_table.py",
         "generator_commit": commit,
         "generator_repo": "data-analysis",
@@ -379,7 +414,7 @@ def main():
             "from each other by platform slip during the slew.",
             "The 07-17 20:41-20:53 'slip' in v1 fused az is a potentiometer "
             "slip; the platform followed the motor (beam-fit evidence in "
-            "data-analysis single_ch_beam_fit_debug.ipynb). az_fused_deg "
+            "data-analysis single_ch_beam_fit.ipynb at e0ffa78). az_fused_deg "
             "keeps the v1 value for audit.",
             "Commanded az assumes the platform follows the motor between big "
             "slews; this is validated on the 07-17 beam-scan raster only.",
@@ -388,6 +423,10 @@ def main():
             "post-EL-failure era only; pre-failure firings of the same "
             ">20 deg/s slew criterion are a different, less-understood "
             "population and should not be assumed to be the same glitch.",
+            "v3: EL_SOLUTION_GLITCH wraps the elevation difference (nadir "
+            "passes no longer fire it) and sets quality 'suspect' on both "
+            "members of a flagged pair; the rate does not say which is bad. "
+            "height_era and phase are labelled by source file.",
         ],
         "params": {
             "window_start_utc": extract.utc(table["t_utc_s"][0]),
@@ -409,6 +448,10 @@ def main():
                 "anchor_min_samples": fuse.ANCHOR_MIN_SAMPLES,
                 "pot_diverge_deg": fuse.AZ_DIVERGE_DEG},
         },
+        "era_source": {
+            "path": "marjum-2026-07/curation/mode_table.jsonl",
+            "sha256": sha256(os.path.join(campaign_dir, "curation",
+                                          "mode_table.jsonl"))},
         "inputs": [{"path": f"marjum-2026-07/data/{os.path.basename(f)}",
                     "sha256": sha256(f)} for f in files],
     }
