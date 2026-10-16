@@ -609,6 +609,10 @@ def main():
                     help="drop bins of --swing-eras whose elevation is further than this (deg) from the median "
                          "of the bins within 5 min: the box swinging at a fixed commanded pointing")
     ap.add_argument("--swing-eras", nargs="*", default=["~30m"])
+    ap.add_argument("--fit-eras", nargs="*", default=None,
+                    help="fit only bins of these eras (columns and cache are unchanged)")
+    ap.add_argument("--fit-utc", nargs=2, default=None, metavar=("START", "END"),
+                    help="fit only bins in this UTC range, e.g. 2026-07-16T12:00 2026-07-17T00:00")
     ap.add_argument("--label", default=None, help="name of this configuration in the output")
     ap.add_argument("--out-dir", type=Path)
     args = ap.parse_args()
@@ -658,6 +662,11 @@ def main():
         swing |= np.abs(df.el.to_numpy() - med) > args.swing_max_el_dev
     swing &= df.era.isin(args.swing_eras).to_numpy()
     fit_mask &= ~swing
+    if args.fit_eras:
+        fit_mask &= df.era.isin(args.fit_eras).to_numpy()
+    if args.fit_utc:
+        t0, t1 = (pd.Timestamp(x, tz="UTC").timestamp() for x in args.fit_utc)
+        fit_mask &= (df.t.to_numpy() >= t0) & (df.t.to_numpy() < t1)
     sel_counts["swing_cut"] = int((swing & df.regime.isin(args.regimes).to_numpy()).sum())
     Yall, nsamp = z["y"][keep], z["nsamp"][keep]
     scale = z["scale"][keep]
