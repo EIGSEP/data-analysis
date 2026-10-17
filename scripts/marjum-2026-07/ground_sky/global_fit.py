@@ -613,6 +613,9 @@ def main():
                     help="fit only bins of these eras (columns and cache are unchanged)")
     ap.add_argument("--fit-utc", nargs=2, default=None, metavar=("START", "END"),
                     help="fit only bins in this UTC range, e.g. 2026-07-16T12:00 2026-07-17T00:00")
+    ap.add_argument("--mock-y", type=Path, default=None,
+                    help="npz (t, freqs_mhz, y) whose y replaces the binned data at those frequencies "
+                         "(NaN = no data); an injection test that keeps the binned product's column cache")
     ap.add_argument("--label", default=None, help="name of this configuration in the output")
     ap.add_argument("--out-dir", type=Path)
     args = ap.parse_args()
@@ -669,6 +672,12 @@ def main():
         fit_mask &= (df.t.to_numpy() >= t0) & (df.t.to_numpy() < t1)
     sel_counts["swing_cut"] = int((swing & df.regime.isin(args.regimes).to_numpy()).sum())
     Yall, nsamp = z["y"][keep], z["nsamp"][keep]
+    if args.mock_y:
+        with np.load(args.mock_y) as zm:
+            assert np.array_equal(zm["t"], z["t"]), "mock bins differ from the binned product's"
+            Yall = Yall.copy()
+            for jm, fm in enumerate(zm["freqs_mhz"]):
+                Yall[:, int(np.argmin(np.abs(z["freqs_mhz"] - fm)))] = zm["y"][keep, jm]
     scale = z["scale"][keep]
 
     beam, beam_path = load_beam(args.beam, campaign)
