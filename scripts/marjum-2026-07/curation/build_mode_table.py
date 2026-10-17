@@ -99,8 +99,10 @@ FNAME_RE = re.compile(r"corr_(\d{8})_(\d{6})Z")
 # "unknown" marks intervals with no live box-air data (box-air unpowered while
 # it was lowered or lifted) or with a move in progress; the pointing table
 # leaves their nominal height unset. Coherence edges are good to about +-20 min.
-# The end of the Jul 16 raise is not decided by data: 20:30 MDT is the field
-# note's "by ~20:30" and is kept.
+# Jul 16 17:27-19:15 MDT alternates between ground-like and intermediate
+# coherence (possibly the "partial raise to 30 m first"), so it stays unknown.
+# The raise is probably complete by ~20:15-20:30 MDT (coherence at the 87.5 m
+# night level), so the field note's 20:30 MDT is kept.
 #
 # Each entry: (start_utc_inclusive, label, source_tag); times in UTC, MDT+6 h.
 # --------------------------------------------------------------------------
@@ -108,9 +110,7 @@ HEIGHT_ERAS = [
     ("2026-07-12T00:00:00Z", "~2m",     "fieldnotes:deflection-0.97m-loaded-160lb"),
     ("2026-07-15T18:38:00Z", "unknown", "coherence:boxair-off-1238-1711-MDT-7/15-lifted-to-30m"),
     ("2026-07-15T23:11:00Z", "~30m",    "coherence:suspended-from-1711-MDT-7/15"),
-    ("2026-07-16T17:14:00Z", "unknown", "fieldnotes:lowered-power-cycle-1114-MDT-7/16"),
-    ("2026-07-16T23:27:00Z", "~2m",     "coherence:ground-class-1727-1915-MDT-7/16"),
-    ("2026-07-17T01:15:00Z", "unknown", "coherence:raise-from-1915-MDT-7/16"),
+    ("2026-07-16T17:14:00Z", "unknown", "fieldnotes:lowered-1114-MDT-7/16;coherence:alternates-1727-1915-raise-from-1915"),
     ("2026-07-17T02:30:00Z", "~87.5m",  "fieldnotes:raised-87.5m-by-2030-MDT-7/16"),
     ("2026-07-17T18:50:00Z", "~91m",    "fieldnotes:final-height-91m-1250-MDT"),
     ("2026-07-17T21:28:00Z", "unknown", "fieldnotes:battery-out-lowered-1528-MDT-7/17"),
