@@ -96,9 +96,11 @@ FNAME_RE = re.compile(r"corr_(\d{8})_(\d{6})Z")
 # hour-level granularity for the lifts. LIDAR cannot supply them -- only 244
 # of 5,120 files carry a reading and the rangefinder saturates at 250 m.
 #
-# "unknown" marks intervals with no live box-air data (box-air unpowered while
-# it was lowered or lifted) or with a move in progress; the pointing table
-# leaves their nominal height unset. Coherence edges are good to about +-20 min.
+# "unknown" marks intervals with no box-air data during a move (the recorder
+# gap of the Jul 15 lift; box-air off after the Jul 16 and Jul 17 lowerings)
+# or with a move in progress; the pointing table leaves their nominal height
+# unset. Box-air is never lifted unpowered (it cannot be switched on once
+# suspended), so a box-air outage that starts low stays low. Coherence edges are good to about +-20 min.
 # Jul 16 17:27-19:15 MDT the box is on the ground with the antenna tilted for
 # tests (CHB; IMU el about -70 deg). The raise pauses at the ~30 m coherence
 # level (the note's "partial raise to 30 m first") and reaches the ~87.5 m
@@ -108,7 +110,7 @@ FNAME_RE = re.compile(r"corr_(\d{8})_(\d{6})Z")
 # --------------------------------------------------------------------------
 HEIGHT_ERAS = [
     ("2026-07-12T00:00:00Z", "~2m",     "fieldnotes:deflection-0.97m-loaded-160lb"),
-    ("2026-07-15T18:38:00Z", "unknown", "coherence:boxair-off-1238-1711-MDT-7/15-lifted-to-30m"),
+    ("2026-07-15T21:29:00Z", "unknown", "recorder-gap-1529-1711-MDT-7/15:lifted-with-boxair-on"),
     ("2026-07-15T23:11:00Z", "~30m",    "coherence:suspended-from-1711-MDT-7/15"),
     ("2026-07-16T17:14:00Z", "unknown", "fieldnotes:lowered-power-cycle-1114-MDT-7/16"),
     ("2026-07-16T23:27:00Z", "~2m",     "fieldnotes:on-ground-tests-1727-1915-MDT-7/16"),
