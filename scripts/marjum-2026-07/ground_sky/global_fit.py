@@ -325,6 +325,8 @@ class SmoothGainModel:
 
     def __init__(self, cG, X, xnames, groups, n_groups, H, knot_seg, step_sigma, lg0=None):
         self.cG, self.X, self.xnames = cG, X, xnames
+        # Optional priors on all parameters, P p - b (rows added by set_priors).
+        self.P, self.b = np.zeros((0, X.shape[1] + n_groups + H.shape[1])), np.zeros(0)
         self.lg0 = np.zeros(len(cG)) if lg0 is None else lg0
         self.groups, self.ng, self.H = groups, n_groups, H
         self.nx, self.nk = X.shape[1], H.shape[1]
@@ -336,6 +338,21 @@ class SmoothGainModel:
 
     def split(self, p):
         return p[:self.nx], p[self.nx:self.nx + self.ng], p[self.nx + self.ng:]
+
+    def set_priors(self, offset_sigma=None, anchor=None):
+        """offset_sigma: a Gaussian prior o = 0 +- offset_sigma (data units) on every offset.
+        anchor (h, c, sigma): a prior h . a + c = 0 +- sigma on the log-gain coefficients a."""
+        P, b = [], []
+        if offset_sigma:
+            for g in range(self.ng):
+                r = np.zeros(self.P.shape[1]); r[self.nx + g] = 1.0 / offset_sigma
+                P.append(r); b.append(0.0)
+        if anchor is not None:
+            h, c, sig = anchor
+            r = np.zeros(self.P.shape[1]); r[self.nx + self.ng:] = h / sig
+            P.append(r); b.append(-c / sig)
+        if P:
+            self.P, self.b = np.array(P), np.array(b)
 
     def inner(self, th, o):
         return self.cG + self.X @ th + o[self.groups]
@@ -362,14 +379,14 @@ class SmoothGainModel:
         return np.r_[np.zeros(self.nx + self.ng), a]
 
     def penalty(self, p):
-        return self.D @ self.split(p)[2]
+        return np.r_[self.D @ self.split(p)[2], self.P @ p - self.b]
 
     def fit(self, y, w, rows, x0=None):
         zero = np.zeros((self.D.shape[0], self.nx + self.ng))
         return least_squares(
             lambda p: np.r_[((self.predict(p) - y) * w)[rows], self.penalty(p)],
             self.start(y, rows) if x0 is None else x0,
-            jac=lambda p: np.vstack([self.jac(p, rows, w), np.hstack([zero, self.D])]),
+            jac=lambda p: np.vstack([self.jac(p, rows, w), np.hstack([zero, self.D]), self.P]),
             method="trf", x_scale="jac", xtol=1e-10, ftol=1e-10, gtol=1e-10, max_nfev=3000)
 
 
@@ -491,11 +508,21 @@ def gain_regressors(df, names, seg, shift_s=0.0):
 
 
 def fit_smooth(out, y0, w, fin, train, sig_rad, X, xnames, cG, groups, gnames, H, knot_t,
-               knot_seg, sc, ok_bins, resid_store, i, nbins, step_sigma, reg_names=()):
+               knot_seg, sc, ok_bins, resid_store, i, nbins, step_sigma, reg_names=(),
+               offset_prior=None, gain_anchor=None):
     """Fit the smooth-gain model on the training rows and on all rows. The last
-    len(reg_names) columns of H are gain regressors, not knots."""
+    len(reg_names) columns of H are gain regressors, not knots. offset_prior:
+    sigma of a zero-mean prior on each offset, in units of the median GSM
+    column. gain_anchor (A, sigma): a prior on the mean over bins with a tcal
+    scale of log(gain x scale) = log A +- sigma, the GSM amplitude a_tcal."""
     nkn = H.shape[1] - len(reg_names)
     M = SmoothGainModel(cG, X, xnames, groups, len(gnames), H, knot_seg, step_sigma)
+    anchor = None
+    if gain_anchor:
+        ok = fin & np.isfinite(sc) & (sc > 0)
+        anchor = (H[ok].mean(0), float(np.mean(M.lg0[ok] + np.log(sc[ok])) - np.log(gain_anchor[0])),
+                  gain_anchor[1])
+    M.set_priors(offset_prior * float(np.median(cG[fin])) if offset_prior else None, anchor)
     for name, rows in (("train", fin & train), ("all", fin)):
         sol = M.fit(y0, w, rows)
         p = sol.x
@@ -506,6 +533,7 @@ def fit_smooth(out, y0, w, fin, train, sig_rad, X, xnames, cG, groups, gnames, H
         J = M.jac(p, rows, w)
         JtJ = J.T @ J
         JtJ[M.nx + M.ng:, M.nx + M.ng:] += M.D.T @ M.D
+        JtJ += M.P.T @ M.P
         err = np.sqrt(np.abs(np.diag(np.linalg.pinv(JtJ)))) * np.sqrt(chi)
         res = {"status": int(sol.status), "nfev": int(sol.nfev), "cost": float(sol.cost),
                "optimality": float(sol.optimality), "cond": float(np.linalg.cond(JtJ)),
@@ -613,6 +641,11 @@ def main():
                     help="fit only bins of these eras (columns and cache are unchanged)")
     ap.add_argument("--fit-utc", nargs=2, default=None, metavar=("START", "END"),
                     help="fit only bins in this UTC range, e.g. 2026-07-16T12:00 2026-07-17T00:00")
+    ap.add_argument("--offset-prior", type=float, default=None,
+                    help="zero-mean prior on each offset, sigma in units of the median GSM column")
+    ap.add_argument("--gain-anchor", type=float, nargs=2, default=None, metavar=("A", "SIGMA"),
+                    help="prior on the mean log(gain x tcal scale) = log A +- SIGMA: holds the GSM "
+                         "amplitude a_tcal near A, so the gain cannot collapse")
     ap.add_argument("--mock-y", type=Path, default=None,
                     help="npz (t, freqs_mhz, y) whose y replaces the binned data at those frequencies "
                          "(NaN = no data); an injection test that keeps the binned product's column cache")
@@ -834,7 +867,7 @@ def main():
         if args.gain == "smooth":
             fit_smooth(out, y0, w, fin, train[ok_bins], sig_rad, X, xnames, cG[i][ok_bins], groups,
                        gnames, H, knot_t, knot_seg, SC[i][ok_bins], ok_bins, resid_store, i, len(df),
-                       args.gain_step_sigma, args.gain_regressors)
+                       args.gain_step_sigma, args.gain_regressors, args.offset_prior, args.gain_anchor)
             results.append(out)
             a_ = out["all"]
             print(f"{x:6.1f} MHz  T_gnd {a_['theta']['T_gnd']:8.1f}  offsets "
