@@ -206,7 +206,7 @@ mount offsets, horizon profiles v0002), HFSS beam, rx-A only (07-15 to 07-17 19:
   T_gnd (117-180 MHz) falls 2-8x from 20-min to 3-h gain knots. Mocks with a 3-h gain are recovered by every
   knot spacing; mocks with the 20-min fit's gain are recovered only by 20-min knots, and 3-h knots then
   reproduce the real 3-h values. So the real data favour 20-min knots. Adding the real residuals (rolled in
-  time) scatters the recovered T_gnd by about +-60 K per frequency without biasing it, 2-3x the quoted errors.
+  time) scatters the recovered T_gnd by 60-80 K rms per frequency (2-4x the quoted errors), mean -20 to -50 K.
 - 2026-10-16: `global_fit.py --fit-eras/--fit-utc`: fit one era or time range alone. At 117-180 MHz (rx-A,
   20-min gain knots) only the whole 30 m era gives a finite T_gnd by itself, and it differs from the all-era
   fit by 2x at 117 and 180 MHz. Each half of the 30 m era, and the 87.5 m era, diverges alone (T_gnd trades
