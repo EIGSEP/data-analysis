@@ -52,6 +52,13 @@ bin b, at each frequency, is modelled as
   the model (``mult``, a first-order gain or match change with tilt). It tests
   whether an orientation-dependent term, not the sky, carries what the ground
   column absorbs.
+  ``--ground-group window|era`` gives every fitted window, or every height
+  era, its own ground temperature (one column, the ground fraction in that
+  group), replacing the single ``T_gnd`` of ``--ground constant`` or added
+  beside the sky column of the other choices. Differences between groups
+  then cannot be carried by the sky column. Per window is not identifiable on
+  phase C: most windows are parked, so the ground fraction is constant inside
+  them and the column becomes a per-window offset (gain -> 0, offset -> inf).
 - ``d_lm``: real spherical harmonics in Galactic coordinates, 1 <= l <= ``--lmax``.
 - ``x_tx``: the transmitter, the beam toward it times the fraction of the bin it
   was on (box-gnd transitions).
@@ -527,6 +534,8 @@ def main():
     ap.add_argument("--hk", type=Path, help="npz of per-bin housekeeping means (key t, then one key per "
                     "stream) for every bin of --binned; bins missing any stream are not fitted")
     ap.add_argument("--hk-stream", help="stream used by --ground hk")
+    ap.add_argument("--ground-group", choices=["none", "window", "era"], default="none",
+                    help="one ground temperature per fitted window (T_gnd_w<k>) or height era (T_gnd_<era>)")
     ap.add_argument("--orient", choices=["none", "add", "mult"], default="none",
                     help="orientation term in elevation: additive K, or a fractional change of the fixed model")
     ap.add_argument("--orient-n", type=int, default=1, help="elevation harmonics in --orient")
@@ -718,6 +727,14 @@ def main():
         for s_ in args.hk_extra:
             v_ = hk[s_][ok_bins]
             cols.append(v_ - np.nanmean(v_)); xnames.append(f"k_{s_}")
+        if args.ground_group != "none":
+            if args.ground == "constant":
+                cols, xnames = [], []
+            n_ = cN[i][ok_bins]
+            g_ = win[ok_bins] if args.ground_group == "window" else df.era.to_numpy()[ok_bins]
+            for k_ in np.unique(g_):
+                cols.append(np.where(g_ == k_, n_, 0.0))
+                xnames.append(f"T_gnd_w{k_}" if args.ground_group == "window" else f"T_gnd_{k_}")
         if args.orient != "none":
             el_ = np.radians(df.el.to_numpy()[ok_bins])
             base = cfix if args.orient == "mult" else 1.0
@@ -745,6 +762,7 @@ def main():
                                                  for k in ["T_gnd", "R_diffuse", "eps_beam", "k_pickup", "k_hk"]
                                                  + [f"k_{s_}" for s_ in args.hk_extra]
                                                  + [f"o_{c}{n}" for n in range(1, args.orient_n + 1) for c in "cs"]
+                                                 + ([k for k in a_["theta"] if k.startswith("T_gnd_~")])
                                                  if k in a_["theta"])
                   + "  offsets " + " ".join(f"{k}:{v:.0f}" for k, v in list(a_["offsets"].items())[:4])
                   + f"  chi2/dof {a_['chi2_per_dof']:.1f}  rms {100 * a_['rms_frac']:.2f}%"
@@ -821,7 +839,7 @@ def main():
     np.savez_compressed(out_dir / f"{label}_resid.npz", freqs_mhz=freqs, t=t, resid_frac=resid_store,
                         kept=ok_bins, window=win, era=df.era.to_numpy().astype(str),
                         regime=df.regime.to_numpy().astype(str), az=df.az.to_numpy(), el=df.el.to_numpy(),
-                        cGSM=cG, cGnd=cN)
+                        cGSM=cG, cGnd=cN, **({} if Sbar is None else {"Sbar": Sbar}))
     (out_dir / f"{label}.json").write_text(json.dumps({
         "provenance": {
             "product": "ground_sky_global", "version": args.version, "label": label,
