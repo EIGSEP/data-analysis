@@ -47,6 +47,11 @@ bin b, at each frequency, is modelled as
   ``--hk-extra`` adds further centred housekeeping streams, one coefficient
   each, on top of any ``--ground`` choice: the joint test of whether a sky
   term survives with a temperature in the same fit.
+  ``--orient add|mult`` adds cos(n el) and sin(n el), n = 1..``--orient-n``,
+  one coefficient each: additive kelvin (``add``), or times the fixed part of
+  the model (``mult``, a first-order gain or match change with tilt). It tests
+  whether an orientation-dependent term, not the sky, carries what the ground
+  column absorbs.
 - ``d_lm``: real spherical harmonics in Galactic coordinates, 1 <= l <= ``--lmax``.
 - ``x_tx``: the transmitter, the beam toward it times the fraction of the bin it
   was on (box-gnd transitions).
@@ -522,6 +527,9 @@ def main():
     ap.add_argument("--hk", type=Path, help="npz of per-bin housekeeping means (key t, then one key per "
                     "stream) for every bin of --binned; bins missing any stream are not fitted")
     ap.add_argument("--hk-stream", help="stream used by --ground hk")
+    ap.add_argument("--orient", choices=["none", "add", "mult"], default="none",
+                    help="orientation term in elevation: additive K, or a fractional change of the fixed model")
+    ap.add_argument("--orient-n", type=int, default=1, help="elevation harmonics in --orient")
     ap.add_argument("--hk-extra", nargs="*", default=[],
                     help="housekeeping streams from --hk added as extra centred columns (k_<stream>)")
     ap.add_argument("--diffuse-weight", choices=["cos", "uniform"], default="cos")
@@ -710,6 +718,12 @@ def main():
         for s_ in args.hk_extra:
             v_ = hk[s_][ok_bins]
             cols.append(v_ - np.nanmean(v_)); xnames.append(f"k_{s_}")
+        if args.orient != "none":
+            el_ = np.radians(df.el.to_numpy()[ok_bins])
+            base = cfix if args.orient == "mult" else 1.0
+            for n_ in range(1, args.orient_n + 1):
+                cols += [base * np.cos(n_ * el_), base * np.sin(n_ * el_)]
+                xnames += [f"o_c{n_}", f"o_s{n_}"]
         cols += list(cY[i][:, ok_bins])
         xnames += [f"d_{s}" for s in ylabels]
         if np.any(cT[i][ok_bins] != 0):
@@ -729,7 +743,9 @@ def main():
             a_ = out["all"]
             print(f"{x:6.1f} MHz  " + "  ".join(f"{k} {a_['theta'][k]:.3g}±{a_['theta_err_scaled'][k]:.2g}"
                                                  for k in ["T_gnd", "R_diffuse", "eps_beam", "k_pickup", "k_hk"]
-                                                 + [f"k_{s_}" for s_ in args.hk_extra] if k in a_["theta"])
+                                                 + [f"k_{s_}" for s_ in args.hk_extra]
+                                                 + [f"o_{c}{n}" for n in range(1, args.orient_n + 1) for c in "cs"]
+                                                 if k in a_["theta"])
                   + "  offsets " + " ".join(f"{k}:{v:.0f}" for k, v in list(a_["offsets"].items())[:4])
                   + f"  chi2/dof {a_['chi2_per_dof']:.1f}  rms {100 * a_['rms_frac']:.2f}%"
                   f"  held-out rms {100 * out['train']['test_rms_frac']:.2f}%  status {a_['status']}"
