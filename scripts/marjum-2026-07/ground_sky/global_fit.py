@@ -552,6 +552,10 @@ def main():
     ap.add_argument("--hk", type=Path, help="npz of per-bin housekeeping means (key t, then one key per "
                     "stream) for every bin of --binned; bins missing any stream are not fitted")
     ap.add_argument("--hk-stream", help="stream used by --ground hk")
+    ap.add_argument("--night-only", action="store_true",
+                    help="fit only bins with the Sun below the geometric horizon (no daytime at all)")
+    ap.add_argument("--gain-segment-by-era", action="store_true",
+                    help="a separate smooth gain curve per height era (the gain may step when the antenna is raised)")
     ap.add_argument("--t-range", nargs=2, metavar=("START", "END"),
                     help="fit only bins in [START, END) (UTC ISO times), e.g. to repeat a test on disjoint halves")
     ap.add_argument("--ground-level-prior", type=float, nargs=2, metavar=("MEAN_K", "SIGMA_K"),
@@ -608,6 +612,9 @@ def main():
     # the Sun cut, so the column cache is shared.
     fit_mask = fit_mask & (df.t.to_numpy() < EL_FAILURE)
     fit_mask &= df.regime.isin(args.regimes).to_numpy()
+    if args.night_only:
+        fit_mask &= geom["alt"] < 0
+        sel_counts["night"] = int(fit_mask.sum())
     if args.t_range:
         t0_, t1_ = (pd.Timestamp(x).timestamp() for x in args.t_range)
         fit_mask &= (df.t.to_numpy() >= t0_) & (df.t.to_numpy() < t1_)
@@ -715,7 +722,8 @@ def main():
         groups = np.array([gnames.index(n) for n in names])
 
     if args.gain == "smooth":
-        seg = (df.regime + "|" + df.acc.astype(str)).to_numpy()[ok_bins]
+        seg = (df.regime + "|" + df.acc.astype(str)
+               + (("|" + df.era) if args.gain_segment_by_era else "")).to_numpy()[ok_bins]
         H, knot_t, knot_seg = gain_basis(t[ok_bins], seg, args.knot_s)
         print(f"  smooth gain: {H.shape[1]} knots in {len(set(seg))} segments", flush=True)
     else:
