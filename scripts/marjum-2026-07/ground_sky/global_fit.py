@@ -380,6 +380,8 @@ class SmoothGainModel:
         self.cG, self.X, self.xnames = cG, X, xnames
         # Gaussian priors on named coefficients: {name: (mean, sigma)}.
         self.tp = [(xnames.index(k), m, sg) for k, (m, sg) in (theta_prior or {}).items() if k in xnames]
+        # Optional prior h . a + c = 0 +- sigma on the log-gain knot coefficients a.
+        self.anchor = None
         self.groups, self.ng, self.H = groups, n_groups, H
         self.nx, self.nk = X.shape[1], H.shape[1]
         # Prior on log-gain steps between adjacent knots of one segment.
@@ -417,13 +419,19 @@ class SmoothGainModel:
 
     def penalty(self, p):
         th = self.split(p)[0]
-        return np.r_[self.D @ self.split(p)[2], [(th[k] - m) / sg for k, m, sg in self.tp]]
+        a = self.split(p)[2]
+        an = [] if self.anchor is None else [(self.anchor[0] @ a + self.anchor[1]) / self.anchor[2]]
+        return np.r_[self.D @ a, [(th[k] - m) / sg for k, m, sg in self.tp], an]
 
     def penalty_jac(self):
         zero = np.zeros((self.D.shape[0], self.nx + self.ng))
         P = np.zeros((len(self.tp), self.nx + self.ng + self.nk))
         for r, (k, _, sg) in enumerate(self.tp):
             P[r, k] = 1.0 / sg
+        if self.anchor is not None:
+            A = np.zeros((1, self.nx + self.ng + self.nk))
+            A[0, self.nx + self.ng:] = self.anchor[0] / self.anchor[2]
+            P = np.vstack([P, A])
         return np.vstack([np.hstack([zero, self.D]), P])
 
     def fit(self, y, w, rows):
@@ -454,9 +462,16 @@ def window_gate(y, cG, win, tt, rows):
 
 
 def fit_smooth(out, y0, w, fin, train, sig_rad, X, xnames, cG, groups, gnames, H, knot_t,
-               knot_seg, sc, ok_bins, resid_store, i, nbins, step_sigma, theta_prior=None):
-    """Fit the smooth-gain model on the training rows and on all rows."""
+               knot_seg, sc, ok_bins, resid_store, i, nbins, step_sigma, theta_prior=None,
+               gain_anchor=None):
+    """Fit the smooth-gain model on the training rows and on all rows.
+    gain_anchor (A, sigma): a prior on the mean, over bins with a tcal scale, of
+    log(gain x scale) = log A +- sigma, the GSM amplitude a_tcal (as on the
+    data-analysis branch sky-terrain-model), so fast gains cannot collapse."""
     M = SmoothGainModel(cG, X, xnames, groups, len(gnames), H, knot_seg, step_sigma, theta_prior)
+    if gain_anchor:
+        ok = fin & np.isfinite(sc) & (sc > 0)
+        M.anchor = (H[ok].mean(0), float(np.mean(np.log(sc[ok])) - np.log(gain_anchor[0])), gain_anchor[1])
     for name, rows in (("train", fin & train), ("all", fin)):
         sol = M.fit(y0, w, rows)
         p = sol.x
@@ -469,6 +484,8 @@ def fit_smooth(out, y0, w, fin, train, sig_rad, X, xnames, cG, groups, gnames, H
         JtJ[M.nx + M.ng:, M.nx + M.ng:] += M.D.T @ M.D
         for k, _, sg in M.tp:
             JtJ[k, k] += 1.0 / sg ** 2
+        if M.anchor is not None:
+            JtJ[M.nx + M.ng:, M.nx + M.ng:] += np.outer(M.anchor[0], M.anchor[0]) / M.anchor[2] ** 2
         err = np.sqrt(np.abs(np.diag(np.linalg.pinv(JtJ)))) * np.sqrt(chi)
         res = {"status": int(sol.status), "nfev": int(sol.nfev), "cost": float(sol.cost),
                "optimality": float(sol.optimality), "cond": float(np.linalg.cond(JtJ)),
@@ -556,6 +573,10 @@ def main():
                     help="fit only bins with the Sun below the geometric horizon (no daytime at all)")
     ap.add_argument("--gain-segment-by-era", action="store_true",
                     help="a separate smooth gain curve per height era (the gain may step when the antenna is raised)")
+    ap.add_argument("--gain-anchor", type=float, nargs=2, default=None, metavar=("A", "SIGMA"),
+                    help="prior on the GSM amplitude a_tcal (gain x tcal scale) near A, so the gain cannot collapse")
+    ap.add_argument("--mock-y", type=Path, default=None,
+                    help="npz (t, freqs_mhz, y) from inject_mock.py replacing the binned y at those frequencies")
     ap.add_argument("--t-exclude", nargs="*", default=[], metavar="START END",
                     help="UTC ISO start/end pairs of spans not fitted")
     ap.add_argument("--t-range", nargs=2, metavar=("START", "END"),
@@ -637,6 +658,12 @@ def main():
         fit_mask = fit_mask & hk_ok
         sel_counts["with_hk"] = int(hk_ok.sum())
     Yall, nsamp = z["y"][keep], z["nsamp"][keep]
+    if args.mock_y:
+        with np.load(args.mock_y) as zm:
+            assert np.array_equal(zm["t"], z["t"]), "mock bins differ from the binned product's"
+            Yall = Yall.copy()
+            for jm, fm in enumerate(zm["freqs_mhz"]):
+                Yall[:, int(np.argmin(np.abs(z["freqs_mhz"] - fm)))] = zm["y"][keep, jm]
     scale = z["scale"][keep]
 
     beam, beam_path = load_beam(args.beam, campaign)
@@ -797,7 +824,8 @@ def main():
             fit_smooth(out, y0, w, fin, train[ok_bins], sig_rad, X, xnames, cfix, groups,
                        gnames, H, knot_t, knot_seg, SC[i][ok_bins], ok_bins, resid_store, i, len(df),
                        args.gain_step_sigma,
-                       {"T_gnd": tuple(args.ground_level_prior)} if args.ground_level_prior else None)
+                       {"T_gnd": tuple(args.ground_level_prior)} if args.ground_level_prior else None,
+                       args.gain_anchor)
             results.append(out)
             a_ = out["all"]
             print(f"{x:6.1f} MHz  " + "  ".join(f"{k} {a_['theta'][k]:.3g}±{a_['theta_err_scaled'][k]:.2g}"
