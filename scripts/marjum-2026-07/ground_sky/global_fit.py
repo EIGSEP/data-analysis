@@ -59,6 +59,9 @@ bin b, at each frequency, is modelled as
   then cannot be carried by the sky column. Per window is not identifiable on
   phase C: most windows are parked, so the ground fraction is constant inside
   them and the column becomes a per-window offset (gain -> 0, offset -> inf).
+  ``--ground-level-prior MEAN SIGMA`` puts a Gaussian prior on the free ground
+  level ``T_gnd`` (``--ground diffuse-free``): between the tied Lambertian level
+  and a free one, which on phase C trades with the receiver offset and runs off.
 - ``d_lm``: real spherical harmonics in Galactic coordinates, 1 <= l <= ``--lmax``.
 - ``x_tx``: the transmitter, the beam toward it times the fraction of the bin it
   was on (box-gnd transitions).
@@ -373,8 +376,10 @@ def gain_basis(t, seg, knot_s):
 class SmoothGainModel:
     """y = exp(H a) [C_GSM + X th + o_group]: the gain is smooth in time."""
 
-    def __init__(self, cG, X, xnames, groups, n_groups, H, knot_seg, step_sigma):
+    def __init__(self, cG, X, xnames, groups, n_groups, H, knot_seg, step_sigma, theta_prior=None):
         self.cG, self.X, self.xnames = cG, X, xnames
+        # Gaussian priors on named coefficients: {name: (mean, sigma)}.
+        self.tp = [(xnames.index(k), m, sg) for k, (m, sg) in (theta_prior or {}).items() if k in xnames]
         self.groups, self.ng, self.H = groups, n_groups, H
         self.nx, self.nk = X.shape[1], H.shape[1]
         # Prior on log-gain steps between adjacent knots of one segment.
@@ -411,13 +416,24 @@ class SmoothGainModel:
         return np.r_[np.zeros(self.nx + self.ng), a]
 
     def penalty(self, p):
-        return self.D @ self.split(p)[2]
+        th = self.split(p)[0]
+        return np.r_[self.D @ self.split(p)[2], [(th[k] - m) / sg for k, m, sg in self.tp]]
+
+    def penalty_jac(self):
+        zero = np.zeros((self.D.shape[0], self.nx + self.ng))
+        P = np.zeros((len(self.tp), self.nx + self.ng + self.nk))
+        for r, (k, _, sg) in enumerate(self.tp):
+            P[r, k] = 1.0 / sg
+        return np.vstack([np.hstack([zero, self.D]), P])
 
     def fit(self, y, w, rows):
-        zero = np.zeros((self.D.shape[0], self.nx + self.ng))
+        PJ = self.penalty_jac()
+        p0 = self.start(y, rows)
+        for k, m, _ in self.tp:
+            p0[k] = m
         return least_squares(
-            lambda p: np.r_[((self.predict(p) - y) * w)[rows], self.penalty(p)], self.start(y, rows),
-            jac=lambda p: np.vstack([self.jac(p, rows, w), np.hstack([zero, self.D])]),
+            lambda p: np.r_[((self.predict(p) - y) * w)[rows], self.penalty(p)], p0,
+            jac=lambda p: np.vstack([self.jac(p, rows, w), PJ]),
             method="trf", x_scale="jac", xtol=1e-10, ftol=1e-10, gtol=1e-10, max_nfev=3000)
 
 
@@ -438,9 +454,9 @@ def window_gate(y, cG, win, tt, rows):
 
 
 def fit_smooth(out, y0, w, fin, train, sig_rad, X, xnames, cG, groups, gnames, H, knot_t,
-               knot_seg, sc, ok_bins, resid_store, i, nbins, step_sigma):
+               knot_seg, sc, ok_bins, resid_store, i, nbins, step_sigma, theta_prior=None):
     """Fit the smooth-gain model on the training rows and on all rows."""
-    M = SmoothGainModel(cG, X, xnames, groups, len(gnames), H, knot_seg, step_sigma)
+    M = SmoothGainModel(cG, X, xnames, groups, len(gnames), H, knot_seg, step_sigma, theta_prior)
     for name, rows in (("train", fin & train), ("all", fin)):
         sol = M.fit(y0, w, rows)
         p = sol.x
@@ -451,6 +467,8 @@ def fit_smooth(out, y0, w, fin, train, sig_rad, X, xnames, cG, groups, gnames, H
         J = M.jac(p, rows, w)
         JtJ = J.T @ J
         JtJ[M.nx + M.ng:, M.nx + M.ng:] += M.D.T @ M.D
+        for k, _, sg in M.tp:
+            JtJ[k, k] += 1.0 / sg ** 2
         err = np.sqrt(np.abs(np.diag(np.linalg.pinv(JtJ)))) * np.sqrt(chi)
         res = {"status": int(sol.status), "nfev": int(sol.nfev), "cost": float(sol.cost),
                "optimality": float(sol.optimality), "cond": float(np.linalg.cond(JtJ)),
@@ -534,6 +552,8 @@ def main():
     ap.add_argument("--hk", type=Path, help="npz of per-bin housekeeping means (key t, then one key per "
                     "stream) for every bin of --binned; bins missing any stream are not fitted")
     ap.add_argument("--hk-stream", help="stream used by --ground hk")
+    ap.add_argument("--ground-level-prior", type=float, nargs=2, metavar=("MEAN_K", "SIGMA_K"),
+                    help="Gaussian prior on the free ground level T_gnd (e.g. with --ground diffuse-free)")
     ap.add_argument("--ground-group", choices=["none", "window", "era"], default="none",
                     help="one ground temperature per fitted window (T_gnd_w<k>) or height era (T_gnd_<era>)")
     ap.add_argument("--orient", choices=["none", "add", "mult"], default="none",
@@ -755,7 +775,8 @@ def main():
                 out["Sbar_k"] = {"min": float(sb.min()), "max": float(sb.max()), "mean": float(sb.mean())}
             fit_smooth(out, y0, w, fin, train[ok_bins], sig_rad, X, xnames, cfix, groups,
                        gnames, H, knot_t, knot_seg, SC[i][ok_bins], ok_bins, resid_store, i, len(df),
-                       args.gain_step_sigma)
+                       args.gain_step_sigma,
+                       {"T_gnd": tuple(args.ground_level_prior)} if args.ground_level_prior else None)
             results.append(out)
             a_ = out["all"]
             print(f"{x:6.1f} MHz  " + "  ".join(f"{k} {a_['theta'][k]:.3g}±{a_['theta_err_scaled'][k]:.2g}"
