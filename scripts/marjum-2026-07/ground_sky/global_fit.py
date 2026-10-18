@@ -637,6 +637,8 @@ def main():
                     help="drop bins of --swing-eras whose elevation is further than this (deg) from the median "
                          "of the bins within 5 min: the box swinging at a fixed commanded pointing")
     ap.add_argument("--swing-eras", nargs="*", default=["~30m"])
+    ap.add_argument("--max-tx-frac", type=float, default=None,
+                    help="drop bins whose fraction of rows in transmitter episodes exceeds this")
     ap.add_argument("--fit-eras", nargs="*", default=None,
                     help="fit only bins of these eras (columns and cache are unchanged)")
     ap.add_argument("--fit-utc", nargs=2, default=None, metavar=("START", "END"),
@@ -698,6 +700,8 @@ def main():
         swing |= np.abs(df.el.to_numpy() - med) > args.swing_max_el_dev
     swing &= df.era.isin(args.swing_eras).to_numpy()
     fit_mask &= ~swing
+    if args.max_tx_frac is not None:
+        fit_mask &= ~(df.tx_frac.to_numpy() > args.max_tx_frac)
     if args.fit_eras:
         fit_mask &= df.era.isin(args.fit_eras).to_numpy()
     if args.fit_utc:
