@@ -61,7 +61,8 @@ HORIZONS = CAMPAIGN / "curation" / "horizon_profiles_v0003.npz"   # common.HORIZ
 EMPIRICAL = CAMPAIGN / "derived/beam/empirical_raster_v0013/dpss"   # common.BEAM_PRODUCT
 HFSS = WORKSPACE / "data-analysis/hfss_beam_maps/bowtie_beam.npz"
 
-ERAS = {"~30m": "30m", "~87.5m": "87.5m", "~91m": "91m"}
+ERAS = {"~30m": "30m", "~87.5m": "87.5m", "~91m": "91m",
+        "~91m-reraise": "91m"}   # 0.57 m above the first lift; no profile of its own yet
 # tcal v0000 calibrated spans (derived/tcal/v0000/README.md § Coverage).
 TCAL_SPANS = [
     ("2026-07-17T04:11:00", "2026-07-17T16:22:00"),

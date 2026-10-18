@@ -57,7 +57,8 @@ def mount_offsets(campaign=None):
 
 
 # Horizon-profile keys by pointing-table era.
-ERAS = {"~30m": "30m", "~87.5m": "87.5m", "~91m": "91m"}
+ERAS = {"~30m": "30m", "~87.5m": "87.5m", "~91m": "91m",
+        "~91m-reraise": "91m"}   # 0.57 m above the first lift; no profile of its own yet
 
 # Channel width of the correlator, MHz.
 CHANNEL_MHZ = 250.0 / 1024

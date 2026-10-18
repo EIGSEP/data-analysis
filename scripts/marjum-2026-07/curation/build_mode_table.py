@@ -106,6 +106,10 @@ FNAME_RE = re.compile(r"corr_(\d{8})_(\d{6})Z")
 # level (the note's "partial raise to 30 m first") and reaches the ~87.5 m
 # night level by ~20:15 MDT, so the field note's 20:30 MDT is kept.
 #
+# "~91m-reraise" is the configuration after the 07-17 battery re-raise: the S11
+# terrain echo puts it 0.57 +- 0.17 m above the first lift to final height
+# ("~91m"), so consumers that use heights must not treat them as one.
+#
 # Each entry: (start_utc_inclusive, label, source_tag); times in UTC, MDT+6 h.
 # --------------------------------------------------------------------------
 HEIGHT_ERAS = [
@@ -120,7 +124,7 @@ HEIGHT_ERAS = [
     ("2026-07-17T21:28:00Z", "unknown", "fieldnotes:battery-out-lowered-1528-MDT-7/17"),
     ("2026-07-17T23:41:00Z", "~2m",     "coherence:ground-class-1741-1823-MDT-7/17"),
     ("2026-07-18T00:23:00Z", "unknown", "coherence:re-raise-1823-1854-MDT-7/17"),
-    ("2026-07-18T00:54:00Z", "~91m",    "coherence:suspended-from-1854-MDT-7/17"),
+    ("2026-07-18T00:54:00Z", "~91m-reraise", "coherence:suspended-from-1854-MDT-7/17;S11:+0.57m-above-first-lift"),
 ]
 
 # Box-air 1 MHz EMI detection. a*_comb4mhz_score (a 16.4-channel harmonic sum
