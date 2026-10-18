@@ -199,6 +199,7 @@ mount offsets, horizon profiles v0002), HFSS beam, rx-A only (07-15 to 07-17 19:
 
 ## Recent changes
 
+- 2026-10-18: `global_fit.py --t-range START END`: fit only bins in a UTC time range, to repeat a model comparison on disjoint halves of phase C.
 - 2026-10-18: `global_fit.py --ground-level-prior MEAN SIGMA`: a Gaussian prior on the free ground level, so a sky column with a free level converges and the real and LST-shifted skies can be compared at equal freedom.
 - 2026-10-17: `global_fit.py --ground-group window|era`: one ground temperature per fitted window or height era, alone or beside a sky column, and the residual file now carries S̄ when it was computed. Per window diverges on phase C (parked windows make it a per-window offset); per era is the identifiable form.
 - 2026-10-17: `global_fit.py --orient add|mult --orient-n N`: elevation harmonics as extra columns, additive or as a gain/match change with tilt, to check whether an orientation-dependent term rather than the sky carries the low-frequency ground term.

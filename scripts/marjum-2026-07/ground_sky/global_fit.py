@@ -552,6 +552,8 @@ def main():
     ap.add_argument("--hk", type=Path, help="npz of per-bin housekeeping means (key t, then one key per "
                     "stream) for every bin of --binned; bins missing any stream are not fitted")
     ap.add_argument("--hk-stream", help="stream used by --ground hk")
+    ap.add_argument("--t-range", nargs=2, metavar=("START", "END"),
+                    help="fit only bins in [START, END) (UTC ISO times), e.g. to repeat a test on disjoint halves")
     ap.add_argument("--ground-level-prior", type=float, nargs=2, metavar=("MEAN_K", "SIGMA_K"),
                     help="Gaussian prior on the free ground level T_gnd (e.g. with --ground diffuse-free)")
     ap.add_argument("--ground-group", choices=["none", "window", "era"], default="none",
@@ -606,6 +608,10 @@ def main():
     # the Sun cut, so the column cache is shared.
     fit_mask = fit_mask & (df.t.to_numpy() < EL_FAILURE)
     fit_mask &= df.regime.isin(args.regimes).to_numpy()
+    if args.t_range:
+        t0_, t1_ = (pd.Timestamp(x).timestamp() for x in args.t_range)
+        fit_mask &= (df.t.to_numpy() >= t0_) & (df.t.to_numpy() < t1_)
+        sel_counts["in_t_range"] = int(fit_mask.sum())
     sel_counts["before_el_failure"] = int((df.t.to_numpy() < EL_FAILURE).sum())
     if args.hk_extra and not args.hk:
         sys.exit("--hk-extra needs --hk")
