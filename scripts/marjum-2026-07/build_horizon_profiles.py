@@ -132,7 +132,9 @@ def era_offsets(measured):
     """Height offset (m) of every era from the 91 m era, and its source."""
     out = {}
     for era, h in ERAS.items():
-        if measured is not None and era in measured:
+        if h == ANCHOR_ERA_M and era not in MEASURED:
+            out[era] = (0.0, "anchor: the geometry release's antenna", None)
+        elif measured is not None and era in measured:
             out[era] = (measured[era][0], "S11 terrain echo", measured[era][1])
         else:
             out[era] = (h - ANCHOR_ERA_M, "field-note difference", None)

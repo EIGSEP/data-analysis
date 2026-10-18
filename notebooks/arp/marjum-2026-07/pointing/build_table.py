@@ -67,7 +67,9 @@ v4  **meaning changes** -- ``height_m`` is the antenna's height above the DEM
     and the new era ``~91m-reraise`` (+0.57 m, after the 07-17 battery
     re-raise; derived/height_eras/v0001, memo 002 Heights). v3 carried the
     field labels (87.5, 91 m) as heights. ``height_sigma_m`` now includes the
-    +/-3.2 m bound on the v0004 antenna. LIDAR ranges no longer override
+    +/-3.2 m bound on the v0004 antenna; that part is one offset common to every
+    suspended era, whose differences are known to +/-0.2 m (``~30m`` excepted:
+    its offset is the field-note difference, +/-3 m). LIDAR ranges no longer override
     ``height_m``: the rangefinder is on the box, below the antenna by an
     unmodelled lever arm, and on the 509 rows it did override (the 07-17 dwell)
     it read 92.3 m with outliers at 29 and 198 m. ``FLAG_HEIGHT_ASSUMED`` is
@@ -128,7 +130,10 @@ def era_heights(campaign_dir):
     out = dict(NOMINAL_ERA_HEIGHT_M)
     for label, key in HORIZON_ERA.items():
         e = eras[key]
-        off = e.get("offset_sigma_m", FIELDNOTE_OFFSET_SIGMA_M)
+        if e["offset_source"].startswith("anchor"):
+            off = 0.0
+        else:
+            off = e.get("offset_sigma_m", FIELDNOTE_OFFSET_SIGMA_M)
         out[label] = (float(e["agl_m_vs_ground_under_antenna"]),
                       float(np.hypot(ANTENNA_SIGMA_M, off)))
     return out, path
