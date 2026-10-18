@@ -556,6 +556,8 @@ def main():
                     help="fit only bins with the Sun below the geometric horizon (no daytime at all)")
     ap.add_argument("--gain-segment-by-era", action="store_true",
                     help="a separate smooth gain curve per height era (the gain may step when the antenna is raised)")
+    ap.add_argument("--t-exclude", nargs="*", default=[], metavar="START END",
+                    help="UTC ISO start/end pairs of spans not fitted")
     ap.add_argument("--t-range", nargs=2, metavar=("START", "END"),
                     help="fit only bins in [START, END) (UTC ISO times), e.g. to repeat a test on disjoint halves")
     ap.add_argument("--ground-level-prior", type=float, nargs=2, metavar=("MEAN_K", "SIGMA_K"),
@@ -619,6 +621,11 @@ def main():
         t0_, t1_ = (pd.Timestamp(x).timestamp() for x in args.t_range)
         fit_mask &= (df.t.to_numpy() >= t0_) & (df.t.to_numpy() < t1_)
         sel_counts["in_t_range"] = int(fit_mask.sum())
+    for a_, b_ in zip(args.t_exclude[::2], args.t_exclude[1::2]):
+        t0_, t1_ = pd.Timestamp(a_).timestamp(), pd.Timestamp(b_).timestamp()
+        fit_mask &= ~((df.t.to_numpy() >= t0_) & (df.t.to_numpy() < t1_))
+    if args.t_exclude:
+        sel_counts["after_t_exclude"] = int(fit_mask.sum())
     sel_counts["before_el_failure"] = int((df.t.to_numpy() < EL_FAILURE).sum())
     if args.hk_extra and not args.hk:
         sys.exit("--hk-extra needs --hk")
