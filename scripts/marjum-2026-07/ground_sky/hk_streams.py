@@ -1,12 +1,13 @@
 """Per-integration housekeeping streams (box-air correlator metadata: thermistors, currents,
 IMU, motors, pot, lidar, switch state) for 07-15 00:30 - 07-18 03:30 UTC, saved as npz for
 ``gain_drivers.py``.  usage: hk_streams.py OUT.npz"""
+import os
 import sys
 from pathlib import Path
 import numpy as np, pandas as pd
 from eigsep_data import MetadataIndex
 from eigsep_data.clock import to_unix_time
-idx = MetadataIndex(Path('/mnt/data02/eigsep/marjum-2026-07/data'))
+idx = MetadataIndex(Path(os.environ['EIGSEP_CAMPAIGN_ROOT']) / 'data')
 s = idx.select(time=("2026-07-15T00:30:00Z", "2026-07-18T03:30:00Z"))
 m = s.meta
 cols = ['imu_el_accel_x', 'imu_el_accel_y', 'imu_el_accel_z', 'imu_el_el_deg', 'lidar_distance_m',
