@@ -637,6 +637,9 @@ def main():
                     help="drop bins of --swing-eras whose elevation is further than this (deg) from the median "
                          "of the bins within 5 min: the box swinging at a fixed commanded pointing")
     ap.add_argument("--swing-eras", nargs="*", default=["~30m"])
+    ap.add_argument("--split-streams", nargs="*", default=None,
+                    help="bin columns to split into <col>_slow (running mean over --split-s) and <col>_fast")
+    ap.add_argument("--split-s", type=float, default=10800.0)
     ap.add_argument("--exclude-utc", nargs=2, action="append", metavar=("START", "END"),
                     help="drop bins in this UTC range from the fit (repeatable), e.g. a solar flare")
     ap.add_argument("--max-tx-frac", type=float, default=None,
@@ -670,6 +673,18 @@ def main():
     # The accumulation length, from the integration time (0.268 s or 0.537 s;
     # it doubled at 07-15 15:55); bin_raw's ``acc`` column is not filled.
     df["acc"] = np.rint(df.tau.to_numpy() * 1e3).astype(int)
+    # Slow and fast parts of a housekeeping stream, for --gain-regressors: <col>_slow is its
+    # centred running mean over --split-s within each regime and accumulation length,
+    # <col>_fast the remainder.
+    for c in args.split_streams or []:
+        v = pd.Series(df[c].to_numpy(float), index=pd.to_datetime(df.t.to_numpy(), unit="s"))
+        key = (df.regime + "|" + df.acc.astype(str)).to_numpy()
+        slow = np.full(len(df), np.nan)
+        for k_ in np.unique(key):
+            m_ = key == k_
+            slow[m_] = v[m_].rolling(f"{int(args.split_s)}s", center=True, min_periods=1).mean().to_numpy()
+        df[f"{c}_slow"] = slow
+        df[f"{c}_fast"] = df[c].to_numpy(float) - slow
     import hashlib
     gkey = hashlib.sha256(json.dumps({"binned": sha256(args.binned / "binned.npz"),
                                       "bins": hashlib.sha256(df.t.to_numpy().tobytes()).hexdigest(),
