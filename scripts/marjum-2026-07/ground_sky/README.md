@@ -63,6 +63,8 @@ Inputs:
 | `global_fit.py` | Builds `global_vNNNN` from a raw binned product: one model of every bin of the chosen receiver regimes (default rx-A) per frequency, gain × (GSM + T_gnd × ground fraction + low-order sky + transmitter + Sun + offset). The gain is smooth in time (log gain piecewise linear, knots every 3 h, a 5 % prior per knot step) or free per window; offsets per regime or per window; Sun fitted or cut. Gates drop windows whose level or sky-following fails. Held-out blocks score each configuration; gain × `tcal` scale gives the GSM amplitude a; fits where the gain collapses are flagged `diverged`. Beam columns are cached under a key of everything that defines them. `--beam-lmax L` adds a body-frame Y_lm correction to the beam (`beam_corr.py`). `--gain-regressors` adds bin columns (e.g. housekeeping means) to log gain; `--regressor-shift-s` is their time-shifted control. `--fast-knot-s` adds a fast gain and tilt shared across frequencies, only within fixed-pointing runs, scored on held-out frequencies; `--fast-max-el-deg` loosens the elevation limit on a run. `--swing-max-el-std` / `--swing-max-el-dev` drop bins where the box swings. `--fit-eras` / `--fit-utc` fit a subset of the bins with the same columns. `--mock-y` fits mock data from `inject_mock.py` instead. `--max-tx-frac` drops bins in transmitter episodes; `--exclude-utc` drops a time range (e.g. the 07-16 23:50-00:02 solar flare). `--offset-prior` and `--gain-anchor` put priors on the offsets and on the GSM amplitude (per-frequency fit only). `--only-mhz` reuses the full grid's column cache. |
 | `inject_mock.py` | Mock binned data for injection tests of `global_fit.py --mock-y`: a fit's own prediction (so its T_gnd and gain are the truth) plus radiometer noise, optionally times another fit's real residuals rolled in time. |
 | `tgnd_table.py` | T_gnd spectrum from one global fit, with an error per frequency from the injection refits (rms of recovered minus true), and excluded or diverged frequencies marked. |
+| `hk_streams.py` | Per-integration housekeeping streams (thermistors, currents, IMU, motors, pot, switch state) from the correlator metadata, saved for `gain_drivers.py`. |
+| `gain_drivers.py` | What drives the sub-hour gain: a fit's 20-min common-mode log gain (3-h detrended) against every housekeeping stream on the same knots, in two disjoint stretches, plus event-triggered residuals around cal cycles, VNA and motor moves. |
 | `beam_corr.py` | Columns for a low-order beam correction B0 (1 + Σ c_lm Y_lm) in the antenna body frame: per l,m a sky part (GSM above the terrain horizon) and a ground part (solid angle below it), normalized like the design matrix. At l = 0 it reproduces C_GSM and C_gnd, which `global_fit.py` prints as a check. |
 | `plot_global.py` | Figures for a `global_vNNNN` directory: fitted parameters against frequency per configuration, and residuals against time. |
 | `common.py` | Paths, provenance, and per-file height era (`mode_table.jsonl`, which fills the pointing table's blank eras) and receiver regime (`cal_windows.jsonl`). |
@@ -203,6 +205,12 @@ mount offsets, horizon profiles v0002), HFSS beam, rx-A only (07-15 to 07-17 19:
 
 ## Recent changes
 
+- 2026-10-18: `hk_streams.py`, `gain_drivers.py`. 20-min knots plus the switch-temperature regressor leave T_gnd
+  within 8 % of 20-min knots alone at 117-203 MHz, and refit a 20-min mock identically (within 2 %): no narrower
+  scatter, no bias, so the regressor is redundant there. The fast (sub-3-h) common-mode gain, 2.9-3.2 % rms and
+  consistent between disjoint frequency halves (r 0.88-0.90), follows the switch thermistor at -3.2 %/K in both
+  disjoint stretches (07-15/16 and 07-17; R2 0.29-0.46), about twice the 3-h fit's slow coefficient. No other
+  stream (current, IMU, motors, cal or VNA cycles, flags) correlates consistently in both stretches.
 - 2026-10-18: `global_fit.py --exclude-utc`. Tried a gain that cannot follow the diurnal sky: 3-h knots plus the
   RF-switch temperature as a regressor (coefficient -0.02 to -0.05 per sigma, smooth across the band). It stops the
   collapse at 51-74 and 187-195 MHz but lowers T_gnd at 117-180 MHz 2-4x and triples chi2/dof. Injection: a mock
