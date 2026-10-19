@@ -581,7 +581,8 @@ def main():
     ap.add_argument("version")
     ap.add_argument("--binned", type=Path, required=True)
     ap.add_argument("--beam", choices=["hfss", "empirical"], default="hfss")
-    ap.add_argument("--offsets", choices=["regime", "window"], default="regime")
+    ap.add_argument("--offsets", choices=["regime", "era", "window"], default="regime",
+                    help="one receiver offset per regime, per regime and height era, or per window")
     ap.add_argument("--lmax", type=int, default=2)
     ap.add_argument("--drift", action="store_true")
     ap.add_argument("--regimes", nargs="+", default=["rx-A"],
@@ -845,8 +846,12 @@ def main():
         groups, gnames = wk, [f"w{k}" for k in range(wk.max() + 1)]
     else:
         names = []
-        for r_, k in zip(reg, wk):
-            names.append(r_ if r_ in ("rx-A", "rx-B") else f"{r_}:w{k}")
+        era_ = df.era.to_numpy()[ok_bins]
+        for r_, k, e_ in zip(reg, wk, era_):
+            if r_ not in ("rx-A", "rx-B"):
+                names.append(f"{r_}:w{k}")
+            else:
+                names.append(f"{r_}|{e_}" if args.offsets == "era" else r_)
         gnames = sorted(set(names))
         groups = np.array([gnames.index(n) for n in names])
 
