@@ -199,6 +199,7 @@ mount offsets, horizon profiles v0002), HFSS beam, rx-A only (07-15 to 07-17 19:
 
 ## Recent changes
 
+- 2026-10-19: every script here now reads `curation/horizon_profiles_v0004` and `derived/dem/v0004`, which extends the DEM 6 km south; v0003 cut the southern horizon short by up to 5.5 deg. Products made from here on carry the v0004 terrain.
 - 2026-10-18: `global_fit.py --gain-anchor A SIGMA` and `--mock-y` (ported from the `sky-terrain-model` branch), and `inject_mock.py` with a `--fast-gain-cm` option fed by the new `fast_gain_cm.py`: test whether a sub-hour gain could make the low-frequency daily term, by refitting with faster gain knots and by injecting a frequency-flat fast gain into mocks.
 - 2026-10-18: `global_fit.py --t-exclude START END ...`: leave out UTC spans, such as the 07-16 look-down park that dominates the misfit in the second half of phase C.
 - 2026-10-18: `global_fit.py --night-only` (Sun below the geometric horizon) and `--gain-segment-by-era` (a separate gain curve per height era), to find out why the second half of phase C fits badly at low frequency.
