@@ -24,10 +24,10 @@ def workspace_root():
 
 
 # Horizon profiles (curation/horizon_profiles_vNNNN.{json,npz}) for every
-# script here; v0003 is traced from the release v0004 antenna on DEM v0003.
-HORIZON_PROFILES = "curation/horizon_profiles_v0003"
+# script here; v0004 is traced from the release v0004 antenna on DEM v0004.
+HORIZON_PROFILES = "curation/horizon_profiles_v0004"
 # The DEM the Sun's terrain trace reads (same grid as the profiles).
-DEM_PATH = "derived/dem/v0003/marjum_dem.npz"
+DEM_PATH = "derived/dem/v0004/marjum_dem.npz"
 
 # The empirical beam product: its beam (dpss/empirical_beam.npz) and the mount
 # geometry it was fitted in (dpss/diagnostics.npz). v0013 is v0012 refitted on

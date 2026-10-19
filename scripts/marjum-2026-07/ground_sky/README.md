@@ -205,6 +205,7 @@ mount offsets, horizon profiles v0002), HFSS beam, rx-A only (07-15 to 07-17 19:
 
 ## Recent changes
 
+- 2026-10-19: `common.py` reads `horizon_profiles_v0004` and DEM v0004 (the DEM extended 6 km south), for memo 008's move to terrain v0004. Every ground fraction, beam column and Sun trace changes with it; products made before this used v0003.
 - 2026-10-18: `global_fit.py --split-streams`, `inject_mock.py --fast-gain-from`, `gain_drivers.py` JSON output.
   Slow and fast switch-temperature terms on 3-h knots give the same low T_gnd as one term (148 MHz 297 K). A mock
   with that model's gain times the temperature-free fast gain of the 20-min fit is refitted by it at 14 K (true
