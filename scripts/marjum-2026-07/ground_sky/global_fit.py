@@ -425,23 +425,24 @@ def fast_basis(t, az, el, seg, knot_s, max_move_deg=1.0, gap_s=90.0, max_el_deg=
     return (np.stack(cols, 1) if cols else np.zeros((n, 0))), run
 
 
-def joint_fast(pf, F, xf, ftrain, sigma, n_iter, step_args):
-    """Shared fast log gain F (c + d x_f) across frequencies, by alternation:
-    each training frequency's smooth-gain model is fitted with the current
-    shared gain fixed, then (c, d) are solved by weighted least squares on the
-    log residuals of all training frequencies at once, with a Gaussian prior
-    sigma on every coefficient. Returns (c, d, history)."""
-    K = F.shape[1]
-    b = np.zeros(2 * K)
+def joint_fast(pf, F, Bf, ftrain, sigma, n_iter, step_args):
+    """Shared fast log gain F (Bf[i] . b_k), with Bf the frequency basis (one row per
+    frequency, e.g. [1, x_f] for a gain and a tilt), by alternation: each training
+    frequency's smooth-gain model is fitted with the current shared gain fixed, then the
+    coefficients are solved by weighted least squares on the log residuals of all training
+    frequencies at once, with a Gaussian prior sigma on every coefficient.
+    Returns (b of shape (nb, K), history)."""
+    K, nb = F.shape[1], Bf.shape[1]
+    b = np.zeros((nb, K))
     x0 = {}
     hist = []
     for it in range(n_iter):
-        N = np.eye(2 * K) / sigma**2
-        v = -b / sigma**2
+        N = np.eye(nb * K) / sigma**2
+        v = -b.ravel() / sigma**2
         cost = 0.0
         for i in np.flatnonzero(ftrain):
             P = pf[i]
-            lg0 = F @ (b[:K] + xf[i] * b[K:])
+            lg0 = F @ (Bf[i] @ b)
             M = SmoothGainModel(P["cG"], P["X"], P["xnames"], *step_args, lg0=lg0)
             sol = M.fit(P["y0"], P["w"], P["fin"], x0.get(i))
             x0[i] = sol.x
@@ -451,18 +452,17 @@ def joint_fast(pf, F, xf, ftrain, sigma, n_iter, step_args):
             cost += float(np.sum(wl * z**2))
             Fw = F * wl[:, None]
             A = F.T @ Fw
-            N[:K, :K] += A; N[:K, K:] += xf[i] * A; N[K:, :K] += xf[i] * A; N[K:, K:] += xf[i] ** 2 * A
-            g = Fw.T @ z
-            v[:K] += g; v[K:] += xf[i] * g
-        db = np.linalg.solve(N, v)
+            N += np.kron(np.outer(Bf[i], Bf[i]), A)
+            v += np.kron(Bf[i], Fw.T @ z)
+        db = np.linalg.solve(N, v).reshape(nb, K)
         b += db
         hist.append({"iter": it, "chi2_train_freqs": cost, "max_step": float(np.max(np.abs(db))) if K else 0.0,
-                     "rms_c": float(np.std(F @ b[:K])), "rms_d": float(np.std(F @ b[K:]))})
-        print(f"  fast gain iter {it}: chi2 {cost:.4g}  max step {hist[-1]['max_step']:.2e}  "
-              f"rms gain {100 * hist[-1]['rms_c']:.3f}%  rms tilt {100 * hist[-1]['rms_d']:.3f}%", flush=True)
+                     "rms_terms": [float(np.std(F @ bk)) for bk in b]})
+        print(f"  fast gain iter {it}: chi2 {cost:.4g}  max step {hist[-1]['max_step']:.2e}  rms per term "
+              + " ".join(f"{100 * r:.3f}%" for r in hist[-1]["rms_terms"]), flush=True)
         if K == 0 or hist[-1]["max_step"] < 1e-4:
             break
-    return b[:K], b[K:], hist
+    return b, hist
 
 
 def window_gate(y, cG, win, tt, rows):
@@ -628,6 +628,12 @@ def main():
                     help="elevation tolerance of a fixed-pointing run (default --fast-max-move-deg); "
                          "the 30 m elevation record wobbles by degrees at a fixed commanded pointing")
     ap.add_argument("--fast-iter", type=int, default=8)
+    ap.add_argument("--fast-freq-basis", choices=["linear", "quad", "split"], default="linear",
+                    help="frequency dependence of the shared fast gain: gain + tilt; + a quadratic in log f; "
+                         "or a separate gain and tilt below and above --fast-split-mhz")
+    ap.add_argument("--fast-split-mhz", type=float, default=100.0)
+    ap.add_argument("--fast-train", choices=["alternate", "all"], default="alternate",
+                    help="train the shared gain on alternate converged frequencies (the rest scored as held out) or all")
     ap.add_argument("--fast-tilt-clip", action="store_true",
                     help="hold the fast gain's tilt at its band-edge value outside the training frequencies")
     ap.add_argument("--fast-mode", choices=["runs", "all"], default="runs",
@@ -982,18 +988,33 @@ def main():
         conv = np.flatnonzero([not (r_["all"]["diverged"] or r_["train"]["diverged"])
                                and args.fast_fmin <= f_ <= args.fast_fmax for r_, f_ in zip(results, freqs)])
         ftrain = np.zeros(len(freqs), bool)
-        ftrain[conv[::2]] = True
-        xf = (freqs - freqs[conv].mean()) / (np.ptp(freqs[conv]) / 2 if conv.size > 1 else 1.0)
-        if args.fast_tilt_clip:
-            xf = np.clip(xf, -1.0, 1.0)      # no linear extrapolation of the tilt outside the training band
+        ftrain[conv[::2] if args.fast_train == "alternate" else conv] = True
+
+        def unit(x, ref):
+            u = (x - ref.mean()) / (np.ptp(ref) / 2 if ref.size > 1 else 1.0)
+            return np.clip(u, -1.0, 1.0) if args.fast_tilt_clip else u
+        if args.fast_freq_basis == "linear":
+            Bf = np.stack([np.ones(len(freqs)), unit(freqs, freqs[conv])], 1)
+        elif args.fast_freq_basis == "quad":
+            u = unit(np.log(freqs), np.log(freqs[conv]))
+            Bf = np.stack([np.ones(len(freqs)), u, u**2], 1)
+        else:                                   # split: its own gain and tilt below and above args.fast_split_mhz
+            lo = freqs < args.fast_split_mhz
+            Bf = np.zeros((len(freqs), 4))
+            for k, m in enumerate((lo, ~lo)):
+                ref = freqs[conv][m[conv]]
+                if ref.size:
+                    Bf[m, 2 * k] = 1.0
+                    Bf[m, 2 * k + 1] = unit(freqs[m], ref)
+        xf = Bf[:, 1] if Bf.shape[1] > 1 else np.zeros(len(freqs))
         print(f"  fast gain: {F.shape[1]} knots in {len(set(run[run >= 0]))} fixed-pointing runs "
               f"({(run >= 0).sum()} bins); training frequencies {np.round(freqs[ftrain], 1).tolist()}", flush=True)
         step_args = (groups, len(gnames), H, knot_seg, args.gain_step_sigma)
-        c_, d_, hist = joint_fast(pf, F, xf, ftrain, args.fast_sigma, args.fast_iter, step_args)
+        bco, hist = joint_fast(pf, F, Bf, ftrain, args.fast_sigma, args.fast_iter, step_args)
         resid_fast = np.full(Y.shape, np.nan)
         era_k = df.era.to_numpy()[ok_bins]
         for i, P in enumerate(pf):
-            lg0 = F @ (c_ + xf[i] * d_)
+            lg0 = F @ (Bf[i] @ bco)
             M = SmoothGainModel(P["cG"], P["X"], P["xnames"], *step_args, lg0=lg0)
             sol = M.fit(P["y0"], P["w"], P["fin"])
             th, o, a = M.split(sol.x)
@@ -1032,7 +1053,8 @@ def main():
                   + ("  DIVERGED" if res["diverged"] else ""), flush=True)
         fast_info = {"knot_s": args.fast_knot_s, "sigma": args.fast_sigma, "n_knots": int(F.shape[1]),
                      "runs": int(len(set(run[run >= 0]))), "bins_in_runs": int((run >= 0).sum()),
-                     "train_freqs": freqs[ftrain].tolist(), "x_of_freq": xf.tolist(), "iterations": hist}
+                     "train_freqs": freqs[ftrain].tolist(), "x_of_freq": xf.tolist(), "freq_basis": Bf.tolist(),
+                     "basis": args.fast_freq_basis, "iterations": hist}
     out_dir.mkdir(parents=True, exist_ok=True)
     win_info = [{"window": int(k), "t0": float(t[win == k].min()), "t1": float(t[win == k].max()),
                  "era": df.era[win == k].iloc[0], "regime": df.regime[win == k].iloc[0],

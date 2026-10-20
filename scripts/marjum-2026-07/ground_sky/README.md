@@ -205,6 +205,13 @@ mount offsets, horizon profiles v0002), HFSS beam, rx-A only (07-15 to 07-17 19:
 
 ## Recent changes
 
+- 2026-10-20: `global_fit.py --fast-freq-basis` and `--fast-train`. The shared fast gain's frequency dependence:
+  linear (gain + tilt), quadratic in log f, or split (its own gain and tilt below and above 100 MHz). Split reproduces
+  the 117-203-trained fit exactly at high frequency and gives the best held-out rms at 51-82 MHz (2.6-3.7 %). A
+  linear or quadratic dependence across 51-203 MHz still pulls high-band T_gnd down (quadratic: 117 MHz 654 -> 297 K,
+  125 MHz 735 -> 331 K) and worsens its held-out rms. With three injection rolls per truth and training, the
+  quadratic's narrow-vs-full difference exceeds the injection scatter at 117-156 and 188-195 MHz (e.g. 140 MHz 231 K
+  against <= 59 K) and is within it at 164-180 MHz. The fast term is not one gain smooth in frequency across both bands.
 - 2026-10-20: shared fast gain trained on 51-203 MHz instead of 117-203. The gain grows to 7.4 % rms (tilt 4.1 %)
   and T_gnd at 117-195 MHz drops 1.2-3.3x (148 MHz 541 -> 311 K; 117 MHz 823 -> 250 K); 203 MHz diverges. Three
   injection rolls from each training's own fit, refitted with both trainings: at 117-195 MHz either training
