@@ -6,7 +6,7 @@ bundle is loaded (`Bundle.calibrated`, `Bundle.t_star`).
 
 | Script | What it does |
 |---|---|
-| `build_tcal.py` | Collects the calibration inputs on their own cadences and writes `solutions.npz` and `manifest.json`: RFAMB/RFNON visit spectra (weighted means, masked with the flag product's RFI bits) with their receiver regime, field S11 at plane P on correlator channels, load-thermistor readings, and the noise-source excess `t_ns_k`: the assumed 917 K, or with `--noise-source <version>` (v0004 on) a spectrum built from the bench-measured `noise_source` product and the field reflections. It computes no temperatures. |
+| `build_tcal.py` | Collects the calibration inputs on their own cadences and writes `solutions.npz` and `manifest.json`: RFAMB/RFNON visit spectra (weighted means, masked with the flag product's RFI bits) with their receiver regime, field S11 at plane P on correlator channels, load-thermistor readings. It computes no temperatures. |
 | `bracket_cost.py` | What wider interpolation limits cost in temperature, by leave-out over calibration brackets and S11 holds, and whether the 07-17 16:22 → 19:19 hole can be bridged; writes `bracket_cost.json`. The limits in `build_tcal.py` come from it. |
 | `validate_tcal.py` | Leave-one-out test of linear versus nearest interpolation, a plumbing check through `load_bundle`, comparison with Christian's T12 calibration, and coverage; writes `validation.json`. |
 
@@ -16,7 +16,6 @@ coverage and its validation are in the product's own `README.md`.
 
 ## Recent changes
 
-- 2026-10-20: `build_tcal.py --noise-source <version>` builds `t_ns_k` as one value per channel from `derived/noise_source/<version>/` (the bench-measured noise source, converted to the field receiver), for `tcal` v0004; without the option it still writes the assumed 917 K. `validate_tcal.py` and `bracket_cost.py` take either form.
 - 2026-10-05: the builder reads `flags@v3`, the release of `v3-beta.3` (same files); a
   rebuild reproduces `tcal` v0003 exactly.
 - 2026-10-05: `tcal` v0003. Calibration visits are masked with the campaign

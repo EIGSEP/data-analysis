@@ -9,19 +9,12 @@ needs to put a box-air integration on a kelvin scale at reference plane P:
 - every field S11 sweep of the antenna, the ambient load and the
   receiver, calibrated to plane P with ``eigsep_cal.S11`` and put on the
   correlator channels;
-- every load-thermistor reading in the same span;
-- the noise-source excess as the receiver takes it, ``t_ns_k``: 917 K, the
-  top of the NC302L's specified range, assumed (v0000-v0003); or, with
-  ``--noise-source <version>`` (v0004 on), one value per channel built from
-  the bench-measured ``derived/noise_source/<version>/``, applied to every
-  integration (:func:`noise_source_tns`).
+- every load-thermistor reading in the same span.
 
 It writes ``solutions.npz`` and ``manifest.json``; the hand-written
 ``README.md`` beside them says what the product is for. Run::
 
     EIGSEP_CAMPAIGN_ROOT=/path/to/marjum-2026-07 python build_tcal.py v0000
-    EIGSEP_CAMPAIGN_ROOT=/path/to/marjum-2026-07 python build_tcal.py v0004 \
-        --noise-source v0001 --products <campaign tree holding derived/noise_source>
 
 The calibration itself (interpolation, limits, equations) is applied
 when a row is loaded, by ``eigsep_data.products.tcal`` and
@@ -51,10 +44,6 @@ KEY = "4"
 #: Noise-source excess over the load, K: nameplate ENR 35 dB behind a
 #: 30 dB pad, 290 K * 10**0.5. Not measured.
 T_NS_K = 290.0 * 10 ** ((35.0 - 30.0) / 10)
-#: With --noise-source, T_NS is checked over this band: how much it would
-#: change sweep by sweep if each sweep's reflections were used instead of the
-#: campaign means (the reason one spectrum for every integration is enough).
-T_NS_CHECK_BAND_MHZ = (50.0, 200.0)
 #: Span searched for calibrator visits. Phase C, and after the first
 #: regular cycle; the isolated earlier cycles bracket nothing.
 SPAN_UTC = ("2026-07-17T00:00:00Z", "2026-07-18T04:00:00Z")
@@ -322,39 +311,6 @@ def thermistor(index):
     }
 
 
-def noise_source_tns(ns, freqs, s11, therm_k):
-    """``t_ns_k`` per channel from a ``noise_source`` product.
-
-    ``T_NS = M_NS (T_load + T_ex) - M_amb T_load``
-    (``eigsep_cal.noise_source.tns_as_received``): the bench excess at P
-    (the product's smooth fit), the noise-source path's reflection at P (lab)
-    and the field receiver's and ambient load's reflections at P, averaged
-    over the campaign's sweeps, with T_load the mean load thermistor. One
-    spectrum for every integration; the check records how far it would move
-    if each receiver sweep (with its nearest ambient-load sweep) were used."""
-    from eigsep_cal.noise_source import tns_as_received
-
-    t_ex = ns.on(freqs, smooth=True)
-    idx = np.searchsorted(ns.freqs, freqs)
-    g_ns = ns.gamma_ns[np.clip(idx, 0, ns.freqs.size - 1)]
-    (tr, gr, _), (ta, ga, _) = s11["rec"], s11["amb"]
-    t_load = float(np.mean(therm_k))
-    t_ns = tns_as_received(t_ex, g_ns, np.mean(gr, axis=0), np.mean(ga, axis=0), t_load)
-    near = np.array([np.argmin(np.abs(ta - t)) for t in tr])
-    per_sweep = tns_as_received(t_ex, g_ns, gr, ga[near], t_load)
-    b = (freqs >= T_NS_CHECK_BAND_MHZ[0]) & (freqs <= T_NS_CHECK_BAND_MHZ[1])
-    dev = (per_sweep[:, b] - t_ns[b]) / t_ns[b]
-    check = {
-        "band_mhz": list(T_NS_CHECK_BAND_MHZ),
-        "receiver_sweeps": int(tr.size),
-        "max_abs_frac_change_if_per_sweep": float(np.nanmax(np.abs(dev))),
-        "rms_frac_change_if_per_sweep": float(np.sqrt(np.nanmean(dev ** 2))),
-        "t_load_k": t_load,
-        "t_ns_k_range_in_band": [float(np.nanmin(t_ns[b])), float(np.nanmax(t_ns[b]))],
-    }
-    return t_ns.astype(float), check
-
-
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("version", help="product version, e.g. v0000")
@@ -367,11 +323,6 @@ def main(argv=None):
         "--switch",
         default="data/s11/cal_materials/switch_sparams.npz",
         help="switch-path S-parameters, relative to the campaign root",
-    )
-    ap.add_argument(
-        "--noise-source",
-        help="version of derived/noise_source/ to build t_ns_k from (v0004 on); "
-        "without it t_ns_k is the assumed 917 K, as in v0000-v0003",
     )
     args = ap.parse_args(argv)
 
@@ -392,33 +343,10 @@ def main(argv=None):
     s11, s11_log = s11_on_channels(root / "data" / "s11", switch, osl, freqs)
     therm_t, therm_k, therm_log = thermistor(index)
 
-    t_ns_model = {"t_ns_k": T_NS_K,
-                  "t_ns_source": "assumed: ENR 35 dB (the top of the NC302L's 30-35 dB range) behind the 30 dB pad"}
-    t_ns, ns_input = T_NS_K, None
-    if args.noise_source:
-        from eigsep_data.products import noise_source
-
-        ns_root = next(r for r in (proot, root)
-                       if (r / "derived" / "noise_source" / args.noise_source / "solutions.npz").is_file())
-        ns = noise_source.load(args.noise_source, root=ns_root)
-        t_ns, check = noise_source_tns(ns, freqs, s11, therm_k)
-        t_ns_model = {
-            "t_ns_k": "spectrum on freqs (solutions.npz)",
-            "t_ns_source": f"derived/noise_source/{args.noise_source}: bench-measured excess at P "
-                           "(smooth fit), converted to the field receiver with "
-                           "eigsep_cal.noise_source.tns_as_received",
-            "t_ns_formula": "M_NS (T_load + T_ex) - M_amb T_load, campaign-mean field Gamma_rec "
-                            "and Gamma_amb at P, lab Gamma_NS at P, mean load thermistor",
-            "t_ns_check": check,
-        }
-        ns_input = {"version": args.noise_source,
-                    "sha256": sha256(ns_root / "derived" / "noise_source" / args.noise_source / "solutions.npz"),
-                    "provenance": ns.manifest.get("provenance", {}).get("code")}
-
     sols = dict(
         freqs=freqs,
         keys=np.array([KEY]),
-        t_ns_k=t_ns,
+        t_ns_k=T_NS_K,
         **LIMITS,
         amb_t=amb.t.to_numpy(float),
         amb_p=np.stack(amb.p.to_list()),
@@ -452,7 +380,8 @@ def main(argv=None):
         "applies_to": {"keys": [KEY], "antenna": "box-air", "plane": "P"},
         "model": {
             "equations": "eigsep_cal.dicke.tstar_coefficients, receiver_s11_coefficients",
-            **t_ns_model,
+            "t_ns_k": T_NS_K,
+            "t_ns_source": "nameplate ENR 35 dB behind 30 dB pad; not measured",
             "visit_average": "integration-time-weighted mean; per-sample mask: flag-product RFI bits, wrapped samples, dropped integrations",
             "flags": FLAGS,
             "rfi_mask": RFI_MASK,
@@ -463,8 +392,7 @@ def main(argv=None):
             },
             "omits": [
                 "receiver noise waves",
-                *(["noise-source port mismatch (VNANON/RFNON paths uncharacterized)"]
-                  if not args.noise_source else []),
+                "noise-source port mismatch (VNANON/RFNON paths uncharacterized)",
                 "loss in balun, coax and RFANT switch path (temperatures stay at P)",
             ],
         },
@@ -474,7 +402,6 @@ def main(argv=None):
             "internal_osl": {"path": "eigsep_cal package data/" + Path(osl).name, "sha256": sha256(osl)},
             "s11_manifest_sha256": sha256(root / "data" / "s11" / "manifest.csv"),
             "cal_windows_sha256": sha256(root / "curation" / "cal_windows.jsonl"),
-            **({"noise_source": ns_input} if ns_input else {}),
             "span_utc": SPAN_UTC,
             "regimes": REGIMES,
             "s11_epoch_split_utc": EPOCH_SPLIT_UTC,
