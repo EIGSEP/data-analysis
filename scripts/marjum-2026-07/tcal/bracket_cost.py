@@ -101,7 +101,9 @@ def main(argv=None):
     z = dict(np.load(pdir / "solutions.npz"))
     f = z["freqs"]
     b = (f >= BAND[0]) & (f < BAND[1])
-    t_ns = float(z["t_ns_k"])
+    # One number (v0000-v0003) or one value per channel (v0004 on); either
+    # broadcasts against the per-channel spectra below.
+    t_ns = np.asarray(z["t_ns_k"], dtype=float)
     tstar, t_load = median_night_tstar(root)
     # The hole is the longest gap between rx-A cycles.
     tc, plc, gc = cycles(z)

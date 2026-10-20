@@ -114,16 +114,24 @@ def main(argv=None):
     tl = b.products["tcal"]["tcal_t_load_k"]
     ts = b.t_star
     plumb = {}
-    for state, extra in (("RFAMB", 0.0), ("RFNON", float(z["t_ns_k"]))):
+    # T_NS on the bundle's channels: one number (v0000-v0003) or a spectrum on
+    # the product's axis (v0004 on), looked up channel by channel.
+    t_ns = np.asarray(z["t_ns_k"], dtype=float)
+    if t_ns.ndim:
+        t_ns = t_ns[np.searchsorted(z["freqs"], fb)]
+    else:
+        t_ns = np.full(fb.size, float(t_ns))
+    wide = (fb >= 30) & (fb < 245)
+    for state, extra in (("RFAMB", np.zeros(fb.size)), ("RFNON", t_ns)):
         rows = (st == state) & np.isfinite(ts[:, bb]).all(1)
-        resid = np.nanmedian(ts[rows][:, bb], axis=1) - (tl[rows] + extra)
+        resid = np.nanmedian(ts[rows][:, bb] - extra[bb], axis=1) - tl[rows]
         # Worst cases and single channels, not just medians: a few bad
         # calibration visits corrupt hundreds of channels for ~25 min while
         # leaving every band-median statistic unchanged (v0000).
-        expect = (tl[rows] + extra)[:, None]
-        wide = (fb >= 30) & (fb < 245)
+        expect = tl[rows][:, None] + extra[None, wide]
+        tol = 0.05 * (expect if state == "RFAMB" else extra[None, wide])
         with np.errstate(invalid="ignore"):
-            off = np.abs(ts[rows][:, wide] - expect) > 0.05 * (expect if extra == 0 else extra)
+            off = np.abs(ts[rows][:, wide] - expect) > tol
         plumb[state] = {
             "rows": int(rows.sum()),
             "median_resid_k": float(np.median(resid)),
