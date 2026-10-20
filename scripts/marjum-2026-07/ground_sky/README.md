@@ -205,6 +205,12 @@ mount offsets, horizon profiles v0002), HFSS beam, rx-A only (07-15 to 07-17 19:
 
 ## Recent changes
 
+- 2026-10-20: shared fast gain trained on 51-203 MHz instead of 117-203. The gain grows to 7.4 % rms (tilt 4.1 %)
+  and T_gnd at 117-195 MHz drops 1.3-3.3x (148 MHz 541 -> 311 K; 117 MHz 823 -> 250 K); 203 MHz diverges. Three
+  injection rolls from each training's own fit, refitted with both trainings: at 117-195 MHz either training
+  recovers either truth within 25-150 K rms, so the 230-570 K difference between the two real fits at 117-180 MHz
+  is not noise: T_gnd depends on which frequencies define the shared gain. At 51-82 MHz each training recovers its
+  own truth best. Not adopted.
 - 2026-10-20: `global_fit.py --fast-mode all` (with `--fast-tilt-clip`): one fast gain and tilt shared across
   frequencies, knots every 20 min over all of phase C, high-passed against the per-frequency 3-h gain. On terrain
   v0004 it removes the collapse at 51-74, 188-195 and 234 MHz (a_tcal 1.9-3.4); held-out rms at 117-180 MHz
