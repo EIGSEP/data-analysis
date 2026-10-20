@@ -205,6 +205,14 @@ mount offsets, horizon profiles v0002), HFSS beam, rx-A only (07-15 to 07-17 19:
 
 ## Recent changes
 
+- 2026-10-20: `global_fit.py --fast-solver gn` (Levenberg-Marquardt on the shared fast gain and every training
+  frequency's parameters at once, Schur complement on the shared block) and `--fast-drop-collapsed`. The
+  alternation never converged; the joint fit reaches steps below ~1e-6 once training frequencies that collapse
+  during it (a_tcal < 0.5 or diverged: 203 MHz, and 74 or 51 MHz in full-band training) are dropped by rule. At
+  convergence the linear shared gain trained on 117-203 and on 51-203 MHz agree within 21 % at 117-164 MHz (148 MHz
+  579 and 695 K) and within a factor 1.7 at 172-195 MHz: the 4.4x band coupling reported from the alternation was
+  an artefact of non-convergence and collapsed training frequencies. The quadratic basis drops 187-203 MHz from its
+  narrow training and is unstable there.
 - 2026-10-20: `global_fit.py --fast-tol`. Run to 450 iterations, the shared-gain alternation still takes steps of
   2-4e-4 in log gain: it drifts rather than converges. High-band T_gnd moves at most a few per cent for the
   narrow linear and full quadratic fits (16 % at 117-125 MHz for the narrow quadratic); the split fit's T_gnd at

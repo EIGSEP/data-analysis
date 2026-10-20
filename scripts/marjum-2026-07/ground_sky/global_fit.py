@@ -465,6 +465,101 @@ def joint_fast(pf, F, Bf, ftrain, sigma, n_iter, step_args, tol=1e-4):
     return b, hist
 
 
+def joint_fast_gn(pf, F, Bf, ftrain, sigma, step_args, n_iter=200, tol=1e-6, b0=None):
+    """The shared fast gain and every training frequency's own parameters fitted at once:
+    Levenberg-Marquardt on the full objective (each frequency's weighted residuals and gain-step
+    prior, plus the shared gain's Gaussian prior sigma). The normal equations are block-arrow
+    (each frequency's parameters couple only to the shared gain), so each step is solved exactly
+    through the Schur complement on the shared block. Converged when the largest step in the
+    shared log gain and in every frequency's log-gain knots is below tol.
+    Returns (b of shape (nb, K), history)."""
+    K, nb = F.shape[1], Bf.shape[1]
+    tr = np.flatnonzero(ftrain)
+    b = np.zeros(nb * K) if b0 is None else np.asarray(b0, float).ravel()
+    models, ps = {}, {}
+
+    def model(i, bb):
+        P = pf[i]
+        return SmoothGainModel(P["cG"], P["X"], P["xnames"], *step_args, lg0=F @ (Bf[i] @ bb.reshape(nb, K)))
+
+    def cost_of(bb, pp):
+        c = float(np.sum((bb / sigma) ** 2))
+        for i in tr:
+            P, M = pf[i], model(i, bb)
+            r = ((M.predict(pp[i]) - P["y0"]) * P["w"])[P["fin"]]
+            c += float(np.sum(r ** 2) + np.sum(M.penalty(pp[i]) ** 2))
+        return c
+    for i in tr:                                   # start: each frequency fitted with the starting shared gain
+        P = pf[i]
+        ps[i] = model(i, b).fit(P["y0"], P["w"], P["fin"]).x
+    cost, lam, hist = cost_of(b, ps), 1e-3, []
+    for it in range(n_iter):
+        nbK = nb * K
+        Bm = np.eye(nbK) / sigma**2
+        gb = b / sigma**2
+        blocks = {}
+        for i in tr:
+            P = pf[i]
+            M = model(i, b)
+            rows = P["fin"]
+            pred = M.predict(ps[i])
+            r = ((pred - P["y0"]) * P["w"])[rows]
+            J = M.jac(ps[i], rows, P["w"])
+            Fr = F[rows] * (pred * P["w"])[rows][:, None]
+            Jb = np.hstack([Bf[i, k] * Fr for k in range(nb)])
+            nxg = M.nx + M.ng
+            A = J.T @ J
+            A[nxg:, nxg:] += M.D.T @ M.D
+            g = J.T @ r
+            g[nxg:] += M.D.T @ (M.D @ M.split(ps[i])[2])
+            C = J.T @ Jb
+            Bm += Jb.T @ Jb
+            gb += Jb.T @ r
+            blocks[i] = (A, g, C)
+        while True:
+            S, rhs, sol = Bm + lam * np.diag(np.diag(Bm)), gb.copy(), {}
+            for i, (A, g, C) in blocks.items():
+                Al = A + lam * np.diag(np.diag(A)) + 1e-12 * np.eye(len(A))
+                AiC, Aig = np.linalg.solve(Al, C), np.linalg.solve(Al, g)
+                S -= C.T @ AiC
+                rhs -= C.T @ Aig
+                sol[i] = (AiC, Aig)
+            db = -np.linalg.solve(S, rhs)
+            dps = {i: -(Aig + AiC @ db) for i, (AiC, Aig) in sol.items()}
+            nb_, nps = b + db, {i: ps[i] + dps[i] for i in tr}
+            new = cost_of(nb_, nps)
+            if new <= cost:
+                break
+            lam *= 5.0
+            if lam > 1e12:
+                break
+        step_b = float(np.max(np.abs(db))) if K else 0.0
+        step_i = {int(i): float(np.max(np.abs(model(i, b).split(dps[i])[2]))) for i in tr}
+        step_a = max(step_i.values())
+        if new <= cost:
+            b, ps, cost, lam = nb_, nps, new, max(lam / 3.0, 1e-9)
+        hist.append({"iter": it, "cost": cost, "max_step": step_b, "max_step_slow": step_a, "lambda": lam,
+                     "step_slow_by_freq": step_i,
+                     "rms_terms": [float(np.std(F @ bk)) for bk in b.reshape(nb, K)]})
+        print(f"  joint fit iter {it}: cost {cost:.6g}  step shared {step_b:.2e}  step slow {step_a:.2e}  "
+              f"lambda {lam:.1e}", flush=True)
+        if max(step_b, step_a) < tol or lam > 1e12:
+            break
+    # a_tcal and divergence of each training frequency at the solution, for --fast-drop-collapsed
+    status = {}
+    for i in tr:
+        P, M = pf[i], model(i, b)
+        g = M.gain(ps[i])
+        ok = P["fin"] & np.isfinite(P["sc"])
+        a_ = M.split(ps[i])[2]
+        o_ = M.split(ps[i])[1]
+        status[int(i)] = {"a_tcal": float(np.mean((g * P["sc"])[ok])) if ok.any() else None,
+                          "diverged": bool(np.any(np.exp(a_) < 0.01 * np.median(np.exp(a_)))
+                                           or np.any(np.abs(o_) > 10 * np.median(P["cG"][P["fin"]])))}
+    hist.append({"training_status": status})
+    return b.reshape(nb, K), hist
+
+
 def window_gate(y, cG, win, tt, rows):
     """Median over frequencies of each window's median |residual| / power, for
     raw power regressed on (C_GSM, 1, t) within the window."""
@@ -628,6 +723,11 @@ def main():
                     help="elevation tolerance of a fixed-pointing run (default --fast-max-move-deg); "
                          "the 30 m elevation record wobbles by degrees at a fixed commanded pointing")
     ap.add_argument("--fast-iter", type=int, default=8)
+    ap.add_argument("--fast-solver", choices=["als", "gn"], default="als",
+                    help="als: alternate the shared gain and the per-frequency fits; gn: Levenberg-Marquardt on all "
+                         "of them at once (Schur complement on the shared block)")
+    ap.add_argument("--fast-drop-collapsed", action="store_true",
+                    help="gn: drop a training frequency whose a_tcal falls below 0.5 or that diverges, and refit")
     ap.add_argument("--fast-tol", type=float, default=1e-4,
                     help="stop the shared-gain alternation when its largest step in log gain falls below this")
     ap.add_argument("--fast-freq-basis", choices=["linear", "quad", "split"], default="linear",
@@ -1012,7 +1112,22 @@ def main():
         print(f"  fast gain: {F.shape[1]} knots in {len(set(run[run >= 0]))} fixed-pointing runs "
               f"({(run >= 0).sum()} bins); training frequencies {np.round(freqs[ftrain], 1).tolist()}", flush=True)
         step_args = (groups, len(gnames), H, knot_seg, args.gain_step_sigma)
-        bco, hist = joint_fast(pf, F, Bf, ftrain, args.fast_sigma, args.fast_iter, step_args, args.fast_tol)
+        if args.fast_solver == "gn":
+            dropped = []
+            while True:
+                bco, hist = joint_fast_gn(pf, F, Bf, ftrain, args.fast_sigma, step_args, args.fast_iter, args.fast_tol,
+                                          b0=None if not dropped else bco)
+                st = hist[-1]["training_status"]
+                bad = [i for i, v in st.items() if v["diverged"] or (v["a_tcal"] is not None and v["a_tcal"] < 0.5)]
+                if not args.fast_drop_collapsed or not bad:
+                    break
+                for i in bad:
+                    ftrain[i] = False
+                    dropped.append(float(freqs[i]))
+                print(f"  dropped collapsed training frequencies {[round(float(freqs[i]), 1) for i in bad]}; refitting",
+                      flush=True)
+        else:
+            bco, hist = joint_fast(pf, F, Bf, ftrain, args.fast_sigma, args.fast_iter, step_args, args.fast_tol)
         resid_fast = np.full(Y.shape, np.nan)
         era_k = df.era.to_numpy()[ok_bins]
         for i, P in enumerate(pf):
@@ -1056,7 +1171,8 @@ def main():
         fast_info = {"knot_s": args.fast_knot_s, "sigma": args.fast_sigma, "n_knots": int(F.shape[1]),
                      "runs": int(len(set(run[run >= 0]))), "bins_in_runs": int((run >= 0).sum()),
                      "train_freqs": freqs[ftrain].tolist(), "x_of_freq": xf.tolist(), "freq_basis": Bf.tolist(),
-                     "basis": args.fast_freq_basis, "iterations": hist}
+                     "basis": args.fast_freq_basis, "iterations": hist,
+                     "dropped_train_freqs": dropped if args.fast_solver == "gn" else []}
     out_dir.mkdir(parents=True, exist_ok=True)
     win_info = [{"window": int(k), "t0": float(t[win == k].min()), "t1": float(t[win == k].max()),
                  "era": df.era[win == k].iloc[0], "regime": df.regime[win == k].iloc[0],
