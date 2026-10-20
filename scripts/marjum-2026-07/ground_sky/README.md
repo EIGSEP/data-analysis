@@ -209,7 +209,7 @@ mount offsets, horizon profiles v0002), HFSS beam, rx-A only (07-15 to 07-17 19:
   frequency's parameters at once, Schur complement on the shared block) and `--fast-drop-collapsed`. The
   alternation never converged; the joint fit reaches steps below ~1e-6 once training frequencies that collapse
   during it (a_tcal < 0.5 or diverged: 203 MHz, and 74 or 51 MHz in full-band training) are dropped by rule. At
-  convergence the linear shared gain trained on 117-203 and on 51-203 MHz agree within 21 % at 117-164 MHz (148 MHz
+  convergence the linear shared gain trained on 117-203 and on 51-203 MHz agree within 28 % at 117-164 MHz (148 MHz
   579 and 695 K) and within a factor 1.7 at 172-195 MHz: the 4.4x band coupling reported from the alternation was
   an artefact of non-convergence and collapsed training frequencies. The quadratic basis drops 187-203 MHz from its
   narrow training and is unstable there.
