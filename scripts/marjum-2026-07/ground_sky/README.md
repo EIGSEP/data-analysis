@@ -205,6 +205,12 @@ mount offsets, horizon profiles v0002), HFSS beam, rx-A only (07-15 to 07-17 19:
 
 ## Recent changes
 
+- 2026-10-20: `global_fit.py --fast-mode all` (with `--fast-tilt-clip`): one fast gain and tilt shared across
+  frequencies, knots every 20 min over all of phase C, high-passed against the per-frequency 3-h gain. On terrain
+  v0004 it removes the collapse at 51-74, 188-195 and 234 MHz (a_tcal 1.9-3.4); held-out rms at 117-180 MHz
+  matches per-frequency 20-min knots and is better at 188-195 MHz. T_gnd at 117-203 MHz (148 MHz 541 K; 188 and
+  195 MHz 164 K) is the same for fast priors 0.02-0.1, but needs ~150 ALS iterations to settle (530 K at 117 MHz
+  after 12, 823 K after 150). Not yet validated by injection.
 - 2026-10-19: `common.py` reads `horizon_profiles_v0004` and DEM v0004 (the DEM extended 6 km south), for memo 008's move to terrain v0004. Every ground fraction, beam column and Sun trace changes with it; products made before this used v0003.
 - 2026-10-18: `global_fit.py --split-streams`, `inject_mock.py --fast-gain-from`, `gain_drivers.py` JSON output.
   Slow and fast switch-temperature terms on 3-h knots give the same low T_gnd as one term (148 MHz 297 K). A mock

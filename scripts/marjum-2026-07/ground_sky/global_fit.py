@@ -628,6 +628,11 @@ def main():
                     help="elevation tolerance of a fixed-pointing run (default --fast-max-move-deg); "
                          "the 30 m elevation record wobbles by degrees at a fixed commanded pointing")
     ap.add_argument("--fast-iter", type=int, default=8)
+    ap.add_argument("--fast-tilt-clip", action="store_true",
+                    help="hold the fast gain's tilt at its band-edge value outside the training frequencies")
+    ap.add_argument("--fast-mode", choices=["runs", "all"], default="runs",
+                    help="runs: shared fast knots only within fixed-pointing runs; all: knots every "
+                         "--fast-knot-s over the whole phase, minus what the --knot-s slow gain can carry")
     ap.add_argument("--fast-fmin", type=float, default=0.0,
                     help="frequencies (MHz) the fast gain is fitted on and scored at: converged ones in range")
     ap.add_argument("--fast-fmax", type=float, default=1e4)
@@ -887,7 +892,7 @@ def main():
         X = np.stack(cols, 1)
         out = {"freq_mhz": float(x)}
         pf.append({"y0": y0, "w": w, "fin": fin, "X": X, "xnames": xnames, "cG": cG[i][ok_bins],
-                   "sig_rad": sig_rad})
+                   "sig_rad": sig_rad, "sc": SC[i][ok_bins]})
         if args.gain == "smooth":
             fit_smooth(out, y0, w, fin, train[ok_bins], sig_rad, X, xnames, cG[i][ok_bins], groups,
                        gnames, H, knot_t, knot_seg, SC[i][ok_bins], ok_bins, resid_store, i, len(df),
@@ -963,13 +968,24 @@ def main():
         # Shared fast gain and tilt (log gain linear in frequency), fitted on
         # alternate converged frequencies and scored on the others: at a
         # held-out frequency it adds no free parameter.
-        F, run = fast_basis(t[ok_bins], df.az.to_numpy()[ok_bins], df.el.to_numpy()[ok_bins], seg,
-                            args.fast_knot_s, args.fast_max_move_deg, max_el_deg=args.fast_max_el_deg)
+        if args.fast_mode == "all":
+            # Knots everywhere, high-passed against the per-frequency slow gain basis, so the
+            # shared gain carries only what the slow knots cannot.
+            F, _, _ = gain_basis(t[ok_bins], seg, args.fast_knot_s)
+            Hs = H[:, :H.shape[1] - len(args.gain_regressors)]
+            F = F - Hs @ np.linalg.lstsq(Hs, F, rcond=None)[0]
+            F = F[:, np.linalg.norm(F, axis=0) > 1e-6 * np.sqrt(len(F))]
+            run = np.zeros(len(F), int)
+        else:
+            F, run = fast_basis(t[ok_bins], df.az.to_numpy()[ok_bins], df.el.to_numpy()[ok_bins], seg,
+                                args.fast_knot_s, args.fast_max_move_deg, max_el_deg=args.fast_max_el_deg)
         conv = np.flatnonzero([not (r_["all"]["diverged"] or r_["train"]["diverged"])
                                and args.fast_fmin <= f_ <= args.fast_fmax for r_, f_ in zip(results, freqs)])
         ftrain = np.zeros(len(freqs), bool)
         ftrain[conv[::2]] = True
         xf = (freqs - freqs[conv].mean()) / (np.ptp(freqs[conv]) / 2 if conv.size > 1 else 1.0)
+        if args.fast_tilt_clip:
+            xf = np.clip(xf, -1.0, 1.0)      # no linear extrapolation of the tilt outside the training band
         print(f"  fast gain: {F.shape[1]} knots in {len(set(run[run >= 0]))} fixed-pointing runs "
               f"({(run >= 0).sum()} bins); training frequencies {np.round(freqs[ftrain], 1).tolist()}", flush=True)
         step_args = (groups, len(gnames), H, knot_seg, args.gain_step_sigma)
@@ -988,7 +1004,18 @@ def main():
             tmp[np.flatnonzero(ok_bins)] = q
             resid_fast[i] = tmp
             q0 = resid_store[i][ok_bins]
+            g = M.gain(sol.x)
+            okc = fin & np.isfinite(P["sc"])
+            a_t = float(np.mean((g * P["sc"])[okc])) if okc.any() else None
+            # held-out blocks: the same model fitted on the training blocks only
+            trn = train[ok_bins]
+            Mt = SmoothGainModel(P["cG"], P["X"], P["xnames"], *step_args, lg0=lg0)
+            st = Mt.fit(P["y0"], P["w"], fin & trn, sol.x)
+            rt = (P["y0"] - Mt.predict(st.x)) / np.where(fin, P["y0"], 1)
+            te = fin & ~trn
             res = {"role": "train" if ftrain[i] else ("test" if i in conv else "outside"),
+                   "a_tcal": a_t, "test_rms_frac": float(np.sqrt(np.mean(rt[te] ** 2))),
+                   "offsets": dict(zip(gnames, o.tolist())),
                    "status": int(sol.status), "T_gnd": float(th[0]),
                    "diverged": bool(np.any(np.exp(a) < 0.01 * np.median(np.exp(a)))
                                     or np.any(np.abs(o) > 10 * np.median(P["cG"][fin]))),
@@ -1000,7 +1027,9 @@ def main():
             results[i]["fast"] = res
             print(f"{freqs[i]:6.1f} MHz  fast-gain {res['role']:5s}  T_gnd {res['T_gnd']:8.1f} "
                   f"(base {results[i]['all']['theta']['T_gnd']:8.1f})  rms {100 * res['rms_frac']:.2f}% "
-                  f"(base {100 * res['rms_frac_base']:.2f}%)" + ("  DIVERGED" if res["diverged"] else ""), flush=True)
+                  f"(base {100 * res['rms_frac_base']:.2f}%)  held-out {100 * res['test_rms_frac']:.2f}%  a_tcal "
+                  f"{res['a_tcal'] if res['a_tcal'] is None else round(res['a_tcal'], 3)}"
+                  + ("  DIVERGED" if res["diverged"] else ""), flush=True)
         fast_info = {"knot_s": args.fast_knot_s, "sigma": args.fast_sigma, "n_knots": int(F.shape[1]),
                      "runs": int(len(set(run[run >= 0]))), "bins_in_runs": int((run >= 0).sum()),
                      "train_freqs": freqs[ftrain].tolist(), "x_of_freq": xf.tolist(), "iterations": hist}
