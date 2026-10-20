@@ -205,6 +205,10 @@ mount offsets, horizon profiles v0002), HFSS beam, rx-A only (07-15 to 07-17 19:
 
 ## Recent changes
 
+- 2026-10-20: `global_fit.py --fast-tol`. Run to 450 iterations, the shared-gain alternation still takes steps of
+  2-4e-4 in log gain: it drifts rather than converges. High-band T_gnd moves at most a few per cent for the
+  narrow linear and full quadratic fits (16 % at 117-125 MHz for the narrow quadratic); the split fit's T_gnd at
+  74-82 MHz changes by over 1000 K. The band-coupling conclusion holds (ratios 4.4 linear, 2.6 quadratic).
 - 2026-10-20: `global_fit.py --fast-freq-basis` and `--fast-train`. The shared fast gain's frequency dependence:
   linear (gain + tilt), quadratic in log f, or split (its own gain and tilt below and above 100 MHz). Split reproduces
   the 117-203-trained fit exactly at high frequency and gives the best held-out rms at 51-82 MHz (2.6-3.7 %). A

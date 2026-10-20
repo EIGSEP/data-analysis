@@ -425,7 +425,7 @@ def fast_basis(t, az, el, seg, knot_s, max_move_deg=1.0, gap_s=90.0, max_el_deg=
     return (np.stack(cols, 1) if cols else np.zeros((n, 0))), run
 
 
-def joint_fast(pf, F, Bf, ftrain, sigma, n_iter, step_args):
+def joint_fast(pf, F, Bf, ftrain, sigma, n_iter, step_args, tol=1e-4):
     """Shared fast log gain F (Bf[i] . b_k), with Bf the frequency basis (one row per
     frequency, e.g. [1, x_f] for a gain and a tilt), by alternation: each training
     frequency's smooth-gain model is fitted with the current shared gain fixed, then the
@@ -460,7 +460,7 @@ def joint_fast(pf, F, Bf, ftrain, sigma, n_iter, step_args):
                      "rms_terms": [float(np.std(F @ bk)) for bk in b]})
         print(f"  fast gain iter {it}: chi2 {cost:.4g}  max step {hist[-1]['max_step']:.2e}  rms per term "
               + " ".join(f"{100 * r:.3f}%" for r in hist[-1]["rms_terms"]), flush=True)
-        if K == 0 or hist[-1]["max_step"] < 1e-4:
+        if K == 0 or hist[-1]["max_step"] < tol:
             break
     return b, hist
 
@@ -628,6 +628,8 @@ def main():
                     help="elevation tolerance of a fixed-pointing run (default --fast-max-move-deg); "
                          "the 30 m elevation record wobbles by degrees at a fixed commanded pointing")
     ap.add_argument("--fast-iter", type=int, default=8)
+    ap.add_argument("--fast-tol", type=float, default=1e-4,
+                    help="stop the shared-gain alternation when its largest step in log gain falls below this")
     ap.add_argument("--fast-freq-basis", choices=["linear", "quad", "split"], default="linear",
                     help="frequency dependence of the shared fast gain: gain + tilt; + a quadratic in log f; "
                          "or a separate gain and tilt below and above --fast-split-mhz")
@@ -1010,7 +1012,7 @@ def main():
         print(f"  fast gain: {F.shape[1]} knots in {len(set(run[run >= 0]))} fixed-pointing runs "
               f"({(run >= 0).sum()} bins); training frequencies {np.round(freqs[ftrain], 1).tolist()}", flush=True)
         step_args = (groups, len(gnames), H, knot_seg, args.gain_step_sigma)
-        bco, hist = joint_fast(pf, F, Bf, ftrain, args.fast_sigma, args.fast_iter, step_args)
+        bco, hist = joint_fast(pf, F, Bf, ftrain, args.fast_sigma, args.fast_iter, step_args, args.fast_tol)
         resid_fast = np.full(Y.shape, np.nan)
         era_k = df.era.to_numpy()[ok_bins]
         for i, P in enumerate(pf):
