@@ -382,3 +382,47 @@ def near_sweep(meta, sweeps, guard=SWEEP_GUARD_S):
     for t0, t1 in sweeps:
         out |= (t > t0 - guard[0]) & (t < t1 + guard[1])
     return out
+
+
+# ------------------------------------------------------------ field T_NS
+
+#: The NC302L's specified ENR, dB, and the attenuator in front of it.
+ENR_RANGE_DB = (30.0, 35.0)
+PAD_DB = 30.0
+
+
+def excess_from_enr(enr_db, pad_db=PAD_DB):
+    """The diode's excess temperature (K) behind the pad for an ENR in dB."""
+    return 290.0 * 10 ** ((np.asarray(enr_db, float) - pad_db) / 10)
+
+
+def smooth_excess(freqs, excess, sigma, good, deg=3):
+    """A low-order polynomial in frequency through the bench excess, weighted
+    by 1/sigma^2 over the `good` channels, evaluated on every channel; and its
+    residual. The bench mask and the field mask differ, so the field
+    calibration needs the excess on every channel."""
+    x = (freqs - 150.0) / 100.0
+    c = np.polyfit(x[good], excess[good], deg, w=1 / sigma[good])
+    fit = np.polyval(c, x)
+    return fit, np.where(good, excess - fit, np.nan)
+
+
+def tns_field(t_ex, g_ns, g_rec, g_load, t_load):
+    """T_NS as the field receiver takes it (memo 004's definition,
+    P_NS - P_load = g T_NS), for a noise-source excess t_ex at P:
+    T_NS = M_NS (T_off + t_ex) - M_load T_load, with M from eigsep_cal's
+    mismatch at the field receiver's Gamma_rec, and the noise path when off
+    taken to sit at the load's temperature (T_off = T_load; the board and
+    the load differ by a few kelvin)."""
+    m_ns = mismatch(g_ns, g_rec)
+    m_load = mismatch(g_load, g_rec)
+    return np.real(m_ns * (t_load + t_ex) - m_load * t_load)
+
+
+def recalibrate(t_star, t_cal, m_ant, t_load, t_ns_old, t_ns_new):
+    """Calibrated temperature for a different T_NS. T* = T_load + T_NS Q is
+    linear in T_NS, and T = (T* - (1 - M_load) T_load) / M_ant, so
+    T_new = T_old + (T*_new - T*_old) / M_ant with
+    T*_new = T_load + (T_NS_new / T_NS_old) (T*_old - T_load)."""
+    t_star_new = t_load + (t_ns_new / t_ns_old) * (t_star - t_load)
+    return t_cal + (t_star_new - t_star) / m_ant
