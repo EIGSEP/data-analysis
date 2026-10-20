@@ -81,15 +81,24 @@ def sha256(path):
     return h.hexdigest()
 
 
-def git_info(path):
-    """Commit, branch and dirtiness of the repository holding ``path``."""
+def git_info(path, scope=None):
+    """Commit, branch and dirtiness of the repository holding ``path``.
+
+    ``scope`` limits the dirtiness check to one directory. For data-analysis
+    it is this script's own: notebooks elsewhere that were committed with
+    outputs always read as modified under the repository's nbstripout filter,
+    and none of them is code this build runs."""
     run = lambda *a: subprocess.run(["git", "-C", str(path), *a], capture_output=True,
                                     text=True).stdout.strip()
     commit = run("rev-parse", "HEAD")
     if not commit:
         return {"commit": None, "note": f"{path} is not in a git checkout (installed package)"}
-    return {"commit": commit, "branch": run("rev-parse", "--abbrev-ref", "HEAD"),
-            "dirty": bool(run("status", "--porcelain", "--untracked-files=no"))}
+    status = ["status", "--porcelain", "--untracked-files=no"] + (["--", str(scope)] if scope else [])
+    info = {"commit": commit, "branch": run("rev-parse", "--abbrev-ref", "HEAD"),
+            "dirty": bool(run(*status))}
+    if scope:
+        info["dirty_checked_in"] = str(Path(scope).relative_to(run("rev-parse", "--show-toplevel")))
+    return info
 
 
 def main():
@@ -142,7 +151,7 @@ def main():
             "gamma_ns": {"path": GAMMA_NS_FILE, "sha256": sha256(gamma_path)},
         },
         "code": {
-            "data-analysis": git_info(here.parent),
+            "data-analysis": git_info(here.parent, scope=here.parent),
             "eigsep_data": git_info(Path(eigsep_data.__file__).parent),
             "eigsep_cal": git_info(Path(eigsep_cal.__file__).parent),
         },
