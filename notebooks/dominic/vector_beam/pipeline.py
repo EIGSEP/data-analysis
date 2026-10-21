@@ -214,5 +214,6 @@ def load():
         channels=channels,
         beam=beam,
         n_integrations=len(ext["times"]),
+        times=np.asarray(ext["times"], dtype=float),
         theta_phi_alpha=(theta, phi, alpha),
     )
