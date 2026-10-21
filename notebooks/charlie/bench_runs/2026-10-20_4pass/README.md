@@ -1,6 +1,6 @@
 # Bench run 2026-10-20 (4 passes): noise-source temperature through the switch
 
-The as-built record of the four-pass bench run started 2026-10-20. The
+The as-built record of the four-pass bench run of 2026-10-20/21. The
 requirements it is measured against are in
 [`../../receiver_calibration_lab_protocol.md`](../../receiver_calibration_lab_protocol.md);
 each section below follows that protocol's numbering and says how this run
@@ -9,13 +9,14 @@ with the effect and what would close it. The bench is the one of
 [`2026-10-08_interim`](../2026-10-08_interim/README.md);
 [Changes](#changes-from-2026-10-08_interim) lists what differs.
 
-**Status:** in progress (started 2026-10-20). Fill in the run log, data,
-problems and the _to confirm_ items when it ends; then do not edit except to
-fill in the to-be-recorded items. A later run gets its own folder.
+**Status:** run 2026-10-20 10:24 → 2026-10-21 10:26 PDT; the heater
+program (four passes) ran 10:24 → 08:24 PDT and completed with no faults
+(see [Run log](#run-log-utc)). Do not edit except to fill in the
+to-be-recorded items; a later run gets its own folder.
 
 **Automation:** `eigsep_observing`, branch `calibration_scripts` (commit used:
-_to record_; must include `eabcc3d`, the corrected switch-board thermistor
-mapping). Config `src/eigsep_observing/config/obs_config_switch_bench.yaml`
+_to record_; at or after `eabcc3d`, since the as-used config has the
+corrected switch-board thermistor mapping). Config `src/eigsep_observing/config/obs_config_switch_bench.yaml`
 (its `bench_setup` hardware record is embedded in every corr and VNA file
 header); heater sequencer `scripts/hot_load_plateaus.py`.
 
@@ -34,7 +35,8 @@ temperature is logged.
 | Temperature program (§ 5) | 1 pass: ambient 10 min, plateaus 15 min, cool-down 90 min | **4 passes: ambient 60 min, plateaus 60 min, cool-down 90 min** (~22 h) |
 | Switch-board thermistor mapping (§ 2) | Config labelled `temp_therm1` as the noise diode (wrong) | Config corrected (`eabcc3d`): `temp_therm2` (GP28) is the noise diode |
 | LNA thermistor channels (§ 2–3) | Data correct; that README lists `tempctrl_lna1`/`lna2` the wrong way round | `tempctrl_lna1` (GP27) = ambient reference load, `tempctrl_lna2` (GP28) = LNA 3, as in the config and firmware |
-| Hardware, supplies, correlator, switch and VNA schedule | — | Unchanged (_to confirm_) |
+| Correlator, switch and VNA schedule | — | Unchanged: `corr_acc_len` 2²⁸ (SNAP log), 10 s dwells and 20-min VNA interval (as-used config) |
+| Hardware and supplies | — | Unchanged (_to confirm_) |
 
 ## § 1. Why most of the chain need not be the field hardware
 
@@ -65,9 +67,10 @@ the field receiver**. Accepted for the interim runs.
    (ant-side paths) / −40 dBm (`VNARF`).
 
 Correlator: the field `corr_config.yaml` except `corr_acc_len` 2²⁸ ≈ 1.074 s
-(field: 2²⁶ ≈ 0.268 s), as in 2026-10-08 (_to confirm_); `fft_shift`
-0x015F, ADC gain 4, `corr_scalar` 512. _Copy the as-used `corr_config.yaml`
-into this folder._
+(field: 2²⁶ ≈ 0.268 s), as in 2026-10-08; `fft_shift` 0x015F, ADC gain 4,
+`corr_scalar` 512. The as-used copy in this folder,
+[`corr_config.yaml`](corr_config.yaml), has 2²⁸ active, matching the SNAP log
+(`Setting CORR_ACC_LEN: 268435456` at the 10:17:09 PDT sync).
 
 **Picos** (three, DIP code = app id, all under `pico-manager`):
 
@@ -101,7 +104,7 @@ All of the streams listed in the protocol's § 3 are logged, plus:
   is embedded in every corr and VNA file header.
 
 Supply voltages are **not** logged automatically; written log (2026-10-08
-values, _to confirm for this run_):
+values, assumed unchanged, _to confirm_):
 
 | Supply | Voltage |
 |---|---|
@@ -174,7 +177,26 @@ Each pass is 60 + 3 × 60 + 90 = 330 min (5 h 30 min); four passes take
 3. Cool-down, heater off, 90 min.
 4. **Four passes** (requirement: repeat if time allows; two passes test the
    drift). The passes cover different times of day, so the room and board
-   temperatures will vary between them.
+   temperatures vary between them.
+
+**As run** (from the heater log's once-a-minute `T_now`, the firmware's
+nominal-pull-up conversion; analysis uses the corrected conversion in § 3).
+Ramp = minutes from heater on to first reaching the target; mean and σ over
+each phase's last 30 min:
+
+| Pass | Ambient mean | 47 °C: ramp / mean / σ | 67 °C: ramp / mean / σ | 87 °C: ramp / mean / σ | End of cool-down |
+|---|---|---|---|---|---|
+| 1 | 21.41 °C | 6 min / 47.05 / 0.08 | 6 min / 67.00 / 0.11 | 10 min / 86.84 / 0.16 | 23.08 °C |
+| 2 | 21.64 °C | 6 min / 47.04 / 0.07 | 10 min / 66.98 / 0.12 | 10 min / 86.88 / 0.14 | 22.88 °C |
+| 3 | 21.45 °C | 6 min / 47.03 / 0.08 | 9 min / 66.99 / 0.10 | 10 min / 86.86 / 0.14 | 23.03 °C |
+| 4 | 21.66 °C | 6 min / 47.05 / 0.09 | 6 min / 66.97 / 0.11 | 10 min / 86.91 / 0.11 | 23.03 °C |
+
+Every plateau reached its target within 10 min, leaving ≥ 50 min at
+temperature. The σ of 0.07–0.16 °C is mostly readout noise (the
+thermistors are noisy; see Gaps). Plateau means repeat between passes to
+within ~0.07 °C. The 87 °C plateaus sit ~0.1 °C below target. The 90-min
+cool-down ends ~1.5 °C above room temperature, so each following ambient block
+starts warm and settles within its hour.
 
 The script sends a keepalive every 10 s, turns the heater off and stops on
 any heater trip or sensor error, and turns the heater off on exit.
@@ -243,7 +265,7 @@ the lab-LNA caveat of § 1.
 | Field first LNA board (§ 1–2) | Lab LNA 14; flight history unknown | T_NS unaffected; Γ_rec and noise waves may not transfer | Identify and use the field first-stage board |
 | Hot load on `RFANT`, ambient on `RFAMB` (§ 2) | Swapped: hot on `RFAMB`, ambient on `RFANT` | Use the matching paths (`VNAAMB` hot, `VNAANT` ambient) | None needed if the analysis follows the wiring; or rewire |
 | Plateaus ~320 / 345 / 370 K (§ 5) | ~320 / 340 / 360 K | Span 65 K instead of 75 K | Thermistors rated above ~100 °C (higher dynamic range) |
-| Plateau held until steady to ~0.1 K, then ≥ 30 min (§ 5) | Fixed 60 min per plateau, including the ramp; steady part chosen offline | Likely ≥ 30 min steady; check each plateau in the heater log | Hold-until-steady logic in the sequencer |
+| Plateau held until steady to ~0.1 K, then ≥ 30 min (§ 5) | Fixed 60 min per plateau including the ramp; ramps took 6–10 min, leaving ≥ 50 min at temperature | Time requirement met; steadiness to ~0.1 K limited by thermistor readout noise (σ 0.07–0.16 °C) | Lower-noise thermistor readout |
 | Temperatures good to ~0.1 K (§ 5) | ±0.2 °C parts; 2-wire pull-ups (~0.1–0.3 K); thermistors noisy in 2026-10-08 | Temperature scale uncertainty of a few tenths of a kelvin | Better thermistors, 4-wire pull-ups or an ice-point / reference-thermometer calibration |
 | ~30 s dwells, 3–5 min cycle (§ 4) | 10 s dwells, 1 min cycle | Fewer integrations per visit, less drift between visits | Change `switch_schedule` |
 | SP1 every few cycles, ≥ 1 min each (§ 4) | Every cycle, 10 s each | Average SP1 across cycles | Change `switch_schedule` |
@@ -255,43 +277,87 @@ the lab-LNA caveat of § 1.
 
 **Time zones.** Everything the bench writes with a trailing `Z` (data file
 names, heater-log lines) is UTC, as are the Unix times in the file headers
-(`sync_time`, `obs_config_owner_uploaded_unix`). The ground computer's log is
-in local time (PDT, UTC−7).
+(`sync_time`, `obs_config_owner_uploaded_unix`). The ground computer's and
+the panda's logs are in local time (PDT, UTC−7); their distilled versions in
+this folder give both. All clocks agreed.
 
 | Event | UTC | PDT | Source |
 |---|---|---|---|
-| SNAP synced | _to fill_ | _to fill_ | header `sync_time` |
-| `eigsep-panda` started | _to fill_ | _to fill_ | header `obs_config_owner_uploaded_unix` |
-| Heater program start (pass 1 ambient) | _to fill_ | _to fill_ | heater log |
-| Passes 1–4: ambient / plateaus / cool-down | _to fill_ | _to fill_ | heater log |
-| Program complete | _to fill_ | _to fill_ | heater log |
-| Data kept (first → last file) | _to fill_ | _to fill_ | file names |
+| SNAP synced (`sync_time` 1792516629.873) | 10-20 17:17:09 | 10-20 10:17:09 | ground event log |
+| `eigsep-observe` started | 10-20 17:24:00 | 10-20 10:24:00 | ground event log |
+| `eigsep-panda` started | 10-20 17:24:16 | 10-20 10:24:16 | panda event log |
+| Heater program start | 10-20 17:24:31 | 10-20 10:24:31 | heater log |
+| Program complete | 10-21 15:24:31 | 10-21 08:24:31 | heater log |
+| `eigsep-observe` stopped | 10-21 17:25:53 | 10-21 10:25:53 | ground event log |
+| `eigsep-panda` stopped | 10-21 17:26:00 | 10-21 10:26:00 | panda event log |
+| Corr files (first → last) | 10-20 17:28:16 → 10-21 17:25:53 | 10-20 10:28 → 10-21 10:25 | file names |
 
-_Manual actions with their times: to fill in._
+Heater phases (heater log; each pass: ambient 60 min, plateaus 47 / 67 /
+87 °C 60 min each, cool-down 90 min), phase start times:
+
+| Pass | Ambient | 47 °C | 67 °C | 87 °C | Cool-down |
+|---|---|---|---|---|---|
+| 1 | 10-20 17:24:31Z (10:24 PDT) | 18:24:31Z (11:24) | 19:24:31Z (12:24) | 20:24:31Z (13:24) | 21:24:31Z (14:24) |
+| 2 | 10-20 22:54:31Z (15:54 PDT) | 23:54:31Z (16:54) | 10-21 00:54:31Z (17:54) | 01:54:31Z (18:54) | 02:54:31Z (19:54) |
+| 3 | 10-21 04:24:31Z (21:24 PDT, 10-20) | 05:24:31Z (22:24) | 06:24:31Z (23:24) | 07:24:31Z (00:24, 10-21) | 08:24:31Z (01:24) |
+| 4 | 10-21 09:54:31Z (02:54 PDT) | 10:54:31Z (03:54) | 11:54:31Z (04:54) | 12:54:31Z (05:54) | 13:54:31Z (06:54) |
+
+After the program completed (08:24 PDT) the bench kept recording with the
+heater off until 10:25 PDT, ~2 h of extra ambient data.
+
+**Manual actions during the run:** none in the logs (no restart of
+`eigsep-observe`, `eigsep-panda` or the heater script between 10-20 10:24 and
+10-21 10:25 PDT); written log _to confirm_.
+
+Before the run (ground and panda event logs): a test session 09:29–09:38 PDT;
+a ground-computer restart at 10:16 PDT followed by SNAP programming and the
+10:17:09 sync; brief `eigsep-observe` / `eigsep-panda` restarts until
+10:24.
 
 ## Problems during the run
 
-_To fill in._ Open items carried over from 2026-10-08 are in
+None during the run itself: no corr or VNA write failures, no dropped
+integrations, no heater trips or sensor errors, no restarts. Noted from the
+logs:
+
+| Problem | When | Effect | Status |
+|---|---|---|---|
+| T7 drive input/output errors on 4 corr writes | 10-20 09:37–09:38 PDT (pre-run test) | Those test files lost; no errors during the run | Watch the drive; check it before the next run |
+| 2 corr writes failed ("No such file or directory") at the SNAP re-sync file roll | 10-20 10:21:27 PDT (setup) | Setup data only | Benign |
+| Thermistor readout noise σ 0.07–0.16 °C | Whole run | Limits plateau steadiness to ~0.1 K | Open (thermistors being replaced) |
+| "No pico devices registered by PicoManager" at each `eigsep-panda` start | Starts | None (legacy check; the picos ran throughout) | Benign; could remove the check |
+
+Open items carried over from 2026-10-08 are in
 [its to-do list](../2026-10-08_interim/README.md#to-do).
 
 ## To-do
 
-- **This record:** the _to confirm_ items above (hardware, supplies,
-  `corr_acc_len`); the run log; switch-board serial and whether it flew,
+- **This record:** the _to confirm_ items above (hardware, supplies, no
+  manual actions); the final location of the data; switch-board serial and
+  whether it flew,
   the P → LNA 14 connection, hot-load cable/adapters, SP1 cable length
   (§ 8); photos; the `eigsep_observing` commit used.
 
 ## Data and files
 
-- **Correlator and VNA files** (not tracked by git): _location to record._
-  Expect roughly 300 `corr_*.h5` (~4.3 min each at 2²⁸ and `corr_ntimes`
-  240) and ~65 each of `ants11_*.h5` and `recs11_*.h5` (every 20 min), on the
-  order of 5 GB.
-- **Configs as used** (in this folder): _copy `obs_config_switch_bench.yaml`
-  and `corr_config.yaml` here._
-- **Ground-computer event log** (in this folder): _to add (distilled
-  `eigsep.log`, as for 2026-10-08)._
-- **Heater log** (in this folder): _to add
-  (`hot_load_plateaus_<UTC>.log`)._
+- **Correlator and VNA files** (not tracked by git): written to
+  `/media/eigsep/T7/data/` on the ground computer (_final location to
+  record_). 336 `corr_*.h5` (258 s each, `corr_20261020_172816Z.h5` →
+  `corr_20261021_172553Z.h5`) and 129 `ants11_*.h5` / `recs11_*.h5` files
+  from ~65 VNA sweeps. The first files before 10:24 PDT on 10-20 are setup
+  data.
+- **Configs as used** (in this folder): [`obs_config_switch_bench.yaml`](obs_config_switch_bench.yaml)
+  and [`corr_config.yaml`](corr_config.yaml) (`corr_acc_len` 2²⁸).
+- **Ground-computer event log** (in this folder):
+  [`eigsep_events_2026-10-20.log`](eigsep_events_2026-10-20.log), the ground
+  computer's two rotated `eigsep.log` files combined and distilled to
+  start/stop, configuration and collapsed warning/error events, with a
+  key-periods summary.
+- **Panda event log** (in this folder):
+  [`panda_events_2026-10-20.log`](panda_events_2026-10-20.log), the panda's
+  `eigsep.log` for 10-20 and 10-21, distilled the same way.
+- **Heater log** (in this folder): [`hot_load_plateaus_20261020T172431Z.log`](hot_load_plateaus_20261020T172431Z.log)
+  (UTC; every action and a once-a-minute temperature readout). The full
+  ground and panda logs were not kept.
 - **Analysis notebook:** [`../../hot_load_testing_data.ipynb`](../../hot_load_testing_data.ipynb).
 - **Photos (§ 8):** _to add._
