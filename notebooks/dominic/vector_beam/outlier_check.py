@@ -1,6 +1,6 @@
 import numpy as np, run_phase2 as R, pipeline, geometry_v0013
 from scipy.stats import spearmanr
-from eigsep_data import vector_beam as vb
+from eigsep_data.beam_mapping import vector_beam as vb
 inp = pipeline.load(); cache=np.load(pipeline.CACHE, allow_pickle=True)
 j = R.join_pointing(inp["times"], str(cache["data_dir"]))
 ok = np.isfinite(j.az_deg.to_numpy())

@@ -1,6 +1,6 @@
 """Run pipeline.load() + Phase 2 selection B once; save everything to npz."""
 import sys, numpy as np
-from eigsep_data import vector_beam as vb
+from eigsep_data.beam_mapping import vector_beam as vb
 cap = {}
 _orig = vb.reduce_cross
 def spy(*a, **k):

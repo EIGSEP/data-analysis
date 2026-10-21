@@ -21,9 +21,10 @@ Two row selections:
 
     POINTING_TABLE=.../pointing_table.parquet python run_phase2.py
 
-With BRACKETED_FILL=1, DPSS fills without a measured same-arm tone on
-both sides are NaN (vb.reduce_cross(require_bracketed_fill=True)) and
-results go to phase2_bracketed_results.json.
+DPSS fills without a measured same-arm tone on both sides are NaN
+(vb.reduce_cross's default) and results go to
+phase2_bracketed_results.json. BRACKETED_FILL=0 keeps those fills, as on
+2026-10-20, and writes phase2_results.json.
 """
 
 import json
@@ -36,7 +37,7 @@ import pandas as pd
 import pyarrow.parquet as pq
 
 from eigsep_data import MetadataIndex
-from eigsep_data import vector_beam as vb
+from eigsep_data.beam_mapping import vector_beam as vb
 
 import geometry_v0013
 import pipeline
@@ -44,7 +45,7 @@ import pipeline
 HERE = Path(__file__).resolve().parent
 POINTING_TABLE = Path(os.environ["POINTING_TABLE"])
 JOIN_TOL_S = 0.35
-BRACKETED = os.environ.get("BRACKETED_FILL") == "1"
+BRACKETED = os.environ.get("BRACKETED_FILL", "1") != "0"
 
 
 def reversal_glitches(el_deg, tol=15.0):
@@ -95,7 +96,7 @@ def score(inp, geometry, valid_rows):
     rows = []
     for ch in inp["channels"]:
         valid = ch["valid"] & valid_rows
-        if valid.sum() < 50:  # e.g. d89 with BRACKETED_FILL: no anchor
+        if valid.sum() < 50:  # e.g. d89 when bracketed: no anchor above
             rows.append(
                 dict(
                     d_idx=ch["d_idx"],

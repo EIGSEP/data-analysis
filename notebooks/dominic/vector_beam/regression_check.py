@@ -1,7 +1,7 @@
 """
 Does the packaged solver reproduce the September 2026 results?
 
-Runs eigsep_data.vector_beam on the Marjum 2026-07 inputs (pipeline.py)
+Runs eigsep_data.beam_mapping.vector_beam on the Marjum 2026-07 inputs (pipeline.py)
 and compares, channel by channel, against the two results files the
 September scripts wrote:
 
@@ -22,7 +22,7 @@ from pathlib import Path
 
 import numpy as np
 
-from eigsep_data import vector_beam as vb
+from eigsep_data.beam_mapping import vector_beam as vb
 
 import pipeline
 
@@ -36,7 +36,7 @@ def corr(a, b):
 
 def main():
     t0 = time.time()
-    inp = pipeline.load()
+    inp = pipeline.load(require_bracketed_fill=False)
     pxs, r_hat, E1v, E2v = inp["geometry"]
     print(
         f"loaded {inp['n_integrations']} integrations, "

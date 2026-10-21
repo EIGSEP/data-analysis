@@ -3,8 +3,8 @@
 Recovers the sky antenna's complex vector beam `u` (three Cartesian
 components per pixel) from the transmitter cross-correlations, at the
 pixels the raster sampled, and checks it against HFSS and against held-out
-data. The method is `eigsep_data.vector_beam`; this directory holds the
-campaign inputs and the checks.
+data. The method is `eigsep_data.beam_mapping.vector_beam`; this
+directory holds the campaign inputs and the checks.
 
 ## Setup
 
@@ -53,9 +53,11 @@ DPSS fill from neighbouring tones. Every fill >100x its channel's median
 (up to ~1e8x, d75-d89) was an extrapolation: a same-arm tone missing on
 one side, or, at d89, the untrusted 230.5 MHz column above it. Fills with
 a trusted measured tone on both sides stay within the measured spread.
-`BRACKETED_FILL=1 python run_phase2.py` NaNs the extrapolated fills
-(`vb.reduce_cross(require_bracketed_fill=True)`) and writes
-`phase2_bracketed_results.json`. Selection B medians, Phase 2 -> bracketed:
+`run_phase2.py` now NaNs the extrapolated fills (the default of
+`vb.reduce_cross` and `pipeline.load`) and writes
+`phase2_bracketed_results.json`; `BRACKETED_FILL=0` gives the 2026-10-20
+behaviour. `regression_check.py` passes `require_bracketed_fill=False`.
+Selection B medians, Phase 2 -> bracketed:
 LOO power 0.958 -> 0.970, power 0.954 -> 0.977, y 0.930 -> 0.958,
 z 0.907 -> 0.981; d77 and d82 LOO 0.43 -> 0.96, d85-88 ~0 -> 0.91-0.94; no
 channel worse. Cost: median 91% of pixels kept (min 72%); d89 has no
@@ -64,6 +66,8 @@ valid samples. Figures and the scripts behind them are in
 
 ## Recent changes
 
+- 2026-10-21: the solver moved to `eigsep_data.beam_mapping.vector_beam`;
+  the bracketed-fill rule is the default.
 - 2026-10-21: bracketed-fill rule; d77/d82 and d85-88 LOO failures were
   extrapolated DPSS fills.
 - 2026-10-20: added; the solver moved into `eigsep_data.vector_beam`.

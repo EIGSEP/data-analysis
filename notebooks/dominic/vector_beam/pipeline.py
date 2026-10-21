@@ -7,8 +7,8 @@ constants of the cross-correlation reduction. It reproduces the inputs of
 the September 2026 study (notebooks/dominic/closure_fit_explore_v2.py on
 the old layout), which read potentiometer azimuth through
 ``extract_beam_mapping_data`` and a geometry fitted by the since-removed
-``fit_multi_freq_joint``. Pointing table v3 and geometry release v0004
-are not used yet.
+``fit_multi_freq_joint`` (``beam_sim.transmitter_fields``). Phase 2
+(run_phase2.py) swaps in pointing table v3 and the v0013 geometry.
 
 ``load()`` returns everything a solve needs, keyed by name.
 """
@@ -24,7 +24,7 @@ from scipy.ndimage import (
     percentile_filter,
 )
 
-from eigsep_data.beam_sim import read_beam
+from eigsep_data.beam_sim import read_beam, transmitter_fields
 from eigsep_data.data import (
     calibrate_weak_arm,
     extract_beam_mapping_data,
@@ -36,7 +36,7 @@ from eigsep_data.rfi import (
     flag_rfi_time,
     freq_axis_flag_reduced,
 )
-from eigsep_data import vector_beam as vb
+from eigsep_data.beam_mapping import vector_beam as vb
 
 #: Geometry fitted by fit_multi_freq_joint on 2026-09-17 against the
 #: corrected frequency axis, plus the data window it was fitted on.
@@ -132,9 +132,10 @@ def cross_tone_flags(cross, scale_factors, sky_or_ground, freqs_mhz):
     return binary_dilation(mask, np.ones((3, 1), dtype=bool))
 
 
-def load(require_bracketed_fill=False):
-    """Default False reproduces the September inputs; True NaNs DPSS fills
-    that are extrapolations (see vb.reduce_cross)."""
+def load(require_bracketed_fill=True):
+    """require_bracketed_fill=False reproduces the September inputs
+    exactly; the default NaNs DPSS fills that are extrapolations (see
+    vb.reduce_cross)."""
     cache = np.load(CACHE, allow_pickle=True)
     ext = extract_beam_mapping_data(
         Path(str(cache["data_dir"])),
@@ -195,7 +196,7 @@ def load(require_bracketed_fill=False):
     theta = float(cache["best_theta"])
     phi = float(cache["best_phi"])
     alpha = float(cache["best_alpha"])
-    pxs, r_hat, E1v, E2v = vb.transmitter_fields(
+    pxs, r_hat, E1v, E2v = transmitter_fields(
         theta, phi, alpha, np.deg2rad(az_deg), np.deg2rad(el_deg), nside
     )
 

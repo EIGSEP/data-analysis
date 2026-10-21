@@ -1,5 +1,5 @@
 import numpy as np, sys, json
-from eigsep_data import vector_beam as vb
+from eigsep_data.beam_mapping import vector_beam as vb
 from eigsep_data.rfi import build_frequency_trust_mask
 z = np.load(sys.argv[1]); out = sys.argv[2]
 sel = z["sel"]; geo = (z["pxs"], z["r_hat"], z["E1v"], z["E2v"])
