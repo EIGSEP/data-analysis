@@ -4,21 +4,27 @@ For each bearing (atan2(dN, dE), 0.1 deg steps) the DEM is sampled by
 bilinear interpolation every 0.25 m from the antenna out to the edge of the
 DEM tile, the Earth's curvature is removed geometrically (R = 6371 km, no
 refraction), and the horizon is the largest elevation angle along the ray.
-Three eras share the 91 m-era horizontal position; the 30 m and 87.5 m eras
-are offset in height by the field-note height differences. A sensitivity
-block repeats the 91 m profile with the antenna displaced horizontally in
-eight directions.
+All eras share the 91 m-era horizontal position. Heights (v0005): the 91 m
+era is the geometry release's antenna; the 87.5 m era and the configuration
+after the 07-17 battery re-raise ("91m-reraise") are offset from it by the
+height changes the S11 terrain echo measures (derived/height_eras, memo 002
+Heights); the 30 m era, which no S11 epoch covers, keeps the field-note
+difference (61 m). ``--fieldnote-heights`` restores the field-note offsets of
+v0004 and earlier (for validation). A sensitivity block repeats the 91 m
+profile with the antenna displaced horizontally in eight directions.
 
 v0002 was made by an uncommitted copy of this procedure on the int32
 ``terrain/marjum_dem_sw.npz``; ``--quantize`` reproduces that quantisation
 from the float32 cache for validation (``--validate-against``).
 
-Usage (current product, on DEM v0003 at the release v0004 antenna):
-    python build_horizon_profiles.py v0003 --out-dir <campaign>/curation
+Usage (current product, on DEM v0004 at the release v0004 antenna):
+    python build_horizon_profiles.py v0005 --previous v0004 \
+        --dem <campaign>/derived/dem/v0004/marjum_dem.npz
 """
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
 import json
 import subprocess
@@ -33,7 +39,13 @@ BEARING_STEP_DEG = 0.1
 MARCH_STEP_M = 0.25
 EARTH_R_M = 6371e3
 ANCHOR_ERA_M = 91.0
-ERAS = {"30m": 30.0, "87.5m": 87.5, "91m": 91.0}
+# Field-note height of each era; "91m-reraise" is the 91 m configuration after
+# the 07-17 battery re-raise (curation height_era "~91m-reraise").
+ERAS = {"30m": 30.0, "87.5m": 87.5, "91m": 91.0, "91m-reraise": 91.0}
+# Measured height change of each era from the 91 m era, as a row of
+# derived/height_eras/<v>/h2_lead_budget.csv (dU_m is the later configuration
+# minus the earlier one): offset = sign * dU_m.
+MEASURED = {"87.5m": ("07-17 13:10", -1), "91m-reraise": ("07-17 19:17 - 07-17 13:10", +1)}
 DIRECTIONS = 8
 
 
@@ -103,9 +115,35 @@ def profile(grid, e, n, heights, bearings):
     return out
 
 
-def build(grid, antenna, bearings):
+def measured_offsets(height_eras_dir):
+    """Era height offsets from the 91 m era (m) and their 1-sigma, from the
+    product's lead-peak budget; the manifest's SHA-256 is checked first."""
+    manifest = json.loads((height_eras_dir / "manifest.json").read_text())
+    path = height_eras_dir / "h2_lead_budget.csv"
+    if sha256(path) != manifest["files"][path.name]["sha256"]:
+        raise ValueError(f"{path} does not match its manifest")
+    with open(path) as f:
+        rows = {r["case"]: r for r in csv.DictReader(f)}
+    return {era: (sign * float(rows[case]["dU_m"]), float(rows[case]["sigma_total_m"]))
+            for era, (case, sign) in MEASURED.items()}
+
+
+def era_offsets(measured):
+    """Height offset (m) of every era from the 91 m era, and its source."""
+    out = {}
+    for era, h in ERAS.items():
+        if h == ANCHOR_ERA_M and era not in MEASURED:
+            out[era] = (0.0, "anchor: the geometry release's antenna", None)
+        elif measured is not None and era in measured:
+            out[era] = (measured[era][0], "S11 terrain echo", measured[era][1])
+        else:
+            out[era] = (h - ANCHOR_ERA_M, "field-note difference", None)
+    return out
+
+
+def build(grid, antenna, bearings, offsets):
     e, n, u91 = antenna
-    heights = {era: u91 - (ANCHOR_ERA_M - h) for era, h in ERAS.items()}
+    heights = {era: u91 + offsets[era][0] for era in ERAS}
     prof = profile(grid, e, n, list(heights.values()), bearings)
     elev = dict(zip(heights, prof))
     return heights, elev
@@ -136,6 +174,10 @@ def main():
                     help="illustrative horizontal displacement for the sensitivity block")
     ap.add_argument("--previous", default="v0002", help="previous version to report changes against")
     ap.add_argument("--out-dir", type=Path, default=None, help="default: <campaign>/curation")
+    ap.add_argument("--height-eras", type=Path, default=None,
+                    help="height_eras product (default: <campaign>/derived/height_eras/v0001)")
+    ap.add_argument("--fieldnote-heights", action="store_true",
+                    help="offset every era by its field-note height difference (v0004 and earlier)")
     ap.add_argument("--validate-against", type=Path, default=None,
                     help="compare elevations with this npz and print max |delta|; writes nothing")
     args = ap.parse_args()
@@ -149,11 +191,14 @@ def main():
                          shared["antenna_91m_era"]["position_enu_m"], float)
     grid = Grid(dem_path, args.quantize)
     bearings = np.round(np.arange(0, 360, BEARING_STEP_DEG), 6)
-    heights, elev = build(grid, antenna, bearings)
+    height_eras = None if args.fieldnote_heights else (
+        args.height_eras or campaign / "derived" / "height_eras" / "v0001")
+    offsets = era_offsets(None if height_eras is None else measured_offsets(height_eras))
+    heights, elev = build(grid, antenna, bearings, offsets)
 
     if args.validate_against:
         with np.load(args.validate_against) as old:
-            for era in ERAS:
+            for era in [e for e in ERAS if f"elev_rad_{e}" in old]:
                 d = np.degrees(np.abs(elev[era] - old[f"elev_rad_{era}"]))
                 print(f"{era}: max |delta elev| {d.max():.5f} deg, p99 {np.percentile(d, 99):.5f},"
                       f" median {np.median(d):.6f}; bearings > 0.01 deg: {(d > 0.01).sum()}")
@@ -197,7 +242,11 @@ def main():
         eras[era] = {"fieldnote_height_m": h, "antenna_u_m": round(heights[era], 3),
                      "agl_m_vs_ground_under_antenna": round(heights[era] - ground, 2),
                      "horizon_elev_deg": summary(elev[era])}
-        if old is not None:
+        eras[era]["offset_from_91m_era_m"] = round(offsets[era][0], 3)
+        eras[era]["offset_source"] = offsets[era][1]
+        if offsets[era][2] is not None:
+            eras[era]["offset_sigma_m"] = round(offsets[era][2], 3)
+        if old is not None and f"elev_rad_{era}" in old:
             eras[era][f"change_from_{args.previous}_deg"] = change(elev[era], old[f"elev_rad_{era}"])
     frame = shared.get("frame", {})
     product = {
@@ -207,12 +256,17 @@ def main():
             "generator": "data-analysis/scripts/marjum-2026-07/build_horizon_profiles.py",
             "generator_commit": commit, "generator_dirty": dirty,
             "inputs": [{"path": rel(p), "sha256": sha256(p)} for p in (shared_path, dem_path)]
-                      + ([{"path": rel(prev), "sha256": sha256(prev)}] if old is not None else []),
+                      + ([{"path": rel(prev), "sha256": sha256(prev)}] if old is not None else [])
+                      + ([{"path": rel(p), "sha256": sha256(p)} for p in
+                          (height_eras / "manifest.json", height_eras / "h2_lead_budget.csv")]
+                         if height_eras is not None else []),
             "params": {"bearing_step_deg": BEARING_STEP_DEG, "march_step_m": MARCH_STEP_M,
                        "march_limit": "DEM tile edge along each bearing",
                        "interpolation": "bilinear",
                        "earth_curvature": "geometric, R = 6371 km, no refraction",
                        "anchor_era_m": ANCHOR_ERA_M,
+                       "era_heights": ("field-note differences" if height_eras is None else
+                                       "S11 terrain-echo offsets from height_eras where measured"),
                        "illustrative_displacement_m": args.displacement_m},
         },
         "stamp": stamp, "data_file": data_file,
@@ -244,8 +298,14 @@ def main():
                      "and the displacement is the historical v0001 bounding radius."),
         },
         "assumptions": [
-            "The 91 m era anchors altitude; 30 m and 87.5 m are offset by field-note height "
-            "differences; all eras use the 91 m horizontal position.",
+            ("The 91 m era anchors altitude; every era is offset from it by the field-note "
+             "height difference; all eras use the 91 m horizontal position.")
+            if height_eras is None else
+            ("The 91 m era anchors altitude (the geometry release's antenna). The 87.5 m era and "
+             "the 91 m configuration after the 07-17 re-raise are offset by the S11 terrain-echo "
+             "height changes (offset_from_91m_era_m, offset_sigma_m); the 30 m era by its "
+             "field-note difference, unmeasured. All eras use the 91 m horizontal position; "
+             "the S11 offsets are vertical-only readings."),
             "A horizon profile represents the terrain as everything below the skyline at each "
             "bearing. Terrain visible above a nearer, lower ridge is inside that region, so the "
             "mask is exact for a height field.",

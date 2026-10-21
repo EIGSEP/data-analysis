@@ -60,6 +60,20 @@ v3 ``EL_SOLUTION_GLITCH`` (memo 003, Known defects): the detector wraps the
     blank (167,585 rows, 13.6%); every row now has an era, and its nominal
     height where LIDAR does not measure one. The provenance records the mode
     table's SHA-256. Every other column is unchanged.
+v4  **meaning changes** -- ``height_m`` is the antenna's height above the DEM
+    surface under it, per height era, read from ``curation/horizon_profiles_v0005``
+    (the same heights the horizon masks use): the geometry v0004 antenna for
+    ``~91m``, with the S11 terrain-echo height changes for ``~87.5m`` (-1.66 m)
+    and the new era ``~91m-reraise`` (+0.57 m, after the 07-17 battery
+    re-raise; derived/height_eras/v0001, memo 002 Heights). v3 carried the
+    field labels (87.5, 91 m) as heights. ``height_sigma_m`` now includes the
+    +/-3.2 m bound on the v0004 antenna; that part is one offset common to every
+    suspended era, whose differences are known to +/-0.2 m (``~30m`` excepted:
+    its offset is the field-note difference, +/-3 m). LIDAR ranges no longer override
+    ``height_m``: the rangefinder is on the box, below the antenna by an
+    unmodelled lever arm, and on the 509 rows it did override (the 07-17 dwell)
+    it read 92.3 m with outliers at 29 and 198 m. ``FLAG_HEIGHT_ASSUMED`` is
+    now set on every row; the raw range stays in ``lidar_dist_m``.
 
 Run::
 
@@ -85,18 +99,44 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-VERSION = "v3"
+VERSION = "v4"
 SCHEMA_VERSION = 5
 
-# Nominal platform height per curation height_era, and its uncertainty.
-# geometer owns the absolute values; these are the campaign-note figures the
-# table declares so a consumer can see exactly what was assumed.
-ERA_HEIGHT_M = {
-    "~2m": (2.0, 1.0),
-    "~30m": (30.0, 3.0),
-    "~87.5m": (87.5, 2.0),
-    "~91m": (91.0, 1.5),
-}
+# Antenna height per curation height_era (v4): metres of the antenna above the
+# DEM surface under it, read from the horizon product so that the table and the
+# horizon masks place every era at the same height. There the 91 m era is the
+# geometry release's antenna, the 87.5 m era and the configuration after the
+# 07-17 re-raise are offset from it by the S11 terrain-echo height changes
+# (derived/height_eras; memo 002, Heights), and the 30 m era by its field-note
+# difference. The field labels (87.5 m from the tether anchor, 91 m with no
+# datum) are other quantities and are not used as heights.
+HORIZON_PROFILES = "horizon_profiles_v0005"
+HORIZON_ERA = {"~30m": "30m", "~87.5m": "87.5m", "~91m": "91m",
+               "~91m-reraise": "91m-reraise"}
+# 1-sigma of the geometry release's antenna height, shared by every suspended
+# era: memo 002's +/-3.2 m bound on the v0004 antenna. Era offsets add their own
+# sigma in quadrature; an unmeasured (field-note) offset adds 3 m.
+ANTENNA_SIGMA_M = 3.2
+FIELDNOTE_OFFSET_SIGMA_M = 3.0
+# Eras with no antenna position: nominal height and uncertainty.
+NOMINAL_ERA_HEIGHT_M = {"~2m": (2.0, 1.0)}
+
+
+def era_heights(campaign_dir):
+    """{height_era: (height_m, sigma_m)} and the horizon product's JSON path."""
+    path = os.path.join(campaign_dir, "curation", HORIZON_PROFILES + ".json")
+    with open(path) as f:
+        eras = json.load(f)["eras"]
+    out = dict(NOMINAL_ERA_HEIGHT_M)
+    for label, key in HORIZON_ERA.items():
+        e = eras[key]
+        if e["offset_source"].startswith("anchor"):
+            off = 0.0
+        else:
+            off = e.get("offset_sigma_m", FIELDNOTE_OFFSET_SIGMA_M)
+        out[label] = (float(e["agl_m_vs_ground_under_antenna"]),
+                      float(np.hypot(ANTENNA_SIGMA_M, off)))
+    return out, path
 
 QUALITY_OK, QUALITY_SUSPECT, QUALITY_GAP = "ok", "suspect", "gap"
 
@@ -240,20 +280,17 @@ def build(data_dir, t_start, t_stop, campaign_dir, index=None):
     eras = load_eras(campaign_dir)
     era, phase = label_eras(d["file_name"], data_dir, eras)
 
-    # Height: era nominal, overridden by LIDAR ground returns where geometry
-    # allows the rangefinder to actually see the ground.
+    # Height: the era's antenna height (era_heights). v4 no longer overrides it
+    # with LIDAR ground returns: the rangefinder sits on the box, below the
+    # antenna by an unmodelled lever arm (about the antenna coax length), so its
+    # range is not the antenna height (memo 002: the dwell reads 2.2 m short of
+    # the v0004 prediction). The raw range stays in lidar_dist_m.
     height = np.full(n, np.nan)
     sigma_h = np.full(n, np.nan)
-    for key, (h, s) in ERA_HEIGHT_M.items():
+    for key, (h, s) in era_heights(campaign_dir)[0].items():
         sel = era == key
         height[sel], sigma_h[sel] = h, s
-    lidar_h = fuse.lidar_height(d["lidar_distance_m"], d["imu_el_el_deg"])
-    measured = np.isfinite(lidar_h)
-    height[measured] = lidar_h[measured]
-    if measured.sum() > 10:
-        sigma_h[measured] = float(1.4826 * np.median(
-            np.abs(lidar_h[measured] - np.median(lidar_h[measured]))))
-    flags[~measured] |= fuse.FLAG_HEIGHT_ASSUMED
+    flags |= fuse.FLAG_HEIGHT_ASSUMED
 
     hdr_bad = d["hdr_time_bad"].astype(bool)
     t_sigma = np.where(hdr_bad, extract.FNAME_ANCHOR_SIGMA_S, 0.0)
@@ -356,6 +393,7 @@ def main():
           f"{sum(r['hdr_time_bad'] for r in index)} with bad header clocks")
 
     table, files, motor_el_sigma = build(data_dir, t0, t1, campaign_dir, index=index)
+    heights, height_path = era_heights(campaign_dir)
     n = table["t_utc"].size
     commit, dirt_outside = git_describe(
         os.path.join(HERE, "..", "..", "..", ".."), scope=HERE)
@@ -427,6 +465,10 @@ def main():
             "passes no longer fire it) and sets quality 'suspect' on both "
             "members of a flagged pair; the rate does not say which is bad. "
             "height_era and phase are labelled by source file.",
+            "v4: height_m is the era's antenna height above the DEM v0004 "
+            "surface under the antenna (v0004 point fit, with the S11 "
+            "height changes for ~87.5m and the new ~91m-reraise era); LIDAR "
+            "ranges no longer override it (unmodelled lever arm).",
         ],
         "params": {
             "window_start_utc": extract.utc(table["t_utc_s"][0]),
@@ -439,7 +481,8 @@ def main():
             "el_stuck_motor_ptp_deg": 30.0,
             "lidar_valid_m": [fuse.LIDAR_MIN_VALID, fuse.LIDAR_MAX_VALID],
             "hdr_time_tol_s": extract.HDR_TIME_TOL_S,
-            "era_height_m": {k: v[0] for k, v in ERA_HEIGHT_M.items()},
+            "era_height_m": {k: round(v[0], 2) for k, v in heights.items()},
+            "era_height_sigma_m": {k: round(v[1], 2) for k, v in heights.items()},
             "commanded_az": {
                 "stretch_gap_s": fuse.STRETCH_GAP_S,
                 "rehome_jump_deg": fuse.REHOME_JUMP_DEG,
@@ -448,6 +491,9 @@ def main():
                 "anchor_min_samples": fuse.ANCHOR_MIN_SAMPLES,
                 "pot_diverge_deg": fuse.AZ_DIVERGE_DEG},
         },
+        "height_source": {
+            "path": f"marjum-2026-07/curation/{HORIZON_PROFILES}.json",
+            "sha256": sha256(height_path)},
         "era_source": {
             "path": "marjum-2026-07/curation/mode_table.jsonl",
             "sha256": sha256(os.path.join(campaign_dir, "curation",
