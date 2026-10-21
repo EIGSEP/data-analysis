@@ -199,6 +199,7 @@ mount offsets, horizon profiles v0002), HFSS beam, rx-A only (07-15 to 07-17 19:
 
 ## Recent changes
 
+- 2026-10-19: every script here now reads `curation/horizon_profiles_v0004` and `derived/dem/v0004`, which extends the DEM 6 km south; v0003 cut the southern horizon short by up to 5.5 deg. Products made from here on carry the v0004 terrain.
 - 2026-10-09: `bin_raw.py`, `global_fit.py`, `plot_global.py`: one model of
   raw box-air power over phase C, with a smooth gain; first trials above. `global_fit.py` now reads the beam, mount
   offsets, horizon profiles and transmitter through `common`/`sun` like the other scripts
