@@ -10,9 +10,8 @@ but lose their alignment with pointing. ``--fast-gain-from FIT_JSON`` multiplies
 part of that fit's log gain (its knots minus a piecewise-linear fit with --detrend-s knots,
 per gain segment): a gain structure the truth fit itself does not have.
 ``--fast-gain-cm NPZ`` (from fast_gain_cm.py: knot_t, knot_seg, fast) multiplies in one
-frequency-flat fast log gain at every frequency instead.
-
-From the data-analysis branch sky-terrain-model (62773b2), with --fast-gain-cm added.
+frequency-flat fast log gain at every frequency instead. ``--resid-key`` names the truth
+fit's residual array (``resid_frac_fast`` for a shared fast-gain fit).
 """
 import argparse
 import json
@@ -24,6 +23,8 @@ ap.add_argument("binned"); ap.add_argument("resid"); ap.add_argument("out")
 ap.add_argument("--seed", type=int, default=1)
 ap.add_argument("--add-resid", default=None)
 ap.add_argument("--roll", type=int, default=1500)
+ap.add_argument("--resid-key", default="resid_frac",
+                help="the truth fit's residual array: resid_frac, or resid_frac_fast for a shared fast-gain fit")
 ap.add_argument("--fast-gain-from", default=None)
 ap.add_argument("--detrend-s", type=float, default=10800.0)
 ap.add_argument("--fast-gain-cm", default=None)
@@ -34,7 +35,7 @@ fi = [int(np.argmin(np.abs(B["freqs_mhz"] - f))) for f in R["freqs_mhz"]]
 rng = np.random.default_rng(args.seed)
 y = np.full((len(B["t"]), len(fi)), np.nan)
 for j, c in enumerate(fi):
-    m = B["y"][idx, c] * (1 - R["resid_frac"][j])
+    m = B["y"][idx, c] * (1 - R[args.resid_key][j])
     sig = m / np.sqrt(CHANNEL_MHZ * 1e6 * B["tau"][idx] * np.maximum(B["nsamp"][idx, c], 1))
     y[idx, j] = m + sig * rng.standard_normal(len(m))
 if args.add_resid:
