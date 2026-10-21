@@ -155,16 +155,17 @@ def main():
     ap.add_argument("--max-resid", type=float, default=0.05,
                     help="use a stretch in the regression only if the sky fit's median residual "
                          "is below this fraction of the power")
-    ap.add_argument("--start", action="append", default=[], metavar="DATE=UTC",
-                    help="start a stretch later, e.g. 07-15=2026-07-15T05:12:00Z (the 07-15 night's raw power "
-                         "is a few percent of its later level before about 04:45)")
+    ap.add_argument("--fit-from", action="append", default=[], metavar="DATE=UTC",
+                    help="fit a stretch only from this time, e.g. 07-15=2026-07-15T05:12:00Z (the 07-15 night's "
+                         "raw power is a few percent of its later level before about 04:45). The stretch is still "
+                         "binned from its start, so the pointing filled into bins without any is unchanged")
     ap.add_argument("--out-dir", type=Path)
     args = ap.parse_args()
-    for spec in args.start:
+    for spec in args.fit_from:
         day, utc = spec.split("=")
         st = next(s_ for s_ in STRETCHES if s_["name"].startswith(day))
-        st["start"] = utc
-        st["name"] = f"{st['name']} (from {utc[11:16]})"
+        st["fit_from"] = utc
+        st["name"] = f"{st['name']} (fitted from {utc[11:16]})"
 
     campaign = campaign_root()
     out_dir = args.out_dir or campaign / "derived/ground_sky" / f"skycal_{args.version}"
@@ -186,6 +187,8 @@ def main():
         print(st["name"], flush=True)
         df = bin_stretch(index, st, freqs, args.bin_s, args.max_sun_alt,
                          args.tcal if "87.5" in st["era"] else None)
+        if st.get("fit_from"):
+            df = df[df.t.values >= ts(st["fit_from"])].reset_index(drop=True)
         t = df.t.values
         rg = EarthSurface(lat, lon, hgt).rot_gal2top_stack(Time(t, format="unix")).astype(float)
         rb = mount_rotation(df.az.values + az_off, df.el.values + el_off, psi)
