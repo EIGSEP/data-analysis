@@ -11,13 +11,15 @@ height changes the S11 terrain echo measures (derived/height_eras, memo 002
 Heights); the 30 m era, which no S11 epoch covers, keeps the field-note
 difference (61 m). ``--fieldnote-heights`` restores the field-note offsets of
 v0004 and earlier (for validation). A sensitivity block repeats the 91 m
-profile with the antenna displaced horizontally in eight directions.
+profile with the antenna displaced horizontally in eight directions. The
+antenna is geometry release v0005's (converged posterior) by default; the
+product records the release's own uncertainty where it gives one.
 
 v0002 was made by an uncommitted copy of this procedure on the int32
 ``terrain/marjum_dem_sw.npz``; ``--quantize`` reproduces that quantisation
 from the float32 cache for validation (``--validate-against``).
 
-Usage (current product, on DEM v0004 at the release v0004 antenna):
+Usage (current product, on DEM v0004 at the release v0005 antenna):
     python build_horizon_profiles.py v0005 --previous v0004 \
         --dem <campaign>/derived/dem/v0004/marjum_dem.npz
 """
@@ -165,7 +167,7 @@ def change(new, old):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("version", help="product version, e.g. v0003")
-    ap.add_argument("--release", default="v0004", help="geometry release supplying the antenna")
+    ap.add_argument("--release", default="v0005", help="geometry release supplying the antenna")
     ap.add_argument("--dem", default=None, help="DEM cache (default: derived/dem/v0003/marjum_dem.npz)")
     ap.add_argument("--quantize", choices=("none", "round", "trunc"), default="none")
     ap.add_argument("--antenna", type=float, nargs=3, default=None,
@@ -249,6 +251,21 @@ def main():
         if old is not None and f"elev_rad_{era}" in old:
             eras[era][f"change_from_{args.previous}_deg"] = change(elev[era], old[f"elev_rad_{era}"])
     frame = shared.get("frame", {})
+    ant = shared["antenna_91m_era"]
+    unc = {k: ant[k] for k in ("uncertainty_enu_m", "bound_kind", "bound_m") if k in ant}
+    if "uncertainty_enu_m" in unc:
+        unc["uncertainty_enu_m"] = [round(float(x), 3) for x in unc["uncertainty_enu_m"]]
+    if "bound_m" in unc:
+        unc["bound_m"] = round(float(unc["bound_m"]), 3)
+    if unc:
+        unc_text = (f"The antenna position (release {args.release}) carries the release's "
+                    f"posterior uncertainty (antenna_uncertainty: 1-sigma E, N, U "
+                    f"{unc.get('uncertainty_enu_m')} m; {unc.get('bound_kind')} "
+                    f"{unc.get('bound_m')} m). It is conditional on the release's vertical "
+                    f"frame ({frame.get('vertical_datum_status', 'status not stated')}); memo 002 "
+                    "quotes a wider held-out bound for the antenna.")
+    else:
+        unc_text = f"The antenna position (release {args.release}) has no established uncertainty."
     product = {
         "provenance": {
             "product": "horizon_profiles", "campaign": "marjum-2026-07", "version": args.version,
@@ -277,7 +294,8 @@ def main():
         "antenna_enu_m": [round(float(x), 3) for x in antenna],
         "antenna_source": (f"marjum-2026-07/imgs/fits/{args.release}_marjum_geometry/shared.json "
                            f"antenna_91m_era (release {args.release}, "
-                           f"{shared['antenna_91m_era'].get('status')})"),
+                           f"{ant.get('status')})"),
+        "antenna_uncertainty": unc or None,
         "geometry_release": args.release,
         "ground_under_antenna_m": round(ground, 2),
         "dem": {"cache": rel(dem_path), "dtype": grid.dtype, "grid_m": grid.res,
@@ -294,8 +312,8 @@ def main():
                 "p95": round(float(np.degrees(np.percentile(spread, 95))), 4),
                 "max": round(float(np.degrees(spread.max())), 4)},
             "note": ("Spread in the 91 m horizon from displacing the antenna by this distance in "
-                     "8 directions. Illustrative only: the geometry release gives no uncertainty, "
-                     "and the displacement is the historical v0001 bounding radius."),
+                     "8 directions. Illustrative only: the displacement is the historical v0001 "
+                     "bounding radius, not the release's uncertainty (antenna_uncertainty)."),
         },
         "assumptions": [
             ("The 91 m era anchors altitude; every era is offset from it by the field-note "
@@ -312,7 +330,9 @@ def main():
         ],
         "limitations": [
             "No vegetation, talus or suspension structure in the DEM.",
-            f"The antenna position (release {args.release}) has no established uncertainty.",
+            unc_text,
+            ("The 30 m era has no position of its own in the geometry release: it shares the "
+             "91 m-era (E, N), and its height is the field-note difference."),
             "The march stops at the DEM mosaic edge (see the extent); terrain beyond it is not "
             "traced. coverage_certificate.py checks that it cannot rise above this skyline.",
         ],
