@@ -155,8 +155,16 @@ def main():
     ap.add_argument("--max-resid", type=float, default=0.05,
                     help="use a stretch in the regression only if the sky fit's median residual "
                          "is below this fraction of the power")
+    ap.add_argument("--start", action="append", default=[], metavar="DATE=UTC",
+                    help="start a stretch later, e.g. 07-15=2026-07-15T05:12:00Z (the 07-15 night's raw power "
+                         "is a few percent of its later level before about 04:45)")
     ap.add_argument("--out-dir", type=Path)
     args = ap.parse_args()
+    for spec in args.start:
+        day, utc = spec.split("=")
+        st = next(s_ for s_ in STRETCHES if s_["name"].startswith(day))
+        st["start"] = utc
+        st["name"] = f"{st['name']} (from {utc[11:16]})"
 
     campaign = campaign_root()
     out_dir = args.out_dir or campaign / "derived/ground_sky" / f"skycal_{args.version}"
