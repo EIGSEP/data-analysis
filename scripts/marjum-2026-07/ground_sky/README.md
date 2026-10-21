@@ -209,6 +209,9 @@ mount offsets, horizon profiles v0002), HFSS beam, rx-A only (07-15 to 07-17 19:
 
 ## Recent changes
 
+- 2026-10-21: `sky_cal.py --fit-from DATE=UTC` fits one night's stretch only from a later time, still
+  binning it from its start. The 07-15 night's raw power is a few percent of its later level before
+  about 04:45, so `skycal_v0005` fits that night from 05:12 (memo 008).
 - 2026-10-21: the two lines of `global_fit.py` work (daily-term and receiver-gain tests from branch
   `cal-gain-daily-term-v0004`; the shared fast gain from `sky-terrain-model-v0004`) are merged. Both had
   built `--gain-anchor`, `--mock-y` and fast-gain injection; one implementation is kept: priors are rows
