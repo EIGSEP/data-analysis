@@ -253,8 +253,8 @@ def main():
         "limitations": [
             "No vegetation, talus or suspension structure in the DEM.",
             f"The antenna position (release {args.release}) has no established uncertainty.",
-            "The march stops at the DEM mosaic edge (see the extent); at 87.5-91 m the skyline on "
-            "about 160 bearings lies beyond DEM v0002's 3 x 4 tiles, so the larger mosaic is required.",
+            "The march stops at the DEM mosaic edge (see the extent); terrain beyond it is not "
+            "traced. coverage_certificate.py checks that it cannot rise above this skyline.",
         ],
     }
     (out_dir / f"horizon_profiles_{args.version}.json").write_text(json.dumps(product, indent=1) + "\n")
