@@ -51,13 +51,13 @@ from eigsep_sim.design_matrix import (
 )
 from eigsep_sim.observer import EarthSurface
 
-from common import mount_offsets
+from common import HORIZON_PROFILES, mount_offsets
 
 HERE = Path(__file__).resolve().parent
 CAMPAIGN = Path(os.environ["EIGSEP_CAMPAIGN_ROOT"])
 WORKSPACE = CAMPAIGN.parent
 POINTING = CAMPAIGN / "curation" / "pointing_table.parquet"
-HORIZONS = CAMPAIGN / "curation" / "horizon_profiles_v0003.npz"   # common.HORIZON_PROFILES
+HORIZONS = CAMPAIGN / f"{HORIZON_PROFILES}.npz"
 EMPIRICAL = CAMPAIGN / "derived/beam/empirical_raster_v0013/dpss"   # common.BEAM_PRODUCT
 HFSS = WORKSPACE / "data-analysis/hfss_beam_maps/bowtie_beam.npz"
 
