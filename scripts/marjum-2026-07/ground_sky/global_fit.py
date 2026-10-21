@@ -23,7 +23,45 @@ bin b, at each frequency, is modelled as
 - ``T_g``: one ground temperature below the DEM horizon, ``C_gnd`` the ground
   fraction. A uniform shift of the sky is degenerate with ground and offset
   (sky fraction = 1 - ground fraction), so ``T_g`` is relative to GSM's
-  monopole, and the sky corrections start at l = 1.
+  monopole, and the sky corrections start at l = 1. With ``--ground diffuse``
+  the ground instead reflects the sky diffusely:
+  T_g(t) = (1 - R) ``--ground-tphys`` + R Sbar(t), where Sbar is GSM averaged
+  over the open sky (above the era's horizon profile) with Lambertian
+  cos(zenith) weights (``--diffuse-weight uniform``: unweighted, which counts the
+  sky near the horizon more). R is the one free parameter, as T_g is for
+  ``--ground constant``, so the two compare at equal freedom; only the change of
+  Sbar with LST tells them apart. ``--ground diffuse-free`` fits
+  T_g(t) = T_0 + R Sbar(t), with one more parameter. ``--ground beam`` is the
+  alternative at the same freedom: the beam's response below the horizon is
+  overestimated by a fraction eps, and that response really falls on the sky.
+  To first order the ground term becomes
+  T_phys C_gnd + eps C_gnd (C_GSM / (1 - C_gnd) - T_phys): the sky replacing
+  the ground is the beam-weighted sky of the current pointing, not the
+  hemisphere average, so it changes with pointing as well as with LST.
+  ``--ground pickup`` (same freedom) keeps the ground at T_phys and adds
+  k Sbar(t) without the ground fraction: sky entering by a path that does not
+  turn with the antenna (cable, box, tether) instead of by the ground.
+  ``--ground hk`` (same freedom) keeps the ground at T_phys and adds k times a
+  housekeeping stream (``--hk-stream``, centred) from ``--hk``: a daily
+  systematic, which over phase C shares its phase with the sky.
+  ``--hk-extra`` adds further centred housekeeping streams, one coefficient
+  each, on top of any ``--ground`` choice: the joint test of whether a sky
+  term survives with a temperature in the same fit.
+  ``--orient add|mult`` adds cos(n el) and sin(n el), n = 1..``--orient-n``,
+  one coefficient each: additive kelvin (``add``), or times the fixed part of
+  the model (``mult``, a first-order gain or match change with tilt). It tests
+  whether an orientation-dependent term, not the sky, carries what the ground
+  column absorbs.
+  ``--ground-group window|era`` gives every fitted window, or every height
+  era, its own ground temperature (one column, the ground fraction in that
+  group), replacing the single ``T_gnd`` of ``--ground constant`` or added
+  beside the sky column of the other choices. Differences between groups
+  then cannot be carried by the sky column. Per window is not identifiable on
+  phase C: most windows are parked, so the ground fraction is constant inside
+  them and the column becomes a per-window offset (gain -> 0, offset -> inf).
+  ``--ground-level-prior MEAN SIGMA`` puts a Gaussian prior on the free ground
+  level ``T_gnd`` (``--ground diffuse-free``): between the tied Lambertian level
+  and a free one, which on phase C trades with the receiver offset and runs off.
 - ``d_lm``: real spherical harmonics in Galactic coordinates, 1 <= l <= ``--lmax``.
 - ``x_tx``: the transmitter, the beam toward it times the fraction of the bin it
   was on (box-gnd transitions).
@@ -187,6 +225,35 @@ def cached_columns(key, path, build):
     return cG, cN, cY, labels, cT, cS
 
 
+def diffuse_sky(df, freqs, weight, campaign, nside=32, step_s=60.0, lst_shift_h=0.0):
+    """Sbar per bin and frequency, (nf, nb): GSM averaged over the directions
+    above the era's true horizon profile, weighted by cos(zenith) (``cos``,
+    a Lambertian ground) or not (``uniform``). Computed on a step_s grid and
+    interpolated; the sky turns 0.25 deg per minute. ``lst_shift_h`` evaluates
+    the sky that many sidereal hours later (a control: same smoothness, wrong
+    sky)."""
+    import healpy
+    eras = sorted(set(df.era))
+    d = np.array(healpy.pix2vec(nside, np.arange(healpy.nside2npix(nside))))
+    maps = gsm_maps(freqs, nside)
+    es = EarthSurface(*MARJUM_PASS)
+    t = df.t.to_numpy()
+    out = np.zeros((len(freqs), len(t)))
+    for e in eras:
+        hz = sunmod.true_horizon(HorizonProfile.from_npz(campaign / f"{HORIZON_PROFILES}.npz", ERAS[e]))
+        open_ = hz.visible(d) & (d[2] > 0)
+        wt = (d[2] if weight == "cos" else np.ones(d.shape[1])) * open_
+        m = (df.era == e).to_numpy()
+        grid = np.unique(np.floor(t[m] / step_s)) * step_s
+        grid = np.union1d(grid, grid + step_s)
+        rg = es.rot_gal2top_stack(Time(grid + lst_shift_h * 3600 * 0.9972696, format="unix")).astype(float)
+        sg = np.zeros((len(freqs), len(grid)))
+        for k, R in enumerate(rg):
+            sg[:, k] = maps[:, healpy.vec2pix(nside, *(R.T @ d))] @ wt / wt.sum()
+        out[:, m] = np.array([np.interp(t[m], grid, s) for s in sg])
+    return out
+
+
 def sun_geometry_bins(df, step_s=120.0):
     """``sun.sun_geometry`` for every bin: the Sun's position exactly, the
     terrain edge along its bearing traced on a step_s grid and interpolated
@@ -309,8 +376,12 @@ def gain_basis(t, seg, knot_s):
 class SmoothGainModel:
     """y = exp(H a) [C_GSM + X th + o_group]: the gain is smooth in time."""
 
-    def __init__(self, cG, X, xnames, groups, n_groups, H, knot_seg, step_sigma):
+    def __init__(self, cG, X, xnames, groups, n_groups, H, knot_seg, step_sigma, theta_prior=None):
         self.cG, self.X, self.xnames = cG, X, xnames
+        # Gaussian priors on named coefficients: {name: (mean, sigma)}.
+        self.tp = [(xnames.index(k), m, sg) for k, (m, sg) in (theta_prior or {}).items() if k in xnames]
+        # Optional prior h . a + c = 0 +- sigma on the log-gain knot coefficients a.
+        self.anchor = None
         self.groups, self.ng, self.H = groups, n_groups, H
         self.nx, self.nk = X.shape[1], H.shape[1]
         # Prior on log-gain steps between adjacent knots of one segment.
@@ -347,13 +418,30 @@ class SmoothGainModel:
         return np.r_[np.zeros(self.nx + self.ng), a]
 
     def penalty(self, p):
-        return self.D @ self.split(p)[2]
+        th = self.split(p)[0]
+        a = self.split(p)[2]
+        an = [] if self.anchor is None else [(self.anchor[0] @ a + self.anchor[1]) / self.anchor[2]]
+        return np.r_[self.D @ a, [(th[k] - m) / sg for k, m, sg in self.tp], an]
+
+    def penalty_jac(self):
+        zero = np.zeros((self.D.shape[0], self.nx + self.ng))
+        P = np.zeros((len(self.tp), self.nx + self.ng + self.nk))
+        for r, (k, _, sg) in enumerate(self.tp):
+            P[r, k] = 1.0 / sg
+        if self.anchor is not None:
+            A = np.zeros((1, self.nx + self.ng + self.nk))
+            A[0, self.nx + self.ng:] = self.anchor[0] / self.anchor[2]
+            P = np.vstack([P, A])
+        return np.vstack([np.hstack([zero, self.D]), P])
 
     def fit(self, y, w, rows):
-        zero = np.zeros((self.D.shape[0], self.nx + self.ng))
+        PJ = self.penalty_jac()
+        p0 = self.start(y, rows)
+        for k, m, _ in self.tp:
+            p0[k] = m
         return least_squares(
-            lambda p: np.r_[((self.predict(p) - y) * w)[rows], self.penalty(p)], self.start(y, rows),
-            jac=lambda p: np.vstack([self.jac(p, rows, w), np.hstack([zero, self.D])]),
+            lambda p: np.r_[((self.predict(p) - y) * w)[rows], self.penalty(p)], p0,
+            jac=lambda p: np.vstack([self.jac(p, rows, w), PJ]),
             method="trf", x_scale="jac", xtol=1e-10, ftol=1e-10, gtol=1e-10, max_nfev=3000)
 
 
@@ -374,9 +462,16 @@ def window_gate(y, cG, win, tt, rows):
 
 
 def fit_smooth(out, y0, w, fin, train, sig_rad, X, xnames, cG, groups, gnames, H, knot_t,
-               knot_seg, sc, ok_bins, resid_store, i, nbins, step_sigma):
-    """Fit the smooth-gain model on the training rows and on all rows."""
-    M = SmoothGainModel(cG, X, xnames, groups, len(gnames), H, knot_seg, step_sigma)
+               knot_seg, sc, ok_bins, resid_store, i, nbins, step_sigma, theta_prior=None,
+               gain_anchor=None):
+    """Fit the smooth-gain model on the training rows and on all rows.
+    gain_anchor (A, sigma): a prior on the mean, over bins with a tcal scale, of
+    log(gain x scale) = log A +- sigma, the GSM amplitude a_tcal (as on the
+    data-analysis branch sky-terrain-model), so fast gains cannot collapse."""
+    M = SmoothGainModel(cG, X, xnames, groups, len(gnames), H, knot_seg, step_sigma, theta_prior)
+    if gain_anchor:
+        ok = fin & np.isfinite(sc) & (sc > 0)
+        M.anchor = (H[ok].mean(0), float(np.mean(np.log(sc[ok])) - np.log(gain_anchor[0])), gain_anchor[1])
     for name, rows in (("train", fin & train), ("all", fin)):
         sol = M.fit(y0, w, rows)
         p = sol.x
@@ -387,6 +482,10 @@ def fit_smooth(out, y0, w, fin, train, sig_rad, X, xnames, cG, groups, gnames, H
         J = M.jac(p, rows, w)
         JtJ = J.T @ J
         JtJ[M.nx + M.ng:, M.nx + M.ng:] += M.D.T @ M.D
+        for k, _, sg in M.tp:
+            JtJ[k, k] += 1.0 / sg ** 2
+        if M.anchor is not None:
+            JtJ[M.nx + M.ng:, M.nx + M.ng:] += np.outer(M.anchor[0], M.anchor[0]) / M.anchor[2] ** 2
         err = np.sqrt(np.abs(np.diag(np.linalg.pinv(JtJ)))) * np.sqrt(chi)
         res = {"status": int(sol.status), "nfev": int(sol.nfev), "cost": float(sol.cost),
                "optimality": float(sol.optimality), "cond": float(np.linalg.cond(JtJ)),
@@ -463,6 +562,37 @@ def main():
     ap.add_argument("--every", type=int, default=2)
     ap.add_argument("--only-mhz", type=float, nargs="*", help="fit only these frequencies (diagnostics)")
     ap.add_argument("--nside", type=int, default=8)
+    ap.add_argument("--ground", choices=["constant", "diffuse", "diffuse-free", "beam", "pickup", "hk"], default="constant",
+                    help="ground temperature: one constant T_g, or diffusely reflected sky "
+                         "(1-R) T_phys + R Sbar(t) with R free, or T_0 + R Sbar(t)")
+    ap.add_argument("--ground-tphys", type=float, default=290.0)
+    ap.add_argument("--hk", type=Path, help="npz of per-bin housekeeping means (key t, then one key per "
+                    "stream) for every bin of --binned; bins missing any stream are not fitted")
+    ap.add_argument("--hk-stream", help="stream used by --ground hk")
+    ap.add_argument("--night-only", action="store_true",
+                    help="fit only bins with the Sun below the geometric horizon (no daytime at all)")
+    ap.add_argument("--gain-segment-by-era", action="store_true",
+                    help="a separate smooth gain curve per height era (the gain may step when the antenna is raised)")
+    ap.add_argument("--gain-anchor", type=float, nargs=2, default=None, metavar=("A", "SIGMA"),
+                    help="prior on the GSM amplitude a_tcal (gain x tcal scale) near A, so the gain cannot collapse")
+    ap.add_argument("--mock-y", type=Path, default=None,
+                    help="npz (t, freqs_mhz, y) from inject_mock.py replacing the binned y at those frequencies")
+    ap.add_argument("--t-exclude", nargs="*", default=[], metavar="START END",
+                    help="UTC ISO start/end pairs of spans not fitted")
+    ap.add_argument("--t-range", nargs=2, metavar=("START", "END"),
+                    help="fit only bins in [START, END) (UTC ISO times), e.g. to repeat a test on disjoint halves")
+    ap.add_argument("--ground-level-prior", type=float, nargs=2, metavar=("MEAN_K", "SIGMA_K"),
+                    help="Gaussian prior on the free ground level T_gnd (e.g. with --ground diffuse-free)")
+    ap.add_argument("--ground-group", choices=["none", "window", "era"], default="none",
+                    help="one ground temperature per fitted window (T_gnd_w<k>) or height era (T_gnd_<era>)")
+    ap.add_argument("--orient", choices=["none", "add", "mult"], default="none",
+                    help="orientation term in elevation: additive K, or a fractional change of the fixed model")
+    ap.add_argument("--orient-n", type=int, default=1, help="elevation harmonics in --orient")
+    ap.add_argument("--hk-extra", nargs="*", default=[],
+                    help="housekeeping streams from --hk added as extra centred columns (k_<stream>)")
+    ap.add_argument("--diffuse-weight", choices=["cos", "uniform"], default="cos")
+    ap.add_argument("--diffuse-lst-shift-h", type=float, default=0.0,
+                    help="control: build Sbar from the sky this many sidereal hours away")
     ap.add_argument("--label", default=None, help="name of this configuration in the output")
     ap.add_argument("--out-dir", type=Path)
     args = ap.parse_args()
@@ -505,8 +635,35 @@ def main():
     # the Sun cut, so the column cache is shared.
     fit_mask = fit_mask & (df.t.to_numpy() < EL_FAILURE)
     fit_mask &= df.regime.isin(args.regimes).to_numpy()
+    if args.night_only:
+        fit_mask &= geom["alt"] < 0
+        sel_counts["night"] = int(fit_mask.sum())
+    if args.t_range:
+        t0_, t1_ = (pd.Timestamp(x).timestamp() for x in args.t_range)
+        fit_mask &= (df.t.to_numpy() >= t0_) & (df.t.to_numpy() < t1_)
+        sel_counts["in_t_range"] = int(fit_mask.sum())
+    for a_, b_ in zip(args.t_exclude[::2], args.t_exclude[1::2]):
+        t0_, t1_ = pd.Timestamp(a_).timestamp(), pd.Timestamp(b_).timestamp()
+        fit_mask &= ~((df.t.to_numpy() >= t0_) & (df.t.to_numpy() < t1_))
+    if args.t_exclude:
+        sel_counts["after_t_exclude"] = int(fit_mask.sum())
     sel_counts["before_el_failure"] = int((df.t.to_numpy() < EL_FAILURE).sum())
+    if args.hk_extra and not args.hk:
+        sys.exit("--hk-extra needs --hk")
+    if args.hk:
+        with np.load(args.hk) as zh:
+            assert np.array_equal(zh["t"], z["t"]), "--hk bins differ from --binned"
+            hk = {k: zh[k][keep] for k in zh.files if k != "t"}
+        hk_ok = np.all([np.isfinite(v) for v in hk.values()], axis=0)
+        fit_mask = fit_mask & hk_ok
+        sel_counts["with_hk"] = int(hk_ok.sum())
     Yall, nsamp = z["y"][keep], z["nsamp"][keep]
+    if args.mock_y:
+        with np.load(args.mock_y) as zm:
+            assert np.array_equal(zm["t"], z["t"]), "mock bins differ from the binned product's"
+            Yall = Yall.copy()
+            for jm, fm in enumerate(zm["freqs_mhz"]):
+                Yall[:, int(np.argmin(np.abs(z["freqs_mhz"] - fm)))] = zm["y"][keep, jm]
     scale = z["scale"][keep]
 
     beam, beam_path = load_beam(args.beam, campaign)
@@ -550,6 +707,9 @@ def main():
         lambda: columns(df, freqs, beam, args.nside, lmax_c, campaign, geom))
     n_lm = (args.lmax + 1) ** 2 - 1          # real Y_lm are ordered by l
     cY, ylabels = cY[:, :n_lm], ylabels[:n_lm]
+
+    Sbar = diffuse_sky(df, freqs, args.diffuse_weight, campaign,
+                       lst_shift_h=args.diffuse_lst_shift_h) if args.ground.startswith("diffuse") or args.ground == "pickup" else None
 
     gate = window_gate(Y, cG, win, tt, fit_mask)
     good_w = gate < args.max_window_resid       # NaN (no bins to test) is not kept
@@ -596,7 +756,8 @@ def main():
         groups = np.array([gnames.index(n) for n in names])
 
     if args.gain == "smooth":
-        seg = (df.regime + "|" + df.acc.astype(str)).to_numpy()[ok_bins]
+        seg = (df.regime + "|" + df.acc.astype(str)
+               + (("|" + df.era) if args.gain_segment_by_era else "")).to_numpy()[ok_bins]
         H, knot_t, knot_seg = gain_basis(t[ok_bins], seg, args.knot_s)
         print(f"  smooth gain: {H.shape[1]} knots in {len(set(seg))} segments", flush=True)
     else:
@@ -610,8 +771,46 @@ def main():
         sig = np.sqrt(sig_rad**2 + (args.floor * y) ** 2)
         w = np.where(fin, 1 / sig, 0.0)
         y0 = np.where(fin, y, 0.0)
-        cols = [cN[i][ok_bins], *cY[i][:, ok_bins]]
-        xnames = ["T_gnd"] + [f"d_{s}" for s in ylabels]
+        # The fixed part of the model (coefficient 1): GSM, plus with --ground
+        # diffuse the ground's emission at T_phys; the ground's free terms follow.
+        cfix = cG[i][ok_bins]
+        if args.ground == "constant":
+            cols, xnames = [cN[i][ok_bins]], ["T_gnd"]
+        elif args.ground == "diffuse":
+            cfix = cfix + args.ground_tphys * cN[i][ok_bins]
+            cols, xnames = [cN[i][ok_bins] * (Sbar[i][ok_bins] - args.ground_tphys)], ["R_diffuse"]
+        elif args.ground == "beam":
+            n_ = cN[i][ok_bins]
+            cfix = cfix + args.ground_tphys * n_
+            cols, xnames = [n_ * (cG[i][ok_bins] / (1 - n_) - args.ground_tphys)], ["eps_beam"]
+        elif args.ground == "hk":
+            cfix = cfix + args.ground_tphys * cN[i][ok_bins]
+            v_ = hk[args.hk_stream][ok_bins]
+            cols, xnames = [v_ - np.nanmean(v_)], ["k_hk"]
+        elif args.ground == "pickup":
+            cfix = cfix + args.ground_tphys * cN[i][ok_bins]
+            cols, xnames = [Sbar[i][ok_bins]], ["k_pickup"]
+        else:
+            cols, xnames = [cN[i][ok_bins], cN[i][ok_bins] * Sbar[i][ok_bins]], ["T_gnd", "R_diffuse"]
+        for s_ in args.hk_extra:
+            v_ = hk[s_][ok_bins]
+            cols.append(v_ - np.nanmean(v_)); xnames.append(f"k_{s_}")
+        if args.ground_group != "none":
+            if args.ground == "constant":
+                cols, xnames = [], []
+            n_ = cN[i][ok_bins]
+            g_ = win[ok_bins] if args.ground_group == "window" else df.era.to_numpy()[ok_bins]
+            for k_ in np.unique(g_):
+                cols.append(np.where(g_ == k_, n_, 0.0))
+                xnames.append(f"T_gnd_w{k_}" if args.ground_group == "window" else f"T_gnd_{k_}")
+        if args.orient != "none":
+            el_ = np.radians(df.el.to_numpy()[ok_bins])
+            base = cfix if args.orient == "mult" else 1.0
+            for n_ in range(1, args.orient_n + 1):
+                cols += [base * np.cos(n_ * el_), base * np.sin(n_ * el_)]
+                xnames += [f"o_c{n_}", f"o_s{n_}"]
+        cols += list(cY[i][:, ok_bins])
+        xnames += [f"d_{s}" for s in ylabels]
         if np.any(cT[i][ok_bins] != 0):
             cols.append(cT[i][ok_bins]); xnames.append("tx")
         if args.sun == "model" and np.any(cS[i][ok_bins] > 0):
@@ -619,17 +818,29 @@ def main():
         X = np.stack(cols, 1)
         out = {"freq_mhz": float(x)}
         if args.gain == "smooth":
-            fit_smooth(out, y0, w, fin, train[ok_bins], sig_rad, X, xnames, cG[i][ok_bins], groups,
+            if Sbar is not None:
+                sb = Sbar[i][ok_bins][fin]
+                out["Sbar_k"] = {"min": float(sb.min()), "max": float(sb.max()), "mean": float(sb.mean())}
+            fit_smooth(out, y0, w, fin, train[ok_bins], sig_rad, X, xnames, cfix, groups,
                        gnames, H, knot_t, knot_seg, SC[i][ok_bins], ok_bins, resid_store, i, len(df),
-                       args.gain_step_sigma)
+                       args.gain_step_sigma,
+                       {"T_gnd": tuple(args.ground_level_prior)} if args.ground_level_prior else None,
+                       args.gain_anchor)
             results.append(out)
             a_ = out["all"]
-            print(f"{x:6.1f} MHz  T_gnd {a_['theta']['T_gnd']:8.1f}  offsets "
-                  + " ".join(f"{k}:{v:.0f}" for k, v in list(a_["offsets"].items())[:4])
+            print(f"{x:6.1f} MHz  " + "  ".join(f"{k} {a_['theta'][k]:.3g}±{a_['theta_err_scaled'][k]:.2g}"
+                                                 for k in ["T_gnd", "R_diffuse", "eps_beam", "k_pickup", "k_hk"]
+                                                 + [f"k_{s_}" for s_ in args.hk_extra]
+                                                 + [f"o_{c}{n}" for n in range(1, args.orient_n + 1) for c in "cs"]
+                                                 + ([k for k in a_["theta"] if k.startswith("T_gnd_~")])
+                                                 if k in a_["theta"])
+                  + "  offsets " + " ".join(f"{k}:{v:.0f}" for k, v in list(a_["offsets"].items())[:4])
                   + f"  chi2/dof {a_['chi2_per_dof']:.1f}  rms {100 * a_['rms_frac']:.2f}%"
                   f"  held-out rms {100 * out['train']['test_rms_frac']:.2f}%  status {a_['status']}"
                   + ("  DIVERGED" if a_["diverged"] or out["train"]["diverged"] else ""), flush=True)
             continue
+        if args.ground != "constant":
+            sys.exit("--ground diffuse needs --gain smooth")
         M = Model(cG[i][ok_bins], X, xnames, wk, groups, len(gnames), tt[ok_bins], args.drift,
                   lin_offset=args.offsets == "window")
         for name, rows in (("train", fin & train[ok_bins]), ("all", fin)):
@@ -698,7 +909,7 @@ def main():
     np.savez_compressed(out_dir / f"{label}_resid.npz", freqs_mhz=freqs, t=t, resid_frac=resid_store,
                         kept=ok_bins, window=win, era=df.era.to_numpy().astype(str),
                         regime=df.regime.to_numpy().astype(str), az=df.az.to_numpy(), el=df.el.to_numpy(),
-                        cGSM=cG, cGnd=cN)
+                        cGSM=cG, cGnd=cN, **({} if Sbar is None else {"Sbar": Sbar}))
     (out_dir / f"{label}.json").write_text(json.dumps({
         "provenance": {
             "product": "ground_sky_global", "version": args.version, "label": label,
