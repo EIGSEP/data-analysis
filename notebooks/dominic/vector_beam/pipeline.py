@@ -132,7 +132,9 @@ def cross_tone_flags(cross, scale_factors, sky_or_ground, freqs_mhz):
     return binary_dilation(mask, np.ones((3, 1), dtype=bool))
 
 
-def load():
+def load(require_bracketed_fill=False):
+    """Default False reproduces the September inputs; True NaNs DPSS fills
+    that are extrapolations (see vb.reduce_cross)."""
     cache = np.load(CACHE, allow_pickle=True)
     ext = extract_beam_mapping_data(
         Path(str(cache["data_dir"])),
@@ -169,7 +171,9 @@ def load():
 
     sky_m, gnd_m = sky_ground_flags(sky, ground, freqs)
     freqs_mhz = freqs[::8][SHIFT + 1 :]
-    tone_mask = cross_tone_flags(cross, scale_factors, sky_m | gnd_m, freqs_mhz)
+    tone_mask = cross_tone_flags(
+        cross, scale_factors, sky_m | gnd_m, freqs_mhz
+    )
     trust = build_frequency_trust_mask(freqs_mhz, **TRUST)
 
     Ex_hat, Ey_hat, bad_time, _, _ = vb.reduce_cross(
@@ -183,6 +187,7 @@ def load():
         trust_mask=trust,
         nmodes=NMODES,
         NW=NW,
+        require_bracketed_fill=require_bracketed_fill,
     )
 
     beam, _, _ = read_beam()

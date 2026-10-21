@@ -46,6 +46,24 @@ v3 and geometry release v0004 is the next step.
   without d86-89 (222.7-228.5 MHz), which fail from an interleaved-comb
   fill defect. d75/77/84 lose Ey alone; cause unknown.
 
+## Extrapolated fills (2026-10-21)
+
+Each channel measures one transmitter arm; the other arm's value is a
+DPSS fill from neighbouring tones. Every fill >100x its channel's median
+(up to ~1e8x, d75-d89) was an extrapolation: a same-arm tone missing on
+one side, or, at d89, the untrusted 230.5 MHz column above it. Fills with
+a trusted measured tone on both sides stay within the measured spread.
+`BRACKETED_FILL=1 python run_phase2.py` NaNs the extrapolated fills
+(`vb.reduce_cross(require_bracketed_fill=True)`) and writes
+`phase2_bracketed_results.json`. Selection B medians, Phase 2 -> bracketed:
+LOO power 0.958 -> 0.970, power 0.954 -> 0.977, y 0.930 -> 0.958,
+z 0.907 -> 0.981; d77 and d82 LOO 0.43 -> 0.96, d85-88 ~0 -> 0.91-0.94; no
+channel worse. Cost: median 91% of pixels kept (min 72%); d89 has no
+valid samples. Figures and the scripts behind them are in
+`bracketed_fill_check/` (`dump_inputs.py` caches the inputs they read).
+
 ## Recent changes
 
+- 2026-10-21: bracketed-fill rule; d77/d82 and d85-88 LOO failures were
+  extrapolated DPSS fills.
 - 2026-10-20: added; the solver moved into `eigsep_data.vector_beam`.

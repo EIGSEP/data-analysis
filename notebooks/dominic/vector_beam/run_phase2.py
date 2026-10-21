@@ -20,6 +20,10 @@ Two row selections:
   elevation reversal glitches dropped).
 
     POINTING_TABLE=.../pointing_table.parquet python run_phase2.py
+
+With BRACKETED_FILL=1, DPSS fills without a measured same-arm tone on
+both sides are NaN (vb.reduce_cross(require_bracketed_fill=True)) and
+results go to phase2_bracketed_results.json.
 """
 
 import json
@@ -40,6 +44,7 @@ import pipeline
 HERE = Path(__file__).resolve().parent
 POINTING_TABLE = Path(os.environ["POINTING_TABLE"])
 JOIN_TOL_S = 0.35
+BRACKETED = os.environ.get("BRACKETED_FILL") == "1"
 
 
 def reversal_glitches(el_deg, tol=15.0):
@@ -90,6 +95,16 @@ def score(inp, geometry, valid_rows):
     rows = []
     for ch in inp["channels"]:
         valid = ch["valid"] & valid_rows
+        if valid.sum() < 50:  # e.g. d89 with BRACKETED_FILL: no anchor
+            rows.append(
+                dict(
+                    d_idx=ch["d_idx"],
+                    freq_mhz=ch["freq_mhz"],
+                    n_valid=int(valid.sum()),
+                )
+            )
+            print(f"  d{ch['d_idx']} skipped: {valid.sum()} valid")
+            continue
         args = (pxs, r_hat, E1v, E2v, ch["Ex"], ch["Ey"], valid)
         g = vb.fit_closure_g(*args)
         sol = vb.solve_sampled_beam(*args, g=g)
@@ -141,7 +156,7 @@ def score(inp, geometry, valid_rows):
 
 def main():
     t0 = time.time()
-    inp = pipeline.load()
+    inp = pipeline.load(require_bracketed_fill=BRACKETED)
     cache = np.load(pipeline.CACHE, allow_pickle=True)
     j = join_pointing(inp["times"], str(cache["data_dir"]))
     joined = np.isfinite(j.az_deg.to_numpy()) & np.isfinite(
@@ -176,7 +191,8 @@ def main():
         r["d_idx"]: r
         for r in json.loads((HERE / "regression_results.json").read_text())
     }
-    (HERE / "phase2_results.json").write_text(json.dumps(out, indent=2))
+    name = "phase2_bracketed" if BRACKETED else "phase2"
+    (HERE / f"{name}_results.json").write_text(json.dumps(out, indent=2))
     print("\nmedians over 30 channels (Phase 1 -> A -> B):")
     for k in ("power", "x", "y", "z", "loo_power", "loo_ex", "loo_ey"):
         p1 = np.nanmedian([r.get(k, np.nan) for r in ref.values()])
