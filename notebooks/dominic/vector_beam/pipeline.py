@@ -177,7 +177,7 @@ def load(require_bracketed_fill=True):
     )
     trust = build_frequency_trust_mask(freqs_mhz, **TRUST)
 
-    Ex_hat, Ey_hat, bad_time, _, _ = vb.reduce_cross(
+    Ex_hat, Ey_hat, bad_time, Ex_meas, Ey_meas = vb.reduce_cross(
         cross,
         CHS,
         tone_mask,
@@ -213,6 +213,8 @@ def load(require_bracketed_fill=True):
                 valid=~bad_time & np.isfinite(Ex) & np.isfinite(Ey),
                 Ex=Ex,
                 Ey=Ey,
+                Ex_measured=Ex_meas[:, d],
+                Ey_measured=Ey_meas[:, d],
             )
         )
     return dict(

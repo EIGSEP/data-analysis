@@ -64,8 +64,22 @@ channel worse. Cost: median 91% of pixels kept (min 72%); d89 has no
 valid samples. Figures and the scripts behind them are in
 `bracketed_fill_check/` (`dump_inputs.py` caches the inputs they read).
 
+## Common cross phase (2026-10-21)
+
+The cross phase at a fixed pointing repeats to ~2 deg within a dwell but
+jumps by tens of degrees between dwells (one elevation revolution later),
+identically in every channel, while the amplitude repeats to a few per
+cent. `selfcal_phase.py` estimates that phase without HFSS
+(`vb.self_calibrate_phase`, one value per 20 integrations) and writes
+`selfcal_phase.npz` (gitignored; ~12 min to regenerate); 4200 of 6810 integrations are constrained, the rest
+are NaN and must be dropped. Removing it: stripe-held-out solver error
+0.151 -> 0.090 (HFSS 0.083), the same when the phase is estimated from the
+other half of the channels only. The cause of the jumps is unknown.
+
 ## Recent changes
 
+- 2026-10-21: `selfcal_phase.py`; `run_phase2.phase2_geometry`;
+  `pipeline.load` channels carry the measured masks.
 - 2026-10-21: the solver moved to `eigsep_data.beam_mapping.vector_beam`;
   the bracketed-fill rule is the default.
 - 2026-10-21: bracketed-fill rule; d77/d82 and d85-88 LOO failures were

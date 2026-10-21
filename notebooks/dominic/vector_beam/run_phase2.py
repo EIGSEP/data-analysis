@@ -155,9 +155,9 @@ def score(inp, geometry, valid_rows):
     return rows
 
 
-def main():
-    t0 = time.time()
-    inp = pipeline.load(require_bracketed_fill=BRACKETED)
+def phase2_geometry(inp):
+    """Pointing table v3 + v0013 geometry for every row of ``inp``, and
+    the two row selections. Returns (geometry, joined, sel_b, az, el)."""
     cache = np.load(pipeline.CACHE, allow_pickle=True)
     j = join_pointing(inp["times"], str(cache["data_dir"]))
     joined = np.isfinite(j.az_deg.to_numpy()) & np.isfinite(
@@ -182,6 +182,13 @@ def main():
     glitch[idx] = reversal_glitches(el[idx])
     sel_b &= ~glitch
     print(f"selection B keeps {sel_b.sum()} rows ({glitch.sum()} glitches)")
+    return geometry, joined, sel_b, az, el
+
+
+def main():
+    t0 = time.time()
+    inp = pipeline.load(require_bracketed_fill=BRACKETED)
+    geometry, joined, sel_b, _, _ = phase2_geometry(inp)
 
     out = {}
     for name, sel in (("A", joined), ("B", sel_b)):
