@@ -1,0 +1,56 @@
+# Ground-computer event log, bench run 2026-10-20_4pass
+#
+# Distilled from the ground computer's eigseppi.log.2 and eigseppi.log.1
+# (combined; 2026-10-20 02:57 -> 2026-10-21 10:26 PDT, 169,106 entries):
+# start/stop and configuration events kept, repeated messages collapsed into one
+# line "[xN, until MM-DD HH:MM:SS]", per-integration acc_cnt lines and
+# individual RF switch steps dropped; any other WARNING/ERROR kept (collapsed).
+# Times: local PDT, with UTC in parentheses (data file names are UTC).
+# Ignored: stale-stream warnings for picos not on this bench (imu_az, imu_el,
+# lidar, motor, omon, poton, system_current, tempctrl, tempctrl_lna).
+# The full logs are not kept; this file is the record.
+#
+# KEY PERIODS (PDT)
+#   10-20 09:29-09:38  Test session; T7 drive gave input/output errors on
+#                      4 corr writes (09:37-09:38).
+#   10-20 10:16-10:17  Ground computer restart; SNAP programmed and
+#                      synchronized at 10:17:09 (sync_time 1792516629.873,
+#                      corr_acc_len 2^28 = 1.074 s): the sync_time of the run.
+#   10-20 10:24:00     eigsep-observe started for the run (writer to
+#                      /media/eigsep/T7/data/).
+#   10-20 10:24 ->     THE RUN. RF switch cycling, 129 VNA files (~65
+#   10-21 10:25        sweeps, ~23 min apart), 336 corr files
+#                      (corr_20261020_172816Z.h5 -> corr_20261021_172553Z.h5);
+#                      no write failures, no dropped integrations.
+#   10-21 10:25:53     eigsep-observe stopped (Ctrl+C).
+#   Heater program (hot_load_plateaus log): 10-20 10:24:31 -> 10-21 08:24:31.
+
+2026-10-20 04:51:33 PDT (10-20 11:51:33Z)  WARNING slow SNAP (TAPCP) transactions [x4, until 10-20 19:23:17]
+2026-10-20 09:29:05 PDT (10-20 16:29:05Z)  eigsep-observe started (integration 1.074 s, file 258 s)
+2026-10-20 09:29:05 PDT (10-20 16:29:05Z)  WARNING panda unreachable / eigsep-panda not running (no heartbeat)
+2026-10-20 09:29:05 PDT (10-20 16:29:05Z)  corr header missing 'wiring' (SNAP header not republished) [x4, until 10-20 10:24:00]
+2026-10-20 09:29:14 PDT (10-20 16:29:14Z)  RF switch cycling active [x45, until 10-20 09:38:20]
+2026-10-20 09:29:20 PDT (10-20 16:29:20Z)  VNA S11 files written (/media/eigsep/T7/data/.) [x3, until 10-20 09:32:08]
+2026-10-20 09:33:22 PDT (10-20 16:33:22Z)  Corr file writes to /media/eigsep/T7/data/ (first: corr_20261020_163322Z.h5)
+2026-10-20 09:37:40 PDT (10-20 16:37:40Z)  ERROR corr file write FAILED in /media/eigsep/T7/data/: Input/output error [x4, until 10-20 09:38:33]
+2026-10-20 09:38:31 PDT (10-20 16:38:31Z)  eigsep-observe stopped (Ctrl+C)
+2026-10-20 10:16:29 PDT (10-20 17:16:29Z)  Host-health service started (boot, power-up or restart)
+2026-10-20 10:16:41 PDT (10-20 17:16:41Z)  eigsep-observe started (integration 0.537 s, file 129 s)
+2026-10-20 10:16:41 PDT (10-20 17:16:41Z)  fpga-init: Connecting to Eigsep correlator at 10.10.10.12.
+2026-10-20 10:16:51 PDT (10-20 17:16:51Z)  SNAP: bitstream programmed
+2026-10-20 10:16:51 PDT (10-20 17:16:51Z)  SNAP: ADC initialization (re-init) started
+2026-10-20 10:16:51 PDT (10-20 17:16:51Z)  ERROR no corr data from SNAP [x2, until 10-20 10:17:01]
+2026-10-20 10:17:02 PDT (10-20 17:17:02Z)  SNAP: ADC alignment retries
+2026-10-20 10:17:09 PDT (10-20 17:17:09Z)  SNAP: Setting CORR_ACC_LEN: 268435456
+2026-10-20 10:17:09 PDT (10-20 17:17:09Z)  SNAP: Synchronized at 1792516629.8733377.
+2026-10-20 10:17:09 PDT (10-20 17:17:09Z)  fpga-init: Starting observation.
+2026-10-20 10:17:09 PDT (10-20 17:17:09Z)  SNAP: Integration time is 1.073741824 seconds.
+2026-10-20 10:17:19 PDT (10-20 17:17:19Z)  WARNING panda unreachable / eigsep-panda not running (no heartbeat) [x7, until 10-20 10:24:00]
+2026-10-20 10:21:27 PDT (10-20 17:21:27Z)  SNAP: SNAP re-synchronized from 1783559280.4497857 to 1792516629.8733377; rolling to new file.
+2026-10-20 10:21:27 PDT (10-20 17:21:27Z)  Corr file writes to /media/eigsep/T7/data/ (first: corr_20261020_172127Z.h5) [x338, until 10-21 10:25:53]
+2026-10-20 10:21:27 PDT (10-20 17:21:27Z)  ERROR corr file write FAILED in /media/eigsep/T7/data/: No such file or directory [x2, until 10-20 10:21:27]
+2026-10-20 10:23:16 PDT (10-20 17:23:16Z)  eigsep-observe stopped (Ctrl+C)
+2026-10-20 10:24:00 PDT (10-20 17:24:00Z)  eigsep-observe started (integration 1.074 s, file 258 s)
+2026-10-20 10:24:06 PDT (10-20 17:24:06Z)  RF switch cycling active [x7151, until 10-21 10:25:51]
+2026-10-20 10:24:12 PDT (10-20 17:24:12Z)  VNA S11 files written (/media/eigsep/T7/data/.) [x129, until 10-21 10:11:39]
+2026-10-21 10:25:53 PDT (10-21 17:25:53Z)  eigsep-observe stopped (Ctrl+C)

@@ -1,0 +1,47 @@
+# Panda event log, bench run 2026-10-20_4pass
+#
+# Distilled from the panda's eigsep.log (panda_eigsep.log), restricted to
+# 2026-10-20 and 2026-10-21 (13,993 entries; the file also held sessions from
+# June, 10-08, 10-15, 10-16 and 10-19, not kept here). Start/stop and
+# configuration events kept, repeated messages collapsed into one line
+# "[xN, until MM-DD HH:MM:SS]"; per-cycle switch and VNA steps collapsed;
+# any other WARNING/ERROR kept. Times: local PDT (panda clock, correct for this
+# run), UTC in parentheses.
+# Ignored: stale snapshot keys for picos not on this bench.
+# Note: "No pico devices registered by PicoManager" at each start is benign;
+# that check reads a legacy device set the current pico manager does not
+# publish. "Tempctrl initialized ... hysteresis_C 0.5" is the yaml start
+# state; hot_load_plateaus.py set 0.05 C for every plateau.
+#
+# KEY PERIODS (PDT)
+#   10-20 00:00-09:21  eigsep-panda still running from an earlier session.
+#   10-20 09:29-09:38  Test session.
+#   10-20 10:24:16 ->  THE RUN: eigsep-panda (config
+#   10-21 10:26:00     obs_config_switch_bench.yaml) running throughout; switch
+#                      schedule cycling; 65 VNA S11 sweeps.
+
+2026-10-20 00:00:09 PDT (10-20 07:00:09Z)  panda: switch schedule cycling [x3028, until 10-20 09:21:22]
+2026-10-20 00:08:59 PDT (10-20 07:08:59Z)  panda: VNA S11 sweeps [x27, until 10-20 09:29:30]
+2026-10-20 09:21:22 PDT (10-20 16:21:22Z)  eigsep-panda: Ctrl+C
+2026-10-20 09:21:22 PDT (10-20 16:21:22Z)  eigsep-panda stopped
+2026-10-20 09:29:13 PDT (10-20 16:29:13Z)  eigsep-panda: Loading observing config from src/eigsep_observing/src/eigsep_observing/config/obs_config_switch_bench.yaml
+2026-10-20 09:29:13 PDT (10-20 16:29:13Z)  eigsep-panda: Tempctrl initialized (settings={'watchdog_timeout_ms': 0, 'LOAD': {'target_C': 47.0, 'hysteresis_C': 0.5, 'installed': True, 'enable': False}})
+2026-10-20 09:29:13 PDT (10-20 16:29:13Z)  WARNING eigsep_observing.client: No pico devices registered by PicoManager. [x2, until 10-20 09:29:29]
+2026-10-20 09:29:13 PDT (10-20 16:29:13Z)  eigsep-panda started (starting switch thread ...) [x6, until 10-20 09:29:29]
+2026-10-20 09:29:13 PDT (10-20 16:29:13Z)  panda: switch schedule cycling [x40, until 10-20 09:38:18]
+2026-10-20 09:29:21 PDT (10-20 16:29:21Z)  eigsep-panda: Ctrl+C
+2026-10-20 09:29:29 PDT (10-20 16:29:29Z)  eigsep-panda: Loading observing config from src/eigsep_observing/src/eigsep_observing/config/obs_config_switch_bench.yaml
+2026-10-20 09:29:29 PDT (10-20 16:29:29Z)  eigsep-panda: Tempctrl initialized (settings={'watchdog_timeout_ms': 0, 'LOAD': {'target_C': 47.0, 'hysteresis_C': 0.5, 'installed': True, 'enable': False}})
+2026-10-20 09:38:26 PDT (10-20 16:38:26Z)  eigsep-panda: Ctrl+C
+2026-10-20 09:38:26 PDT (10-20 16:38:26Z)  eigsep-panda stopped
+2026-10-20 10:24:04 PDT (10-20 17:24:04Z)  eigsep-panda: Loading observing config from src/eigsep_observing/src/eigsep_observing/config/obs_config_switch_bench.yaml
+2026-10-20 10:24:04 PDT (10-20 17:24:04Z)  eigsep-panda: Tempctrl initialized (settings={'watchdog_timeout_ms': 0, 'LOAD': {'target_C': 47.0, 'hysteresis_C': 0.5, 'installed': True, 'enable': False}})
+2026-10-20 10:24:04 PDT (10-20 17:24:04Z)  WARNING eigsep_observing.client: No pico devices registered by PicoManager. [x2, until 10-20 10:24:16]
+2026-10-20 10:24:04 PDT (10-20 17:24:04Z)  eigsep-panda started (starting switch thread ...) [x6, until 10-20 10:24:16]
+2026-10-20 10:24:04 PDT (10-20 17:24:04Z)  panda: switch schedule cycling [x7746, until 10-21 10:26:00]
+2026-10-20 10:24:11 PDT (10-20 17:24:11Z)  panda: VNA S11 sweeps [x65, until 10-21 10:09:01]
+2026-10-20 10:24:12 PDT (10-20 17:24:12Z)  eigsep-panda: Ctrl+C
+2026-10-20 10:24:16 PDT (10-20 17:24:16Z)  eigsep-panda: Loading observing config from src/eigsep_observing/src/eigsep_observing/config/obs_config_switch_bench.yaml
+2026-10-20 10:24:16 PDT (10-20 17:24:16Z)  eigsep-panda: Tempctrl initialized (settings={'watchdog_timeout_ms': 0, 'LOAD': {'target_C': 47.0, 'hysteresis_C': 0.5, 'installed': True, 'enable': False}})
+2026-10-21 10:26:00 PDT (10-21 17:26:00Z)  eigsep-panda: Ctrl+C
+2026-10-21 10:26:00 PDT (10-21 17:26:00Z)  eigsep-panda stopped

@@ -11,4 +11,4 @@ changed on the bench.
 | Run | Purpose | Status |
 |---|---|---|
 | [`2026-10-08_interim`](2026-10-08_interim/README.md) | Interim T_NS through the switch: hot load on `RFAMB`, lab LNA 14 | run 2026-10-08 PDT (files and logs in UTC, dated 2026-10-09) |
-| [`2026-10-20_4pass`](2026-10-20_4pass/README.md) | Same bench, four passes of the temperature program with 60-min plateaus (drift test) | in progress |
+| [`2026-10-20_4pass`](2026-10-20_4pass/README.md) | Same bench, four passes of the temperature program with 60-min plateaus (drift test) | run 2026-10-20 10:24 → 10-21 10:26 PDT; heater program complete |
