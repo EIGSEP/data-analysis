@@ -13,14 +13,13 @@ C.append(md("""# Noise-source temperature from the 2026-10-20 four-pass bench ru
 
 **The run** (record: `data-analysis/notebooks/charlie/bench_runs/2026-10-20_4pass/README.md`): 2026-10-20 10:24 → 10-21 10:26 PDT, field switch board, hot 50 Ω load on `RFAMB` (thermistor `tempctrl_load`), ambient 50 Ω reference on `RFANT` (`tempctrl_lna1`, GP27), lab LNA 14 → 3 → 10, `corr_acc_len` 2²⁸ (1.074 s), 10 s per state in a 1-minute cycle `RFANT → RFAMB → RFNON → RFNOFF → RFSP1 short → RFSP1 open`, VNA every 20 min. Four passes of: ambient 60 min, plateaus at 47 / 67 / 87 °C targets for 60 min each, cool-down 90 min.
 
-**Method:** the same as `bench_tns.ipynb` and `noise_source` v0001, now in the packages: `eigsep_data.noise_source_bench.measure` (dwells, RFI flags and the VNA-sweep guard, cycles, steady-cycle selection, the mismatch-corrected fit and channel mask) and `eigsep_cal.noise_source` (the model). Until the `noise-source` PRs merge, the code comes from the branch worktrees (first cell). Run-specific constants and the drift helpers are in `bench_4pass.py` beside this notebook. Times are local (PDT, UTC−7)."""))
+**Method:** the same as `bench_tns.ipynb` and `noise_source` v0001, now in the packages (installed from `main`): `eigsep_data.noise_source_bench.measure` (dwells, RFI flags and the VNA-sweep guard, cycles, steady-cycle selection, the mismatch-corrected fit and channel mask) and `eigsep_cal.noise_source` (the model). Run-specific constants and the drift helpers are in `bench_4pass.py` beside this notebook. Times are local (PDT, UTC−7).
 
-C.append(code("""import os, sys
-# Branch code until the noise-source PRs merge (eigsep_data, eigsep_cal from their worktrees).
-WT = "/mnt/data02/eigsep-worktrees"
-for p in (f"{WT}/eigsep_data-noise-source/src", f"{WT}/eigsep_cal-noise-source/src"):
-    sys.path.insert(0, p)
-import numpy as np
+**Thermistors are named by pin.** GP26 is the hot load, GP27 the ambient reference load and GP28 LNA 3. In both bench runs' data the GP27 channel is the `tempctrl_lna1` stream and GP28 the `tempctrl_lna2` stream (shown for this run in § 2, and for 2026-10-08 from that run's ambient minutes); the 2026-10-08 config labels them the other way round, and `noise_source` v0001 took its reference temperature from GP28 (LNA 3). The 2026-10-08 run is re-measured here with GP27 (§ 1).
+
+**Steady cycles** are those in which the hot load changes by less than 0.3 K/min (`b4.CHOICES`), stricter than v0001's 1 K/min."""))
+
+C.append(code("""import numpy as np
 import pandas as pd
 import matplotlib
 import matplotlib.pyplot as plt
@@ -60,8 +59,9 @@ res = measure(idx, s11, gamma, S, **b4.CHOICES)
 D = b4.dwells_and_cycles(idx, sweeps)
 assert np.array_equal(D["cyc"]["t"].to_numpy(), res["cycles"]["t"].to_numpy())
 cyc = res["cycles"].copy()
-for col in ("T_lna3", "fpga_c"):
-    cyc[col] = D["cyc"][col].to_numpy()
+cyc["T_lna3"] = D["cyc"]["T_lna3"].to_numpy()
+# The SNAP's FPGA temperature is logged about every 20 s, so a 10 s dwell often has no reading: interpolate it
+cyc["fpga_c"] = b4.interp_column(allmeta, "fpga_c", cyc["t"])
 cyc["pass"], cyc["phase"] = b4.label_times(cyc["t"].to_numpy(), ph)
 cp, Q, mm = D["cp"], res["q"], res["mismatch"]
 freqs, good, mask, vb = res["freqs"], res["good"], res["mask"], res["validation"]
@@ -77,15 +77,24 @@ print("rows excluded around sweeps:", vb["rows_excluded_around_sweeps"])
 print("in-band samples flagged:", {k: f"{100*v:.2f} %" for k, v in vb["flagged_in_band_fraction"].items()})
 print(f"complete cycles: {len(cyc)};", vb["cycles"])
 print("cycles per pass and phase (steady only):")
-print(cyc[steady].groupby(["pass", "phase"]).size().unstack(fill_value=0))"""))
+print(cyc[steady].groupby(["pass", "phase"]).size().unstack(fill_value=0))
+ft = allmeta[["time_best", "fpga_c"]].dropna()
+print(f"SNAP FPGA temperature: {len(ft)} readings, median spacing {np.median(np.diff(ft.time_best)):.1f} s")
+
+# The 2026-10-08 interim run, re-measured with the same code, wiring (GP27 reference) and v0001's thresholds
+idx0 = MetadataIndex(str(b4.PREV_DATA), cache=False, streams="all")
+s110 = S11(str(b4.PREV_DATA), year=2026, pattern="*s11_*.h5")
+s110.calibrate()
+res0 = measure(idx0, s110, gamma, S, **b4.PREV_CHOICES)
+print("2026-10-08 re-measured:", res0["validation"]["cycles"], "cycles;", res0["validation"]["channels_good"], "good channels")"""))
 
 C.append(md("## 2. Temperatures over the run, and which cycles are steady"))
 C.append(code("""fig, axs = plt.subplots(3, 1, figsize=(10, 7), sharex=True, height_ratios=(3, 1.2, 1.6))
 tl = loc(allmeta.time_best)
 on = allmeta["tempctrl_load_enabled"].astype("boolean").fillna(False).to_numpy(bool)
 axs[0].fill_between(tl, 0, 1, where=on, transform=axs[0].get_xaxis_transform(), color="0.9", lw=0, label="heater enabled")
-for col, c, lab in (("T_hot", CS[S.hot], "hot load (tempctrl_load)"), ("T_ref", CS[S.ref], "ambient reference (tempctrl_lna1)"),
-                    ("T_lna3", "#E69F00", "LNA 3 (tempctrl_lna2)"), ("T_board", CS[S.non], "noise-diode board (temp_therm2)"),
+for col, c, lab in (("T_hot", CS[S.hot], "hot load (GP26)"), ("T_ref", CS[S.ref], "ambient reference (GP27)"),
+                    ("T_lna3", "#E69F00", "LNA 3 (GP28)"), ("T_board", CS[S.non], "noise-diode board (temp_therm2)"),
                     ("T_sp1", "0.5", "SP1 cable (potmon)")):
     axs[0].plot(tl, allmeta[col] - K0, color=c, lw=0.7, label=lab)
 for t0 in ph.loc[ph.phase == "ambient", "t0"]:
@@ -110,7 +119,7 @@ C.append(md("""**Figure 1.** Top: the bench thermistors over the run (measured p
 
 C.append(md("""### Which thermistor is the reference load?
 
-The run record says `tempctrl_lna1` (GP27) is on the ambient reference and `tempctrl_lna2` (GP28) on LNA 3. In each ambient block the heater has been off for at least 90 min, so the hot load and the reference load sit at room temperature and should read alike; and $Q$, the hot load's power over the noise source's, both measured against the reference, should then be close to zero."""))
+GP27 is on the ambient reference load and GP28 on LNA 3. In each ambient block the heater has been off for at least 90 min, so the hot load and the reference load sit at room temperature and should read alike; and $Q$, the hot load's power over the noise source's, both measured against the reference, should then be close to zero."""))
 C.append(code("""# T_NS as this receiver takes it (Q per kelvin, no reflection correction; § 7), 108–200 MHz, to put Q in kelvin
 fs0 = fit_source_temperature(np.repeat((cyc.T_hot - cyc.T_ref).to_numpy()[:, None], freqs.size, axis=1), Q, steady)
 mid = good & (freqs >= 108) & (freqs < 200)
@@ -122,13 +131,13 @@ for p in range(1, 5):
     c = steady & (cyc["pass"].to_numpy() == p) & (cyc.phase.to_numpy() == "ambient") & (cyc.t.to_numpy() >= a.t1 - 1800)
     qb = b4.band_rows(Q[c], freqs, good, 108, 200)
     rows.append({"pass": p, "T_hot (°C)": round(allmeta.T_hot[m].mean() - K0, 2),
-                 "T_lna1 − T_hot (K)": round((allmeta.T_ref[m] - allmeta.T_hot[m]).mean(), 2),
-                 "T_lna2 − T_hot (K)": round((allmeta.T_lna3[m] - allmeta.T_hot[m]).mean(), 2),
+                 "GP27 (reference) − hot (K)": round((allmeta.T_ref[m] - allmeta.T_hot[m]).mean(), 2),
+                 "GP28 (LNA 3) − hot (K)": round((allmeta.T_lna3[m] - allmeta.T_hot[m]).mean(), 2),
                  "Q, 108–200 MHz (mean over cycles)": round(float(np.nanmean(qb)), 4),
                  "Q × T_NS (K)": round(float(np.nanmean(qb)) * tns_mid, 1),
                  "cycles": int(c.sum())})
 pd.DataFrame(rows)"""))
-C.append(md("""**Table 1.** Each ambient block's last 30 minutes: the hot load's temperature, the two candidate reference thermistors relative to it, and the mean of $Q$ over that block's steady cycles (unmasked channels, 108–200 MHz), also as a temperature, $Q\,T_\mathrm{NS}$, the power difference between the hot load and the reference in kelvin as this receiver takes it (no reflection correction). Neither thermistor reads the hot load's temperature: the reference load sits on the bench a few kelvin warmer than the hot load's aluminium block, and $Q\,T_\mathrm{NS}$ says by how much in power, independently of either thermistor. The channel whose offset matches it is the reference load's; the other is LNA 3's, warmer again."""))
+C.append(md("""**Table 1.** Each ambient block's last 30 minutes: the hot load's temperature, the two candidate reference thermistors relative to it, and the mean of $Q$ over that block's steady cycles (unmasked channels, 108–200 MHz), also as a temperature, $Q\,T_\mathrm{NS}$, the power difference between the hot load and the reference in kelvin as this receiver takes it (no reflection correction). Neither thermistor reads the hot load's temperature: the reference load sits on the bench a few kelvin warmer than the hot load's aluminium block, and $Q\,T_\mathrm{NS}$ says by how much in power, independently of either thermistor. GP27's offset is the one close to it; GP28 (LNA 3) runs warmer again."""))
 
 C.append(md("## 3. Is the switch sequence clean?"))
 C.append(code("""a = ph[(ph["pass"] == 1) & (ph.phase == "ambient")].iloc[0]
@@ -307,6 +316,35 @@ r = np.corrcoef(np.mean(np.abs(g_hot_port), axis=1), T_at(ts, "T_hot"))[0, 1]
 print(f"corr(hot load's mean |Γ| at its port, its temperature) over {len(ts)} sweeps: {r:+.2f}")"""))
 C.append(md("""**Figure 7.** Drift of the reflections over the run. Top: each sweep's mean distance from the run-mean $\\Gamma$ at P (50–245 MHz), for the hot load, the reference and the receiver. Bottom: the hot load's mean $|\\Gamma|$ at its own port per sweep, with its temperature (faint, right axis): whether the load's match changes with its temperature."""))
 
+C.append(md("""### The receiver's reflection is ripplier than on 2026-10-08
+
+Figure 6's receiver curves carry a ripple the 2026-10-08 run did not. Below: where in the calibration chain it appears (`raw`, the VNA's uncorrected reading; `vna`, after the internal standards; `default`, at P), how repeatable it is from sweep to sweep, and its delay."""))
+C.append(code("""def ripple(s, dut, plane, k=15):
+    fv_ = np.asarray(s.freqs_mhz, float); b = (fv_ > 50) & (fv_ < 245)
+    g = np.asarray(s.get_all_s11s(dut, plane)[1])
+    a = np.abs(g[:, b])
+    r = (a - np.array([np.convolve(q, np.ones(k) / k, mode="same") for q in a]))[:, k:-k]
+    cc = np.mean([np.corrcoef(r[i], r[i + 1])[0, 1] for i in range(len(r) - 1)])
+    return {"mean |Γ|": round(float(a.mean()), 4), "ripple rms": round(float(np.std(r)), 5),
+            "sweep-to-sweep std": round(float(np.median(a.std(0))), 5), "ripple corr. between sweeps": round(float(cc), 2)}
+rows = [{"run": run, "plane": pl, **ripple(ss, "rec", pl)} for run, ss in (("2026-10-08", s110), ("2026-10-20", s11)) for pl in ("raw", "vna", "default")]
+display(pd.DataFrame(rows))
+fig, (a0, a1) = plt.subplots(1, 2, figsize=(11, 3.4))
+for run, ss, c in (("2026-10-08", s110, CS[S.ref]), ("2026-10-20", s11, "k")):
+    fv_ = np.asarray(ss.freqs_mhz, float); b = (fv_ > 20) & (fv_ < 245)
+    g = np.asarray(ss.get_all_s11s("rec", "raw")[1])
+    a0.plot(fv_, np.abs(g).mean(0), color=c, lw=0.8, label=f"{run}, raw, mean of {len(g)} sweeps")
+    x = g[:, b] - g[:, b].mean(1, keepdims=True)
+    F = np.mean(np.abs(np.fft.fft(x * np.blackman(x.shape[1]), axis=1)) ** 2, axis=0)
+    tau = np.fft.fftfreq(x.shape[1], d=(fv_[1] - fv_[0]) * 1e6) * 1e9
+    o = np.argsort(tau); pos = tau[o] > 0
+    a1.semilogy(tau[o][pos], F[o][pos], color=c, lw=0.8, label=run)
+a0.set(xlabel="frequency (MHz)", ylabel="|Γ_rec| (raw)", xlim=(1, 250))
+a0.legend(fontsize=7)
+a1.set(xlabel="delay (ns)", ylabel="power (raw Γ_rec, 20–245 MHz)", xlim=(0, 120))
+a1.legend(fontsize=7)
+plt.tight_layout(); plt.show()"""))
+C.append(md("""**Table and Figure 7b.** The receiver's reflection in both bench runs. The extra structure is already in the VNA's raw reading, before any calibration, so the de-embedding does not make it, and it repeats from sweep to sweep (ripple correlation 0.97 between consecutive sweeps on 10-20, against 0.2–0.3 on 10-08), so it is a fixed feature of the measurement, not noise. Left: it shows as narrow bumps near 73, 97, 108 and 155 MHz on a curve whose overall shape also differs from 10-08's; right: as broad excess power from ~15 to ~100 ns of delay rather than one reflection. The VNA settings (1000 points, 100 Hz IFBW, −40 dBm on the receiver path) are the same in both runs' headers. Candidates, untested: a changed connection on the receiver side of P (the P → LNA 14 cable or adapters, which the run record has yet to describe), or steady external signals picked up at −40 dBm (two of the bumps fall in the FM band)."""))
 C.append(md("## 9. Mismatch factors"))
 C.append(code("""fig, ax = plt.subplots(figsize=(9, 3))
 for key, st in (("hot", S.hot), ("ref", S.ref)):
@@ -356,34 +394,37 @@ C.append(md("""**Figure 9.** The channel mask (as `measure` builds it; masked ch
 C.append(md("## 11. The noise source's temperature at P"))
 C.append(code("""t_non, s_non, t_off = res["t_non_k"], res["t_non_sigma_k"], res["t_off_k"]
 ex = t_non - t_off
-prev = noise_source.load("v0001", root=b4.PREV_ROOT)
-assert np.allclose(prev.freqs, freqs)
+prev_ex = res0["t_non_k"] - res0["t_off_k"]
+prev_s, prev_good = res0["t_non_sigma_k"], res0["good"]
+v0001 = noise_source.load("v0001", root=b4.PREV_ROOT)          # as built: reference from GP28 (LNA 3)
 fig, (a0, a1) = plt.subplots(2, 1, figsize=(9, 5.2), sharex=True, height_ratios=(2, 1))
 a0.axhspan(*DATASHEET_K, color=CS[S.hot], alpha=0.12, label=f"ENR 30–35 dB behind the pad ({DATASHEET_K[0]:.0f}–{DATASHEET_K[1]:.0f} K)")
 a0.plot(freqs, np.where(good, 1 / fits["steady"]["b"], np.nan), color="0.75", lw=0.7, label="T_NS from Q, no correction (§ 7)")
 a0.plot(freqs, np.where(good, 1 / fit_cor["b"], np.nan), color="0.45", lw=0.7, label="T_NS from Q, loads corrected (§ 10)")
 a0.plot(freqs, ex, ".", ms=2, color="k", label="excess at P, T_NON − T_off (this run, 4 passes)")
-a0.plot(freqs, prev.excess_k, ".", ms=2, color=CS[S.ref], alpha=0.6, label="excess at P, 2026-10-08 (noise_source v0001)")
+a0.plot(freqs, prev_ex, ".", ms=2, color=CS[S.ref], alpha=0.6, label="excess at P, 2026-10-08 re-measured (GP27 reference)")
 a0.set(ylabel="K", ylim=(0, 1000), xlim=(45, 250))
 a0.legend(fontsize=7, loc="lower left")
-both = good & prev.good
-d = np.where(both, ex - prev.excess_k, np.nan)
-a1.errorbar(freqs[both], d[both], yerr=np.hypot(s_non, prev.t_non_sigma_k)[both], fmt=".", ms=2, lw=0.4, color="k", ecolor="0.75")
+both = good & prev_good
+d = np.where(both, ex - prev_ex, np.nan)
+a1.errorbar(freqs[both], d[both], yerr=np.hypot(s_non, prev_s)[both], fmt=".", ms=2, lw=0.4, color="k", ecolor="0.75")
 a1.axhline(0, color="k", lw=0.5)
 a1.set(ylabel="this run − 10-08 (K)", xlabel="frequency (MHz)")
 plt.tight_layout(); plt.show()
-print(f"T_off (diode board, noise-off dwells of the steady cycles): {t_off:.2f} K ({t_off - K0:.1f} °C); 10-08: {prev.t_off_k:.2f} K")
+print(f"T_off (diode board, noise-off dwells of the steady cycles): {t_off:.2f} K ({t_off - K0:.1f} °C); 10-08: {res0['t_off_k']:.2f} K")
 rows = []
 for lo, hi in b4.BANDS:
-    e = b4.band_wmean(ex, s_non, freqs, good, lo, hi); e0 = b4.band_wmean(prev.excess_k, prev.t_non_sigma_k, freqs, prev.good, lo, hi)
+    e = b4.band_wmean(ex, s_non, freqs, good, lo, hi); e0 = b4.band_wmean(prev_ex, prev_s, freqs, prev_good, lo, hi)
+    e1 = b4.band_wmean(v0001.excess_k, v0001.t_non_sigma_k, freqs, v0001.good, lo, hi)
     k = good & (freqs >= lo) & (freqs < hi)
     rows.append({"band (MHz)": f"{lo:.0f}–{hi:.0f}", "channels": int(k.sum()),
                  "T_NON (K)": round(b4.band_wmean(t_non, s_non, freqs, good, lo, hi), 1), "excess (K)": round(e, 1),
                  "excess per channel (K)": f"{np.nanmin(ex[k]):.0f}–{np.nanmax(ex[k]):.0f}",
                  "ENR behind the pad (dB)": round(float(enr_from_excess(e, 30.0)), 2),
-                 "10-08 excess (K)": round(e0, 1), "difference (%)": round(100 * (e / e0 - 1), 2)})
+                 "10-08 excess (K)": round(e0, 1), "difference (%)": round(100 * (e / e0 - 1), 2),
+                 "v0001 as built (K)": round(e1, 1)})
 pd.DataFrame(rows)"""))
-C.append(md("""**Figure 10 and Table 5.** The noise-source path's excess at P from all four passes' steady cycles (black; $T_\\mathrm{NON}$ minus the diode board's temperature in the noise-off dwells), with the stages before it (grey: $T_\\mathrm{NS}$ from $Q$ without and with the loads' reflections, both still absorbing the noise source's own mismatch with the bench receiver) and the 2026-10-08 result (`noise_source` v0001, blue). Bottom: this run minus 10-08, per channel unmasked in both, with the two slope errors combined. The table gives inverse-variance weighted means per band."""))
+C.append(md("""**Figure 10 and Table 5.** The noise-source path's excess at P from all four passes' steady cycles (black; $T_\\mathrm{NON}$ minus the diode board's temperature in the noise-off dwells), with the stages before it (grey: $T_\\mathrm{NS}$ from $Q$ without and with the loads' reflections, both still absorbing the noise source's own mismatch with the bench receiver) and the 2026-10-08 run re-measured here with its GP27 reference (blue). Bottom: this run minus 10-08, per channel unmasked in both, with the two slope errors combined. The table gives inverse-variance weighted means per band, and `noise_source` v0001 as built (its reference from GP28, LNA 3's thermistor), which sits 5–7 K below the re-measurement."""))
 
 C.append(md("## 12. Do the four passes agree?"))
 C.append(code("""pass_fit, rows = {}, []
@@ -447,7 +488,7 @@ C.append(md("""## 13. System drift
 
 The hot load measures the noise source; the reference load and the noise source together measure the receiver. Per switch cycle, with $T_\\mathrm{NON}$ fixed to the all-pass fit,
 $$P_\\mathrm{ref} = g\\,(M_\\mathrm{ref}T_\\mathrm{ref} + T_r),\\qquad P_\\mathrm{NON} = g\\,(M_\\mathrm{NS}T_\\mathrm{NON} + T_r)$$
-give the receiver's gain $g$ and noise temperature $T_r$ in every cycle, heater on or off (`bench_4pass.gain_and_trx`). Drift in $g$ or $T_r$ is the receiver's (or the SNAP's); drift in the noise source itself would show as $g$ and $T_r$ moving together, and is tested separately in § 13.3 from the hot load on the plateaus."""))
+give the receiver's gain $g$ and noise temperature $T_r$ in every cycle, heater on or off (`bench_4pass.gain_and_trx`). Drift in $g$ or $T_r$ is the receiver's (or the SNAP's); drift in the noise source itself would show as $g$ and $T_r$ moving together, and is tested separately in § 13.3 from the hot load on the plateaus. The SNAP's FPGA temperature is interpolated to each cycle from its ~20 s log."""))
 C.append(code("""g, t_r = b4.gain_and_trx(cp, res, t_non)
 tc = cyc.t.to_numpy()
 BD = (108, 200)
@@ -479,27 +520,6 @@ print(f"{BD[0]}–{BD[1]} MHz, unmasked channels, every complete cycle ({len(tc)
 print(f"  gain: peak-to-peak {100*(np.nanmax(gb)-np.nanmin(gb))/np.nanmean(gb):.2f} %, rms {100*np.nanstd(gb)/np.nanmean(gb):.2f} %")
 print(f"  T_r: mean {np.nanmean(trb):.1f} K, peak-to-peak {np.nanmax(trb)-np.nanmin(trb):.1f} K, rms {np.nanstd(trb):.1f} K")"""))
 C.append(md("""**Figure 13.** The system over the ~24 h run, one point per switch cycle (108–200 MHz, unmasked channels; pass starts dotted): the raw powers of the two ambient-temperature states, the receiver's gain and noise temperature from the reference and the noise source, and the temperatures that could drive them (SNAP FPGA, LNA 3, the reference load, the diode board). $T_r$ here is at plane P and includes the bench LNA's noise; it is the lab receiver's, not the field receiver's."""))
-C.append(code("""ok = np.isfinite(gb) & np.isfinite(trb) & np.isfinite(cyc.fpga_c.to_numpy()) & np.isfinite(cyc.T_lna3.to_numpy())
-drivers = {"SNAP FPGA": cyc.fpga_c.to_numpy(), "LNA 3": cyc.T_lna3.to_numpy() - K0,
-           "reference load": cyc.T_ref.to_numpy() - K0, "diode board": cyc.T_board_off.to_numpy() - K0}
-fig, axs = plt.subplots(2, 4, figsize=(12, 5), sharey="row")
-rows = []
-for j, (name, x) in enumerate(drivers.items()):
-    for i, (y, lab, unit) in enumerate(((100 * (gb / np.nanmean(gb) - 1), "gain vs mean", "%"), (trb, "T_r", "K"))):
-        axs[i, j].scatter(x[ok], y[ok], c=tc[ok], s=2, cmap="viridis")
-        sl, ic = np.polyfit(x[ok], y[ok], 1)
-        xx = np.array([x[ok].min(), x[ok].max()])
-        axs[i, j].plot(xx, ic + sl * xx, "r-", lw=0.8)
-        axs[i, j].set(xlabel=f"{name} (°C)")
-        if j == 0:
-            axs[i, j].set_ylabel(f"{lab} ({unit})")
-        rows.append({"driver": name, "quantity": lab, "slope": f"{sl:+.3f} {unit}/K", "corr": round(np.corrcoef(x[ok], y[ok])[0, 1], 2)})
-plt.tight_layout(); plt.show()
-print("correlations between the candidate drivers:")
-print(pd.DataFrame({k: v[ok] for k, v in drivers.items()}).corr().round(2))
-pd.DataFrame(rows).pivot(index="driver", columns="quantity", values=["slope", "corr"])"""))
-C.append(md("""**Figure 14 and Table 8.** Gain and receiver temperature per cycle against each candidate driver, coloured by time, with straight-line fits (red). The drivers are correlated with one another (printed matrix), so a slope here is not a temperature coefficient of that component: a one-variable comparison, holding the others fixed, would be needed to identify the cause."""))
-
 C.append(md("""### 13.3 The noise source itself
 
 Per cycle, $T_\\mathrm{NON}$ from that cycle alone, $(y-a)/x$ in the straight line of § 11 with the all-cycle intercept $a$ (`bench_4pass.cycle_tnon`), is independent of the receiver's gain and noise; it is meaningful only where the hot load is well away from the reference, so only the steady cycles of plateaus 2 and 3 are used. A drift in it is the noise source's (or its path's), and its relation to the diode board's temperature is the noise source's temperature coefficient over this run's range."""))
@@ -530,8 +550,27 @@ for name, ls in (("plateau 2", "--"), ("plateau 3", "-")):
 a1.legend(fontsize=7)
 plt.tight_layout(); plt.show()
 pd.DataFrame(rows)"""))
-C.append(md("""**Figure 15 and Table 9.** The noise source's excess at P from each steady cycle of plateaus 2 and 3 alone (108–200 MHz, unmasked channels), over time by pass (left) and against the diode board's temperature in that cycle's noise-off dwell (right), with a straight line fitted within each plateau. In every pass the plateau-3 cycles sit a few kelvin above the plateau-2 cycles, so the line of § 11 is not exactly straight across the hot load's range (candidates: the hot-load thermistor's scale at high temperature, through its 2-wire pull-up; the hot load's reflection, which changes with its temperature, Fig. 7); a slope fitted across both plateaus would mix that with the board. Within a plateau the board spans only a few tenths of a kelvin, so these slopes bound the noise source's temperature coefficient only loosely."""))
+C.append(md("""**Figure 14 and Table 8.** The noise source's excess at P from each steady cycle of plateaus 2 and 3 alone (108–200 MHz, unmasked channels), over time by pass (left) and against the diode board's temperature in that cycle's noise-off dwell (right), with a straight line fitted within each plateau. In every pass the plateau-3 cycles sit a few kelvin above the plateau-2 cycles, so the line of § 11 is not exactly straight across the hot load's range (candidates: the hot-load thermistor's scale at high temperature, through its 2-wire pull-up; the hot load's reflection, which changes with its temperature, Fig. 7); a slope fitted across both plateaus would mix that with the board. Within a plateau the board spans only a few tenths of a kelvin, so these slopes bound the noise source's temperature coefficient only loosely."""))
 
+C.append(md("""### 13.4 Is the curvature in the 2026-10-08 run too?
+
+The single-cycle estimate of § 13.3, per plateau, in both runs (each with its own all-cycle intercept; plateaus picked by the hot load's temperature, within 3 K of 47, 67 and 87 °C, steady cycles only). If the line were straight, every plateau would give the same excess."""))
+C.append(code("""rows = []
+for run, r, steady_r in (("2026-10-08", res0, (res0["cycles"].kind == "steady").to_numpy()), ("2026-10-20", res, steady)):
+    fit_r = b4.fit_subset(r, steady_r)
+    tn_r = b4.cycle_tnon(r, fit_r["a"])
+    c = r["cycles"]
+    th = c.T_hot.to_numpy() - K0
+    base = None
+    for tgt in (47, 67, 87):
+        m = steady_r & (np.abs(th - tgt) < 3)
+        v = b4.band_rows(tn_r[m] - c.T_board_off.to_numpy()[m][:, None], freqs, r["good"], *BD)
+        mean = float(np.nanmean(v))
+        base = mean if tgt == 47 else base
+        rows.append({"run": run, "plateau (°C)": tgt, "cycles": int(m.sum()), "excess, mean over cycles (K)": round(mean, 1),
+                     "rms (K)": round(float(np.nanstd(v)), 1), "vs 47 °C (%)": round(100 * (mean / base - 1), 2)})
+pd.DataFrame(rows)"""))
+C.append(md("""**Table 9.** The noise source's excess at P (108–200 MHz, unmasked channels) from single steady cycles, by plateau, in both bench runs. A trend with the plateau in both runs, of the same size, points to something common to both (the hot-load thermistor's scale at high temperature, or the hot load's reflection, which follows its temperature); a trend in one run only points to that run."""))
 C.append(md("## 14. Power around the VNA sweeps"))
 C.append(code("""print(f"{len(sweeps)} VNA sweeps; durations {np.round(sweeps[:, 1] - sweeps[:, 0]).astype(int)[:10]} ... s")
 bm = (freqs > 108) & (freqs < 200) & good
@@ -554,7 +593,7 @@ for ax, (t0, t1) in zip(axs, sweeps[pick]):
 axs[0].set_ylabel("band power vs nearby mean (%)")
 axs[0].legend(fontsize=6)
 plt.tight_layout(); plt.show()"""))
-C.append(md("""**Figure 16.** Band power (108–200 MHz, unmasked channels, RFI-flagged samples left out) of every switched integration within ±2 minutes of four VNA sweeps spread over the run, relative to the same state's mean from 2 to 15 minutes away. The yellow span is the 20 s before each sweep that `measure` excludes (the VNA service disturbs every state there in 2026-10-08); a disturbance outside it would need a wider guard."""))
+C.append(md("""**Figure 15.** Band power (108–200 MHz, unmasked channels, RFI-flagged samples left out) of every switched integration within ±2 minutes of four VNA sweeps spread over the run, relative to the same state's mean from 2 to 15 minutes away. The yellow span is the 20 s before each sweep that `measure` excludes (the VNA service disturbs every state there in 2026-10-08); a disturbance outside it would need a wider guard."""))
 
 C.append(md("## 15. In the field"))
 C.append(code("""from eigsep_data.calibration.build_tcal import noise_source_tns
@@ -570,7 +609,7 @@ t_ns4, chk4 = noise_source_tns(ns4, freqs, s11_field, z["therm_k"], (50.0, 200.0
 t_ns_v4 = np.asarray(z["t_ns_k"], float)
 fb = (freqs >= 50) & (freqs <= 200)
 fig, (a0, a1) = plt.subplots(2, 1, figsize=(9, 4.4), sharex=True, height_ratios=(2, 1))
-a0.plot(freqs[fb], t_ns_v4[fb], color=CS[S.ref], label="tcal v0004 (from the 10-08 run)")
+a0.plot(freqs[fb], t_ns_v4[fb], color=CS[S.ref], label="tcal v0004 (from 10-08's v0001: reference from LNA 3)")
 a0.plot(freqs[fb], t_ns4[fb], color="k", label="from this run")
 a0.set(ylabel="field T_NS (K)")
 a0.legend(fontsize=7)
@@ -580,22 +619,10 @@ a1.set(ylabel="this run vs v0004 (%)", xlabel="frequency (MHz)")
 plt.tight_layout(); plt.show()
 print(f"field T_NS from this run: {np.nanmin(t_ns4[fb]):.0f}–{np.nanmax(t_ns4[fb]):.0f} K over 50–200 MHz; "
       f"change from tcal v0004: {np.nanmin(100*(t_ns4[fb]/t_ns_v4[fb]-1)):+.2f} to {np.nanmax(100*(t_ns4[fb]/t_ns_v4[fb]-1)):+.2f} %")"""))
-C.append(md("""**Figure 17.** What this run would change in the field calibration: the noise-source temperature as the field receiver takes it, built exactly as `tcal` v0004 builds its own (`eigsep_data.calibration.build_tcal.noise_source_tns`: the excess's smooth fit, the lab $\\Gamma_\\mathrm{NS}$, the campaign-mean field $\\Gamma_\\mathrm{rec}$ and $\\Gamma_\\mathrm{amb}$, the mean load thermistor), from this run and from 10-08 (v0004's). The calibrated temperature's $T^*-T_\\mathrm{load}$ scales by the same ratio."""))
+C.append(md("""**Figure 16.** What this run would change in the field calibration: the noise-source temperature as the field receiver takes it, built exactly as `tcal` v0004 builds its own (`eigsep_data.calibration.build_tcal.noise_source_tns`: the excess's smooth fit, the lab $\\Gamma_\\mathrm{NS}$, the campaign-mean field $\\Gamma_\\mathrm{rec}$ and $\\Gamma_\\mathrm{amb}$, the mean load thermistor), from this run and from 10-08 (v0004's). The calibrated temperature's $T^*-T_\\mathrm{load}$ scales by the same ratio."""))
 
-C.append(md("""## Summary
-
-Numbers from this notebook's run; the run's own record is the README in `data-analysis/notebooks/charlie/bench_runs/2026-10-20_4pass/`.
-
-- **Data.** 80,674 integrations (1.074 s) over 24 h; 1264 complete switch cycles, 1112 steady (Fig. 1); 616 of 1024 channels kept by the mask (Fig. 9). Within a dwell the data are radiometer-noise limited (scatter 0.99–1.05× the prediction, Table 3); between cycles $Q$ scatters 1.3× its radiometer noise (1.7× on 2026-10-08).
-- **The reference thermistor is `tempctrl_lna1`**, as the run record says (Table 1). In the ambient blocks it reads 5.0 K above the hot load and LNA 3's reads 9.5 K above; in power the reference load is 3.8–3.9 K warmer than the hot load ($Q\,T_\mathrm{NS}$). The remaining ~1 K between the thermistor and the power difference is open; a constant offset goes into the fit's intercept, not its slope.
-- **Settling.** The first ~4 integrations of each `RFAMB` and `RFNOFF` dwell are ~1 % low, and `RFNON`'s first ~0.5 % (Fig. 3); dropping up to four changes the excess by ≤ 0.3 % (50–88 MHz) and < 0.1 % elsewhere (Table 2), so `measure` keeps them.
-- **The noise source's excess at P (Table 5):** 572.7 / 513.2 / 487.2 / 484.6 K over 50–88 / 108–150 / 150–200 / 200–245 MHz (ENR 32.96 / 32.48 / 32.25 / 32.23 dB behind the pad), 0.2–1.3 % below the 2026-10-08 result (`noise_source` v0001), with the diode board 4 K cooler (303.9 K against 308.0 K). The ramp check passes better than on 10-08 (heating mean z −1.4 against 3.8).
-- **The passes agree** to 0.6 % above 108 MHz and 2 % at 50–88 MHz (Table 6); pass 1 is the highest in every band. The same plateau gives the same $Q$ per kelvin in every pass to ≤ 1.2 % (Table 7).
-- **The line is not quite straight.** Single-cycle estimates from plateau 3 sit 3.5 K (0.7 %) above plateau 2's, in every pass (Table 9). Within each plateau the excess rises with the diode board's temperature (+0.9 and +1.2 %/K over a 0.3 K range), but the board is warmest in pass 1, which also has the highest excess, so the slope is confounded with the drift between passes and is not the noise source's temperature coefficient.
-- **System drift (Fig. 13–14).** Over 24 h the receiver's gain falls ~0.5 % (peak-to-peak 0.9 %, rms 0.13 %) and its noise temperature at P rises from ~102 to ~104.5 K (mean 103.6 K). Both track LNA 3's temperature (gain +0.4 %/K, T_r −2.6 K/K) and the diode board's, which move together (correlation 0.72), so the driver is not identified. The raw powers of the two ambient-temperature states wander ±0.2 % together.
-- **Reflections (Fig. 7).** The hot load's match follows its temperature (|Γ| at its port 0.0040 → 0.0047, correlation +0.97 with temperature); the measurement interpolates the 20-min sweeps, so this is tracked. The receiver's Γ at P drifts by up to ~0.005; the reference's is stable to ~0.0003.
-- **The VNA guard** (20 s before each sweep) still catches the pre-sweep disturbance (Fig. 16).
-- **In the field (Fig. 17):** this run's excess would put the field $T_\mathrm{NS}$ at 481–584 K over 50–200 MHz, 0.3–1.7 % below `tcal` v0004's."""))
+# The summary is written into the notebook by hand after each run, from that run's outputs.
+C.append(md("## Summary\n\n*(written after the run.)*"))
 
 nb = nbf.v4.new_notebook(cells=C, metadata={"kernelspec": {"display_name": "Python 3 (ipykernel)", "language": "python", "name": "python3"}})
 nbf.write(nb, out)

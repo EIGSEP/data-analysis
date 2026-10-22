@@ -25,14 +25,23 @@ HEATER_LOG = RECORD / "hot_load_plateaus_20261020T172431Z.log"
 #: Lab reflection of the noise-source path at P (VNA on the field board's LNA
 #: port, switch on RFNON / RFNOFF), 2026-10-15; the same board as this run.
 GAMMA_NS_FILE = Path("/mnt/data02/eigsep/scratch/rfn_sparameters_10_15.npz")
-#: The 2026-10-08 result, for comparison (on the memo branch until it merges).
+#: The 2026-10-08 interim run, re-measured here for comparison with the same
+#: package code and the same wiring as below (GP27, the tempctrl_lna1 stream, on
+#: the reference load in both runs; noise_source v0001 took the reference from
+#: tempctrl_lna2, LNA 3's thermistor). PREV_ROOT holds tcal v0004 and the lab
+#: Gamma_NS file (on the memo branch until it merges).
+PREV_DATA = Path("/mnt/data02/eigsep/marjum-2026-07/data/bench/2026-10-08_interim")
 PREV_ROOT = Path("/mnt/data02/eigsep-worktrees/memo-004-methods/marjum-2026-07")
+#: The thresholds noise_source v0001 used for 2026-10-08 (its plateaus were
+#: 15 min, too short for this run's stricter steady limit).
+PREV_CHOICES = dict(steady_per_min=1.0, sweep_guard=(20.0, 5.0), band_mhz=(50.0, 245.0),
+                    chi2_factor=3.0, max_rel_err=0.05)
 TZ = ZoneInfo("America/Los_Angeles")
 
 #: As wired (run record, section 2): hot load on the Amb/Hot Load port (RFAMB,
-#: tempctrl_load), ambient reference on the Feed port (RFANT, tempctrl_lna1 on
-#: GP27); measured pull-ups. The noise diode's board thermistor is
-#: rfswitch_therm temp_therm2 (GP28).
+#: tempctrl_load, GP26), ambient reference on the Feed port (RFANT, GP27, the
+#: tempctrl_lna1 stream); LNA 3 is GP28 (the tempctrl_lna2 stream). Measured
+#: pull-ups. The noise diode's board thermistor is rfswitch_therm temp_therm2.
 SETUP = BenchSetup(
     hot="RFAMB", ref="RFANT", non="RFNON", noff="RFNOFF",
     hot_s11="amb", ref_s11="ant",
@@ -46,8 +55,10 @@ ORDER = (SETUP.ref, SETUP.hot, SETUP.non, SETUP.noff)
 #: logged as a voltage), with their measured pull-ups.
 LNA3_THERM = ("tempctrl_lna2_resistance", 9910.0)
 SP1_PULLUP_OHM = 9960.0
-#: The measurement's thresholds, as for noise_source v0001 (2026-10-08).
-CHOICES = dict(steady_per_min=1.0, sweep_guard=(20.0, 5.0), band_mhz=(50.0, 245.0),
+#: The measurement's thresholds. A cycle is steady when the hot load changes
+#: by less than 0.3 K/min (1 K/min for noise_source v0001): this run's
+#: 60-minute plateaus leave enough cycles for the stricter limit.
+CHOICES = dict(steady_per_min=0.3, sweep_guard=(20.0, 5.0), band_mhz=(50.0, 245.0),
                chi2_factor=3.0, max_rel_err=0.05)
 BANDS = ((50.0, 88.0), (108.0, 150.0), (150.0, 200.0), (200.0, 245.0))
 
@@ -101,6 +112,13 @@ def temperatures(meta):
     return meta
 
 
+def interp_column(meta, col, t):
+    """A sparsely logged metadata column (e.g. the SNAP's FPGA temperature,
+    logged about every 20 s) interpolated linearly to times ``t``."""
+    m = meta[["time_best", col]].dropna().sort_values("time_best")
+    return np.interp(np.asarray(t, float), m["time_best"].to_numpy(float), m[col].to_numpy(float))
+
+
 def load_gamma_ns(path=GAMMA_NS_FILE):
     with np.load(path) as g:
         return {"freqs_mhz": g["freqs"] / 1e6, "on": g["RFNON"], "off": g["RFNOFF"]}
@@ -118,11 +136,9 @@ def dwells_and_cycles(index, sweeps, choices=CHOICES, dwell_gap_s=5.0):
         flags[sw.near_sweep(meta, sweeps, choices["sweep_guard"])] = True
         persistent = pc if persistent is None else persistent | pc
         states[st] = {"meta": meta, "freqs": f, "spec": spec, "flags": flags}
-        dwells[st] = sw.dwell_means(meta, spec, flags,
-                                    columns=("T_hot", "T_ref", "T_lna3", "T_board", "fpga_c"))
+        dwells[st] = sw.dwell_means(meta, spec, flags, columns=("T_hot", "T_ref", "T_lna3", "T_board"))
     cyc, cp = sw.cycles(dwells, ORDER)
-    for col in ("T_lna3", "fpga_c"):
-        cyc[col] = dwells[SETUP.ref][0][col].to_numpy()[cyc[f"i_{SETUP.ref}"].to_numpy()]
+    cyc["T_lna3"] = dwells[SETUP.ref][0]["T_lna3"].to_numpy()[cyc[f"i_{SETUP.ref}"].to_numpy()]
     return {"states": states, "dwells": dwells, "cyc": cyc, "cp": cp, "persistent": persistent}
 
 
