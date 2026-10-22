@@ -51,7 +51,7 @@ from eigsep_sim.design_matrix import (
 )
 from eigsep_sim.observer import EarthSurface
 
-from common import HORIZON_PROFILES, mount_offsets
+from common import HORIZON_PROFILES, era_of_files, mount_offsets
 
 HERE = Path(__file__).resolve().parent
 CAMPAIGN = Path(os.environ["EIGSEP_CAMPAIGN_ROOT"])
@@ -72,13 +72,16 @@ CHANNEL_HZ = 250e6 / 1024
 
 
 def load_bins(bin_s, max_spread_deg):
-    """Phase-C, quality-ok pointing, averaged in static ``bin_s`` bins."""
+    """Phase-C, quality-ok pointing, averaged in static ``bin_s`` bins. Height eras
+    come from the mode table by source file (``common.era_of_files``), as in the
+    other scripts here, not from the pointing table's own column."""
     pt = pd.read_parquet(
         POINTING,
-        columns=["t_utc_s", "az_deg", "el_deg", "quality", "height_era", "phase"],
+        columns=["t_utc_s", "file", "az_deg", "el_deg", "quality", "phase"],
     )
-    pt = pt[(pt.phase == "C") & (pt.quality == "ok")
-            & pt.height_era.isin(list(ERAS))].dropna(subset=["az_deg", "el_deg"])
+    pt = pt[(pt.phase == "C") & (pt.quality == "ok")].dropna(subset=["az_deg", "el_deg"])
+    pt = pt.assign(height_era=era_of_files(pt.file.to_numpy(), CAMPAIGN))
+    pt = pt[pt.height_era.isin(list(ERAS))]
     pt = pt.assign(bin=(pt.t_utc_s // bin_s).astype(np.int64))
     g = pt.groupby(["bin", "height_era"])
     bins = g.agg(

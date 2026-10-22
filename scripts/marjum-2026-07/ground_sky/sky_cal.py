@@ -38,7 +38,7 @@ frequency and into ``--bin-s`` bins. Rows of files recorded with the switch
 daemon off (all ``MISSING``; the 07-15 night) count as antenna rows, as in
 ``flags@v3``. The Sun is below ``--max-sun-alt`` (it is
 behind the ridge long before that, ``sun.py``). Pointing comes from
-``pointing@v2.0``, or the stretch median where the table has none (the
+``pointing@v3``, or the stretch median where the table has none (the
 antenna is parked).
 
 Run::
@@ -96,7 +96,7 @@ def bin_stretch(index, st, freqs, bin_s, max_sun_alt, tcal):
         sel = index.select(time=(c, min(c + 3600.0, b)))
         if sel.nrows == 0:
             continue
-        prods = ["flags@v3", "pointing@v2.0"] + ([f"tcal@{tcal}"] if tcal else [])
+        prods = ["flags@v3", "pointing@v3"] + ([f"tcal@{tcal}"] if tcal else [])
         B = sel.load_bundle(antenna="box-air", products=prods)
         f = B.freqs_mhz
         ch = np.rint(f / CHANNEL_MHZ).astype(int)

@@ -209,6 +209,10 @@ mount offsets, horizon profiles v0002), HFSS beam, rx-A only (07-15 to 07-17 19:
 
 ## Recent changes
 
+- 2026-10-22: every script here reads `pointing@v3` (era and phase by source file, the nadir-wrap fix,
+  elevation-glitch rows `suspect`) instead of v2.0, and `degeneracy_study.py` takes height eras from the
+  mode table by source file like the others, not from the pointing table's own column (v3's was built
+  before the 2026-10-18 mode-table rebuild). Products made from here on use the rebuilt height eras.
 - 2026-10-21: `sky_cal.py --fit-from DATE=UTC` fits one night's stretch only from a later time, still
   binning it from its start. The 07-15 night's raw power is a few percent of its later level before
   about 04:45, so `skycal_v0005` fits that night from 05:12 (memo 008).

@@ -160,7 +160,7 @@ def main():
             rec["status"] = "no data"
             summary.append(rec)
             continue
-        B = sel.load_bundle(antenna="box-air", products=["flags@v3", "pointing@v2.0"])
+        B = sel.load_bundle(antenna="box-air", products=["flags@v3", "pointing@v3"])
         spec, meta, states = minute_context(B, a, n_min, tx)
         tm = a + 60 * np.arange(n_min) + 30
         f = B.freqs_mhz
