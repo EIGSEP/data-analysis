@@ -103,6 +103,21 @@ def era_of_files(files, campaign=None):
     return np.array([out[f] for f in files], dtype=object)
 
 
+def rows_at_height(files, era, campaign=None, require=True):
+    """Mask of the rows whose height era (mode table, by source file) has the horizon
+    profile ``era`` (e.g. "30m"), and the mode-table eras the window holds. Rows on the
+    ground, being raised, of unknown height or at another height are dropped; with
+    ``require``, a window with none at ``era`` is an error, so a fixed-height analysis
+    never runs on rows that were not at that height."""
+    eras = era_of_files(files, campaign)
+    keep = np.array([ERAS.get(e) == era for e in eras], bool)
+    names, n = np.unique(eras, return_counts=True)
+    counts = {str(k) or "(none)": int(c) for k, c in zip(names, n)}
+    if require and not keep.any():
+        raise SystemExit(f"no rows at {era} in this window; its mode-table eras: {counts}")
+    return keep, counts
+
+
 def regime_of_files(files, campaign=None):
     """Receiver regime of each raw file: that of the latest cal window
     starting at or before it (``curation/cal_windows.jsonl``)."""

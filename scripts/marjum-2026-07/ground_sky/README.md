@@ -209,6 +209,12 @@ mount offsets, horizon profiles v0002), HFSS beam, rx-A only (07-15 to 07-17 19:
 
 ## Recent changes
 
+- 2026-10-22: fixed-height analyses use only rows at that height. `common.rows_at_height` keeps the rows
+  whose mode-table era has the requested horizon profile; `raster_sky.py`, `ground_excess.py` and
+  `raster_sun.py` apply it to `--era` and record the eras their window held, and refuse a window with
+  none (the 07-17 00:21-01:08 "dusk at 30 m" window is on the ground in the rebuilt mode table).
+  `sky_cal.py` gives each stretch a height and skips one with no rows at it: the 07-15 night is on
+  the ground, which has no horizon profile yet.
 - 2026-10-22: every script here reads `pointing@v3` (era and phase by source file, the nadir-wrap fix,
   elevation-glitch rows `suspect`) instead of v2.0, and `degeneracy_study.py` takes height eras from the
   mode table by source file like the others, not from the pointing table's own column (v3's was built

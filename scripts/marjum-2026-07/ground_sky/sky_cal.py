@@ -70,18 +70,21 @@ from eigsep_sim.observer import EarthSurface
 
 import sun as sunmod
 from common import (
-    CHANNEL_MHZ, ERAS, HERE, HORIZON_PROFILES, campaign_root, git_rev, mount_offsets, sha256,
+    CHANNEL_MHZ, HERE, HORIZON_PROFILES, campaign_root, git_rev, mount_offsets, rows_at_height, sha256,
 )
 from fit_ground_sky import gsm_maps, load_beam
 
-# Night stretches of fixed pointing in receiver regime rx-A (mode table, pointing table).
+# Night stretches of fixed pointing in receiver regime rx-A, each fitted at one height (a
+# horizon-profile key). Only rows whose mode-table era is at that height are used; a stretch
+# with none is skipped. The 07-15 night is on the ground (~2 m) in the 2026-10-18 mode table,
+# for which there is no horizon profile yet, so it is skipped.
 STRETCHES = [
-    {"name": "07-15 night, 30 m", "start": "2026-07-15T03:20:00Z", "stop": "2026-07-15T12:00:00Z",
-     "era": "~30m", "self_emi": False},
+    {"name": "07-15 night", "start": "2026-07-15T03:20:00Z", "stop": "2026-07-15T12:00:00Z",
+     "height": "30m", "self_emi": False},
     {"name": "07-16 night, 30 m", "start": "2026-07-16T03:20:00Z", "stop": "2026-07-16T12:00:00Z",
-     "era": "~30m", "self_emi": True},
+     "height": "30m", "self_emi": True},
     {"name": "07-17 night, 87.5 m", "start": "2026-07-17T03:30:00Z", "stop": "2026-07-17T12:00:00Z",
-     "era": "~87.5m", "self_emi": False},
+     "height": "87.5m", "self_emi": False},
 ]
 
 
@@ -112,6 +115,7 @@ def bin_stretch(index, st, freqs, bin_s, max_sun_alt, tcal):
         # switch then rests on the antenna (flags@v3 treats them as sky).
         daemon_off = B.meta.groupby("file").rfswitch.transform(lambda x: (x == "MISSING").all()).to_numpy()
         ok = (rf == "RFANT") | daemon_off
+        ok &= rows_at_height(B.meta.file.to_numpy(), st["height"], require=False)[0]
         p = B.pointing
         az = np.mod(p.az_deg.to_numpy() + 180, 360) - 180
         el = p.el_deg.to_numpy()
@@ -137,6 +141,8 @@ def bin_stretch(index, st, freqs, bin_s, max_sun_alt, tcal):
                          "n": int(s.sum())})
         print(" ", st["name"], pd.Timestamp(c, unit="s"), len(rows), flush=True)
     df = pd.DataFrame(rows)
+    if df.empty:
+        return df
     alt, _ = sunmod.sun_altaz(df.t.values)
     df = df[alt < max_sun_alt].reset_index(drop=True)
     df["pointing_filled"] = ~np.isfinite(df.az) | ~np.isfinite(df.el)
@@ -186,14 +192,19 @@ def main():
     for si, st in enumerate(STRETCHES):
         print(st["name"], flush=True)
         df = bin_stretch(index, st, freqs, args.bin_s, args.max_sun_alt,
-                         args.tcal if "87.5" in st["era"] else None)
+                         args.tcal if st["height"] == "87.5m" else None)
+        if df.empty:
+            print(f"  skipped: no rows at {st['height']} (mode table)", flush=True)
+            results.append({"stretch": st, "n_bins": 0, "per_frequency": [],
+                            "skipped": f"no rows at {st['height']} in the mode table"})
+            continue
         if st.get("fit_from"):
             df = df[df.t.values >= ts(st["fit_from"])].reset_index(drop=True)
         t = df.t.values
         rg = EarthSurface(lat, lon, hgt).rot_gal2top_stack(Time(t, format="unix")).astype(float)
         rb = mount_rotation(df.az.values + az_off, df.el.values + el_off, psi)
         hz = sunmod.true_horizon(HorizonProfile.from_npz(
-            campaign / f"{HORIZON_PROFILES}.npz", ERAS[st["era"]]))
+            campaign / f"{HORIZON_PROFILES}.npz", st["height"]))
         dm = build_design_matrix(beam, [hz], rg, rb, 8, offset_groups=False, nside_int=64)
         colG = np.einsum("ftp,fp->ft", dm.A[:, :, dm.sky], gsm)
         fgnd = dm.A[:, :, dm.ground][:, :, 0]
@@ -244,7 +255,7 @@ def main():
     for fi, x in enumerate(freqs):
         pts = [(r["per_frequency"][fi]["f_gnd"], r["per_frequency"][fi]["K_over_G_k"],
                 r["per_frequency"][fi]["sigma_K_over_G_k"]) for r in results
-               if r["per_frequency"][fi] and r["used_in_regression"]]
+               if r["per_frequency"] and r["per_frequency"][fi] and r["used_in_regression"]]
         if len(pts) < 2:
             reg.append(None)
             continue

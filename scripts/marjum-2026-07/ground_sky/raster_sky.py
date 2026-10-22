@@ -59,7 +59,8 @@ from eigsep_sim.observer import EarthSurface
 
 import sun as sunmod
 from common import (
-    CHANNEL_MHZ, HERE, HORIZON_PROFILES, campaign_root, git_rev, mount_offsets, sha256,
+    CHANNEL_MHZ, HERE, HORIZON_PROFILES, campaign_root, git_rev, mount_offsets, rows_at_height,
+    sha256,
 )
 from fit_ground_sky import gsm_maps, load_beam
 
@@ -143,6 +144,9 @@ def main():
     p = B.pointing
     ok = ((B.meta.rfswitch == "RFANT").to_numpy() & p.quality.isin(["ok", "suspect"]).to_numpy()
           & np.isfinite(p.az_deg.to_numpy()) & np.isfinite(p.el_deg.to_numpy()))
+    at_height, era_counts = rows_at_height(B.meta.file.to_numpy(), args.era, campaign)
+    print(f"rows at {args.era}: {int(at_height.sum())} of {len(at_height)}; mode-table eras {era_counts}", flush=True)
+    ok &= at_height
     beam, beam_path = load_beam(args.beam, campaign)
     bf = beam.freqs_hz / 1e6
     usable = [(i, x) for i, x in enumerate(bf) if 60 < x < 235 and not 85 < x < 110
@@ -261,7 +265,9 @@ def main():
             "argv": sys.argv[1:],
             "code": {"data-analysis": git_rev(HERE), "eigsep_data": git_rev(eigsep_data.__path__[0]),
                      "eigsep_sim": git_rev(Path(eigsep_sim.__file__).parent)},
-            "inputs": {"beam_sha256": sha256(beam_path)}},
+            "inputs": {"beam_sha256": sha256(beam_path)},
+            "height": {"era": args.era, "rows_at_era": int(at_height.sum()), "rows_in_window": len(at_height),
+                       "mode_table_eras": era_counts}},
         "params": {k: v for k, v in vars(args).items() if k not in ("version", "out_dir")},
         "ylm_labels": labels, "results": res}, indent=1))
 
