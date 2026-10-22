@@ -4,6 +4,23 @@ Builds and validates `marjum-2026-07/derived/tcal/<version>/`, the
 box-air kelvin scale that `eigsep_data`'s `tcal` product applies when a
 bundle is loaded (`Bundle.calibrated`, `Bundle.t_star`).
 
+**From v0004 the builders are in `eigsep_data`, not here**
+(`eigsep_data.calibration`), so no released product depends on this
+repository. Each version's campaign choices are its `config.json` in
+`derived/tcal/<version>/`:
+
+```
+EIGSEP_CAMPAIGN_ROOT=/path/to/marjum-2026-07 eigsep-build-tcal v0004
+EIGSEP_CAMPAIGN_ROOT=/path/to/marjum-2026-07 eigsep-validate-tcal v0004
+EIGSEP_CAMPAIGN_ROOT=/path/to/marjum-2026-07 eigsep-tcal-bracket-cost v0004
+EIGSEP_CAMPAIGN_ROOT=/path/to/marjum-2026-07 eigsep-build-noise-source v0001
+```
+
+The last builds `derived/noise_source/<version>/`, the bench-measured noise
+source that `tcal` v0004 takes its `t_ns_k` from. All four take
+`--products <campaign tree>` to work in a tree other than the campaign root.
+The scripts below built v0000-v0003 and stay as their record.
+
 | Script | What it does |
 |---|---|
 | `build_tcal.py` | Collects the calibration inputs on their own cadences and writes `solutions.npz` and `manifest.json`: RFAMB/RFNON visit spectra (weighted means, masked with the flag product's RFI bits) with their receiver regime, field S11 at plane P on correlator channels, load-thermistor readings. It computes no temperatures. |
@@ -15,6 +32,8 @@ and limits in `eigsep_data.products.tcal`. What the product is, its
 coverage and its validation are in the product's own `README.md`.
 
 ## Recent changes
+
+- 2026-10-20: the builders moved to `eigsep_data.calibration` (`eigsep-build-tcal`, `eigsep-validate-tcal`, `eigsep-tcal-bracket-cost`, and `eigsep-build-noise-source` for the bench-measured noise source), which build `tcal` from v0004; the scripts here are unchanged and record how v0000-v0003 were built.
 
 - 2026-10-05: the builder reads `flags@v3`, the release of `v3-beta.3` (same files); a
   rebuild reproduces `tcal` v0003 exactly.
