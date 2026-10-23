@@ -6,9 +6,10 @@
 #
 # Scoped to notebooks/christian/ only -- other people's notebooks are left alone.
 #
-# The exclude list is the notebooks whose figures ARE the deliverable. They carry
-# captions written against the rendered plots, so stripping them would leave the
-# captions pointing at nothing.
+# This hook rewrites the notebooks on disk. Independently of it, the nbstripout
+# clean filter in .gitattributes strips every notebook as it is committed, and
+# CI checks that. The exclude list below therefore only keeps those notebooks'
+# outputs in the working copy, not in git.
 #
 # Setup, once per clone:   pre-commit install
 repos:
