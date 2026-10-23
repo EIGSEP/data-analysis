@@ -40,6 +40,16 @@ It is a **clean filter**, not a pre-commit hook: your working notebooks
 keep their plots and nothing on disk is rewritten. Only the blob going
 into git is stripped.
 
+The filter records the interpreter that ran `--install`, so rerun
+`nbstripout --install` after rebuilding or upgrading that Python
+environment; otherwise every git command that touches a notebook fails
+with `clean filter 'nbstripout' failed`.
+
+CI (`.github/workflows/notebooks-stripped.yml`) runs `nbstripout --verify`
+on every committed notebook for each pull request and push to `main`, so
+a clone without the filter cannot get outputs in. If it fails on your
+branch, install the filter and run `git add --renormalize -- '*.ipynb'`.
+
 Because committed notebooks are therefore unexecuted, **a review
 checkpoint's evidence is its rendered `.html` and `.pdf`**, which are
 committed alongside and are not stripped. Commit all three.
@@ -50,3 +60,10 @@ committed alongside and are not stripped. Commit all three.
   `notebooks/arp/marjum-2026-07/` (the July-2026 beam analysis).
 - `hfss_beam_maps/` — see its README; the canonical copy now lives in
   `eigsep_data`.
+
+## Recent changes
+
+- 2026-10-23: Every committed notebook is now stripped, including the four
+  in `notebooks/christian/` that kept their figures (Christian agreed); 28
+  notebooks had outputs in git. A CI check now fails any pull request or
+  push to `main` that commits a notebook with outputs.
