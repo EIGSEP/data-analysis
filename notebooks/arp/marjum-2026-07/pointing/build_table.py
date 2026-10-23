@@ -62,12 +62,13 @@ v3 ``EL_SOLUTION_GLITCH`` (memo 003, Known defects): the detector wraps the
     table's SHA-256. Every other column is unchanged.
 v4  **meaning changes** -- ``height_m`` is the antenna's height above the DEM
     surface under it, per height era, read from ``curation/horizon_profiles_v0005``
-    (the same heights the horizon masks use): the geometry v0004 antenna for
+    (the same heights the horizon masks use): the geometry v0005 antenna for
     ``~91m``, with the S11 terrain-echo height changes for ``~87.5m`` (-1.66 m)
     and the new era ``~91m-reraise`` (+0.57 m, after the 07-17 battery
     re-raise; derived/height_eras/v0001, memo 002 Heights). v3 carried the
-    field labels (87.5, 91 m) as heights. ``height_sigma_m`` now includes the
-    +/-3.2 m bound on the v0004 antenna; that part is one offset common to every
+    field labels (87.5, 91 m) as heights. ``height_sigma_m`` now includes
+    memo 002's +/-3.5 m held-out bound on the v0005 antenna; that part is one
+    offset common to every
     suspended era, whose differences are known to +/-0.2 m (``~30m`` excepted:
     its offset is the field-note difference, +/-3 m). LIDAR ranges no longer override
     ``height_m``: the rangefinder is on the box, below the antenna by an
@@ -114,9 +115,11 @@ HORIZON_PROFILES = "horizon_profiles_v0005"
 HORIZON_ERA = {"~30m": "30m", "~87.5m": "87.5m", "~91m": "91m",
                "~91m-reraise": "91m-reraise"}
 # 1-sigma of the geometry release's antenna height, shared by every suspended
-# era: memo 002's +/-3.2 m bound on the v0004 antenna. Era offsets add their own
-# sigma in quadrature; an unmeasured (field-note) offset adds 3 m.
-ANTENNA_SIGMA_M = 3.2
+# era: memo 002's +/-3.5 m bound on the v0005 antenna (worst leave-one-out ray
+# miss; the release's own posterior sigma_U, 0.15 m, is conditional on its
+# unverified vertical frame). Era offsets add their own sigma in quadrature; an
+# unmeasured (field-note) offset adds 3 m.
+ANTENNA_SIGMA_M = 3.5
 FIELDNOTE_OFFSET_SIGMA_M = 3.0
 # Eras with no antenna position: nominal height and uncertainty.
 NOMINAL_ERA_HEIGHT_M = {"~2m": (2.0, 1.0)}
@@ -407,7 +410,7 @@ def main():
         "version": VERSION,
         "schema_version": SCHEMA_VERSION,
         "generated_utc": generated,
-        "generated_by": ("Claude Code session for C. H. Bye (v3); Claude Code "
+        "generated_by": ("Claude Code sessions for C. H. Bye (v3, v4); Claude Code "
                          "session for Aaron (v2.0); pointing-analyst (v1.x)"),
         "generator": "data-analysis/notebooks/arp/marjum-2026-07/pointing/build_table.py",
         "generator_commit": commit,
@@ -466,7 +469,7 @@ def main():
             "members of a flagged pair; the rate does not say which is bad. "
             "height_era and phase are labelled by source file.",
             "v4: height_m is the era's antenna height above the DEM v0004 "
-            "surface under the antenna (v0004 point fit, with the S11 "
+            "surface under the antenna (geometry v0005, with the S11 "
             "height changes for ~87.5m and the new ~91m-reraise era); LIDAR "
             "ranges no longer override it (unmodelled lever arm).",
         ],
