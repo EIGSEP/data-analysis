@@ -70,7 +70,7 @@ def main():
         sys.exit(f"{out_dir}/raster_{args.beam}.json exists; versions are immutable")
     a, b = pd.Timestamp(args.start).timestamp(), pd.Timestamp(args.stop).timestamp()
     B = MetadataIndex(campaign / "data").select(time=(a, b)).load_bundle(
-        antenna="box-air", products=["flags@v3", "pointing@v3"])
+        antenna="box-air", products=["flags@v3", "pointing@v4"])
     f = B.freqs_mhz
     ch = np.rint(f / CHANNEL_MHZ).astype(int)
     D = B.data.astype(float)
