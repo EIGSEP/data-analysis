@@ -24,9 +24,9 @@ def workspace_root():
 
 
 # Horizon profiles (curation/horizon_profiles_vNNNN.{json,npz}) for every
-# script here; v0004 is traced from the release v0004 antenna on DEM v0004,
-# which extends v0003 6 km south on the same grid (v0003 cut the southern horizon).
-HORIZON_PROFILES = "curation/horizon_profiles_v0004"
+# script here; v0005 is traced from the geometry release v0005 antenna on DEM v0004
+# (which extends v0003 6 km south), with its own profile for the 91 m re-raise.
+HORIZON_PROFILES = "curation/horizon_profiles_v0005"
 # The DEM the Sun's terrain trace reads (same grid as the profiles).
 DEM_PATH = "derived/dem/v0004/marjum_dem.npz"
 
@@ -59,7 +59,7 @@ def mount_offsets(campaign=None):
 
 # Horizon-profile keys by pointing-table era.
 ERAS = {"~30m": "30m", "~87.5m": "87.5m", "~91m": "91m",
-        "~91m-reraise": "91m"}   # 0.57 m above the first lift; no profile of its own yet
+        "~91m-reraise": "91m-reraise"}   # its own profile from horizon_profiles_v0005
 
 # Channel width of the correlator, MHz.
 CHANNEL_MHZ = 250.0 / 1024

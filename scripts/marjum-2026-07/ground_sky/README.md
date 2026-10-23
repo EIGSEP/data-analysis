@@ -209,6 +209,7 @@ mount offsets, horizon profiles v0002), HFSS beam, rx-A only (07-15 to 07-17 19:
 
 ## Recent changes
 
+- 2026-10-23: every script here reads `curation/horizon_profiles_v0005` (traced from geometry release v0005's antenna, so the transmitter comes from v0005 too) and `pointing@v4`; the 91 m re-raise (`~91m-reraise`) has its own horizon profile, so a window after the re-raise is fitted with `--era 91m-reraise`. The empirical beam (`empirical_raster_v0013`) is still the one fitted on geometry v0004.
 - 2026-10-22: fixed-height analyses use only rows at that height. `common.rows_at_height` keeps the rows
   whose mode-table era has the requested horizon profile; `raster_sky.py`, `ground_excess.py` and
   `raster_sun.py` apply it to `--era` and record the eras their window held, and refuse a window with

@@ -53,11 +53,11 @@ from eigsep_sim.design_matrix import HealpixBeam
 import sun as sunmod
 from common import CHANNEL_MHZ, HERE, campaign_root, git_rev, mount_offsets, sha256, workspace_root
 
-# Defaults: the products built on horizon_profiles_v0004 and beam v0013
-# (sun_events_v0004 from fit_v0015, the counterpart of fit_v0003).
+# Defaults: the products built on horizon_profiles_v0005 and beam v0013
+# (sun_events_v0006 from fit_v0023, the counterpart of fit_v0003).
 # --sun-events/--fit name others.
-SUN_EVENTS = "derived/ground_sky/sun_events_v0004/sun_events.json"
-FIT_T = "derived/ground_sky/fit_v0015/fit.npz"
+SUN_EVENTS = "derived/ground_sky/sun_events_v0006/sun_events.json"
+FIT_T = "derived/ground_sky/fit_v0023/fit.npz"
 TX = "curation/transmitter_transitions_boxgnd.jsonl"
 MODES = "curation/mode_table.jsonl"
 
@@ -121,8 +121,8 @@ def main():
     ap.add_argument("version")
     ap.add_argument("--half-min", type=int, default=60)
     ap.add_argument("--fit-half-min", type=int, default=45)
-    ap.add_argument("--sun-events", default="v0004", help="sun_events_vNNNN supplying the crossings")
-    ap.add_argument("--fit", default="v0015", help="fit_vNNNN whose calibrated bins stand in for T_sys")
+    ap.add_argument("--sun-events", default="v0006", help="sun_events_vNNNN supplying the crossings")
+    ap.add_argument("--fit", default="v0023", help="fit_vNNNN whose calibrated bins stand in for T_sys")
     ap.add_argument("--out-dir", type=Path)
     args = ap.parse_args()
     global SUN_EVENTS, FIT_T
@@ -160,7 +160,7 @@ def main():
             rec["status"] = "no data"
             summary.append(rec)
             continue
-        B = sel.load_bundle(antenna="box-air", products=["flags@v3", "pointing@v3"])
+        B = sel.load_bundle(antenna="box-air", products=["flags@v3", "pointing@v4"])
         spec, meta, states = minute_context(B, a, n_min, tx)
         tm = a + 60 * np.arange(n_min) + 30
         f = B.freqs_mhz

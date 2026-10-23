@@ -16,7 +16,7 @@ Row selection:
 - Transmitter comb: channels = 0 mod 8 are dropped from 07-17 15:36 to
   07-18 03:00 whatever the flags say (memo 001, Combs). Every beam
   frequency is such a channel, so in that span the window loses its centre.
-- ``pointing@v3`` with ``quality == "ok"``; a bin is kept only if az and
+- ``pointing@v4`` with ``quality == "ok"``; a bin is kept only if az and
   el each span less than ``--max-spread-deg`` within it.
 - Height era from ``curation/mode_table.jsonl`` and receiver regime from
   ``curation/cal_windows.jsonl``, per file; a bin never mixes either.
@@ -122,7 +122,7 @@ def main():
     ap.add_argument("version", help="output version, e.g. v0001")
     ap.add_argument("--tcal", default="v0003")
     ap.add_argument("--flags", default="v3")
-    ap.add_argument("--pointing", default="v3")
+    ap.add_argument("--pointing", default="v4")
     ap.add_argument("--bin-s", type=float, default=120.0)
     ap.add_argument("--half-window", type=int, default=2)
     ap.add_argument("--min-channels", type=int, default=3)

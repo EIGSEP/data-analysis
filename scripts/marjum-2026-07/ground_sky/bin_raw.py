@@ -31,7 +31,7 @@ unmasked samples. Its noise is given two ways: the radiometer prediction
 y / sqrt(dnu tau) for the unmasked samples, and the standard error of its
 rows' values.
 
-Pointing: ``pointing@v3`` rows of quality ``ok`` or ``suspect``. A bin with
+Pointing: ``pointing@v4`` rows of quality ``ok`` or ``suspect``. A bin with
 none takes the pointing of the bins either side if those agree within
 ``--fill-tol-deg`` in az and el (the drives are locked when idle), and is
 marked ``pointing_filled``; otherwise its pointing stays NaN.
@@ -165,7 +165,7 @@ def process_chunk(c, args, chans, episodes, emi):
     sel = index.select(time=(c, min(c + args.chunk_s, a1)))
     if sel.nrows == 0:
         return []
-    B = sel.load_bundle(antenna="box-air", products=["flags@v3", "pointing@v3", "tcal@v0003"])
+    B = sel.load_bundle(antenna="box-air", products=["flags@v3", "pointing@v4", "tcal@v0003"])
     meta = B.meta.reset_index(drop=True)
     o = np.argsort(B.t, kind="stable")
     t = B.t[o]
@@ -321,7 +321,7 @@ def main():
             "inputs": {k: sha256(campaign / "curation" / k) for k in (
                 "transmitter_transitions_boxgnd.jsonl", "boxair_emi_presence.jsonl",
                 "mode_table.jsonl", "cal_windows.jsonl")},
-            "products": ["flags@v3", "pointing@v3", "tcal@v0003"],
+            "products": ["flags@v3", "pointing@v4", "tcal@v0003"],
         },
         "params": {k: (str(v) if isinstance(v, Path) else v) for k, v in vars(args).items() if k != "version"},
         "channel_offsets": OFFSETS.tolist(), "keep_flag_bits": [9, 10],
