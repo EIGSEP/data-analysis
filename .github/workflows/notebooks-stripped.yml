@@ -1,0 +1,29 @@
+# Fail if any committed notebook still carries outputs.
+#
+# The nbstripout clean filter (.gitattributes) strips notebooks on commit, but
+# only in clones where `nbstripout --install` has been run. This checks the
+# committed blobs themselves, so a clone without the filter cannot get outputs
+# into main. CI checkouts have no filter configured, so the files on disk here
+# are exactly what git stores.
+name: notebooks-stripped
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install nbstripout==0.9.1
+      - name: Check every tracked notebook is stripped
+        run: |
+          git ls-files -z '*.ipynb' | xargs -0 -r nbstripout --verify || {
+            echo "::error::Notebooks above still have outputs. Run 'nbstripout --install' in your clone (see README), then 'git add --renormalize -- \"*.ipynb\"' and commit."
+            exit 1
+          }

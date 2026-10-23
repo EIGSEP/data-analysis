@@ -4,7 +4,7 @@ Builds ``derived/ground_sky/sun_profile_vNNNN``: for every minute of phase C
 with pointing, the Sun column (K per SFU: beam gain toward the Sun ×
 knife-edge visibility at the ridge, and without the terrain) at six HFSS beam
 frequencies, with the pointing and whether the antenna moved. Pointing is the
-minute's median of ``pointing@v2.0`` rows of quality ok or suspect. In a
+minute's median of ``pointing@v4`` rows of quality ok or suspect. In a
 parked block of ``curation/mode_table.jsonl``, minutes with no such rows take
 the block's median. Outside the 07-17 raster the table's azimuth zero inherits
 potentiometer slips (memo 003), so the Sun's gain on other days carries that

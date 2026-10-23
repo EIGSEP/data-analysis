@@ -24,7 +24,7 @@ import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import numpy as np
 
-ERA_C = {"~30m": "#2a78d6", "~87.5m": "#1baf7a", "~91m": "#eb6834"}
+ERA_C = {"~30m": "#2a78d6", "~87.5m": "#1baf7a", "~91m": "#eb6834", "~91m-reraise": "#a3300f"}
 CFG_C = ["#2a78d6", "#eb6834", "#1baf7a", "#e87ba4", "#7a5195", "#555555"]
 
 

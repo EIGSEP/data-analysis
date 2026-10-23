@@ -24,10 +24,11 @@ def workspace_root():
 
 
 # Horizon profiles (curation/horizon_profiles_vNNNN.{json,npz}) for every
-# script here; v0003 is traced from the release v0004 antenna on DEM v0003.
-HORIZON_PROFILES = "curation/horizon_profiles_v0003"
+# script here; v0005 is traced from the geometry release v0005 antenna on DEM v0004
+# (which extends v0003 6 km south), with its own profile for the 91 m re-raise.
+HORIZON_PROFILES = "curation/horizon_profiles_v0005"
 # The DEM the Sun's terrain trace reads (same grid as the profiles).
-DEM_PATH = "derived/dem/v0003/marjum_dem.npz"
+DEM_PATH = "derived/dem/v0004/marjum_dem.npz"
 
 # The empirical beam product: its beam (dpss/empirical_beam.npz) and the mount
 # geometry it was fitted in (dpss/diagnostics.npz). v0013 is v0012 refitted on
@@ -57,7 +58,8 @@ def mount_offsets(campaign=None):
 
 
 # Horizon-profile keys by pointing-table era.
-ERAS = {"~30m": "30m", "~87.5m": "87.5m", "~91m": "91m"}
+ERAS = {"~30m": "30m", "~87.5m": "87.5m", "~91m": "91m",
+        "~91m-reraise": "91m-reraise"}   # its own profile from horizon_profiles_v0005
 
 # Channel width of the correlator, MHz.
 CHANNEL_MHZ = 250.0 / 1024
@@ -99,6 +101,21 @@ def era_of_files(files, campaign=None):
         hit = modes[(modes.file_first <= f) & (modes.file_last >= f)]
         out[f] = hit.height_era.iloc[0] if len(hit) else ""
     return np.array([out[f] for f in files], dtype=object)
+
+
+def rows_at_height(files, era, campaign=None, require=True):
+    """Mask of the rows whose height era (mode table, by source file) has the horizon
+    profile ``era`` (e.g. "30m"), and the mode-table eras the window holds. Rows on the
+    ground, being raised, of unknown height or at another height are dropped; with
+    ``require``, a window with none at ``era`` is an error, so a fixed-height analysis
+    never runs on rows that were not at that height."""
+    eras = era_of_files(files, campaign)
+    keep = np.array([ERAS.get(e) == era for e in eras], bool)
+    names, n = np.unique(eras, return_counts=True)
+    counts = {str(k) or "(none)": int(c) for k, c in zip(names, n)}
+    if require and not keep.any():
+        raise SystemExit(f"no rows at {era} in this window; its mode-table eras: {counts}")
+    return keep, counts
 
 
 def regime_of_files(files, campaign=None):

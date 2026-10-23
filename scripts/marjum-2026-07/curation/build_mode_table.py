@@ -90,18 +90,41 @@ TX_TRACE = CAMPAIGN_ROOT / "flags" / "diag" / "transmitter_per_integration_boxgn
 FNAME_RE = re.compile(r"corr_(\d{8})_(\d{6})Z")
 
 # --------------------------------------------------------------------------
-# Height eras. Source: field notes via events.jsonl (category "mechanical").
-# Field notes give day- or hour-level granularity for the lifts; these are the
-# best available boundaries. LIDAR cannot supply them -- only 244 of 5,120
-# files carry a reading and the rangefinder saturates at 250 m.
+# Height eras. Sources: field notes via events.jsonl (category "mechanical"),
+# and the box-air/box-gnd 04 coherence on live box-air rows (C28 cross-check
+# of the field notes and CHB's timeline, 2026-10-17). Field notes give day- or
+# hour-level granularity for the lifts. LIDAR cannot supply them -- only 244
+# of 5,120 files carry a reading and the rangefinder saturates at 250 m.
 #
-# Each entry: (start_utc_inclusive, label, source_tag)
+# "unknown" marks intervals with no box-air data during a move (the recorder
+# gap of the Jul 15 lift; box-air off after the Jul 16 and Jul 17 lowerings)
+# or with a move in progress; the pointing table leaves their nominal height
+# unset. Box-air is never lifted unpowered (it cannot be switched on once
+# suspended), so a box-air outage that starts low stays low. Coherence edges are good to about +-20 min.
+# Jul 16 17:27-19:15 MDT the box is on the ground with the antenna tilted for
+# tests (CHB; IMU el about -70 deg). The raise pauses at the ~30 m coherence
+# level (the note's "partial raise to 30 m first") and reaches the ~87.5 m
+# night level by ~20:15 MDT, so the field note's 20:30 MDT is kept.
+#
+# "~91m-reraise" is the configuration after the 07-17 battery re-raise: the S11
+# terrain echo puts it 0.57 +- 0.17 m above the first lift to final height
+# ("~91m"), so consumers that use heights must not treat them as one.
+#
+# Each entry: (start_utc_inclusive, label, source_tag); times in UTC, MDT+6 h.
 # --------------------------------------------------------------------------
 HEIGHT_ERAS = [
-    ("2026-07-12T00:00:00Z", "~2m",    "fieldnotes:deflection-0.97m-loaded-160lb"),
-    ("2026-07-15T00:00:00Z", "~30m",   "fieldnotes:lift-to-30m-completed-7/15"),
-    ("2026-07-17T02:30:00Z", "~87.5m", "fieldnotes:raised-87.5m-by-2030-MDT-7/16"),
-    ("2026-07-17T18:50:00Z", "~91m",   "fieldnotes:final-height-91m-1250-MDT"),
+    ("2026-07-12T00:00:00Z", "~2m",     "fieldnotes:deflection-0.97m-loaded-160lb"),
+    ("2026-07-15T21:29:00Z", "unknown", "recorder-gap-1529-1711-MDT-7/15:lifted-with-boxair-on"),
+    ("2026-07-15T23:11:00Z", "~30m",    "coherence:suspended-from-1711-MDT-7/15"),
+    ("2026-07-16T17:14:00Z", "unknown", "fieldnotes:lowered-power-cycle-1114-MDT-7/16"),
+    ("2026-07-16T23:27:00Z", "~2m",     "fieldnotes:on-ground-tests-1727-1915-MDT-7/16"),
+    ("2026-07-17T01:15:00Z", "unknown", "coherence:raise-from-1915-MDT-7/16-pause-at-30m"),
+    ("2026-07-17T02:30:00Z", "~87.5m",  "fieldnotes:raised-87.5m-by-2030-MDT-7/16"),
+    ("2026-07-17T18:50:00Z", "~91m",    "fieldnotes:final-height-91m-1250-MDT"),
+    ("2026-07-17T21:28:00Z", "unknown", "fieldnotes:battery-out-lowered-1528-MDT-7/17"),
+    ("2026-07-17T23:41:00Z", "~2m",     "coherence:ground-class-1741-1823-MDT-7/17"),
+    ("2026-07-18T00:23:00Z", "unknown", "coherence:re-raise-1823-1854-MDT-7/17"),
+    ("2026-07-18T00:54:00Z", "~91m-reraise", "coherence:suspended-from-1854-MDT-7/17;S11:+0.57m-above-first-lift"),
 ]
 
 # Box-air 1 MHz EMI detection. a*_comb4mhz_score (a 16.4-channel harmonic sum
