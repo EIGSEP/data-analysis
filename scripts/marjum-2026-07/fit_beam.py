@@ -13,12 +13,17 @@ derived/beam/empirical_raster_v0008-v0011:
 2. Background under each tooth: tx_background.tooth_background (local DPSS,
    150 ns, FM excluded). Broadband dropouts are masked by the gap-ratio test;
    raster flags (sample flags and tooth spikes) are applied.
-3. Geometry: highline pointing convention (psi = 142.164 deg), antenna and
-   transmitter from the geometry release (--release; v0005 from
-   empirical_raster_v0014, v0004 for v0013; v0012 and earlier used the v0001
-   antenna and curation's transmitter). A joint
-   scan finds the az offset and polarization centre, then fit_geometry refines
-   the corrections.
+3. Geometry: highline pointing convention (psi = 142.164 deg). Antenna and
+   transmitter positions are memo 002's adopted posterior means (--positions
+   posterior-mean, the default from v0015), or the release's selected state
+   (--positions release, v0013-v0014). --release picks the release: v0005 from
+   v0014, v0004 for v0013; v0012 and earlier used the v0001 antenna and
+   curation's transmitter. A joint scan finds the az offset and polarization
+   centre, then fit_geometry refines the corrections. From v0015 the candidates are
+   tx_fit.TILT_CANDIDATES (--geometry tilt): the elevation axle may tilt along the
+   highline, and the transmitter stays where the site geometry puts it. v0012-v0014
+   instead let the transmitter shift (--geometry legacy), and that shift stood in for
+   the tilt, running to its bound along the line.
 4. Beams: ell_max and a spectral basis (PCA or DPSS) from the normalized HFSS
    fields; JointBeamFit at prior weights 1e-2, 1e-3, 1e-4, chosen on the
    validation stripes, then refitted on all samples and exported.
@@ -53,6 +58,9 @@ CAMPAIGN = _campaign()
 ROOT = CAMPAIGN.parent
 POINT_TABLE = CAMPAIGN / 'curation/pointing_table.parquet'
 RELEASE = CAMPAIGN / 'imgs/fits/v0005_marjum_geometry/shared.json'   # --release sets it
+POSITIONS = 'posterior-mean'      # --positions: 'posterior-mean' (memo 002's adopted values) or 'release'
+MEMO002 = CAMPAIGN.parent / 'memos/memo-002-marjum-2026-07-geometry/tables/summary.json'
+GEOMETRY = 'tilt'                 # --geometry: 'tilt' (tx_fit.TILT_CANDIDATES) or 'legacy' (GEOMETRY_CANDIDATES)
 HEIGHT_ERA = '~91m'                # the raster's era; rows of any other era are dropped
 RASTER = ('2026-07-17 20:26:00', '2026-07-17 21:28:40')
 PSI_DEG = 142.164                 # highline direction, deg ccw from East (known_quantities v0001)
@@ -206,6 +214,12 @@ def main(output, teeth_path, flags, bases, maxiter, concentration_min):
     release = json.loads(RELEASE.read_text())
     ant = np.asarray(release['antenna_91m_era']['position_enu_m'], float)
     tx = np.asarray(release['transmitter']['recommended_for_propagation']['position_enu_m'], float)
+    if POSITIONS == 'posterior-mean':
+        # memo 002 adopts the v0005 posterior means; the release file still holds the selected state.
+        assert release['release'] == 'v0005', 'memo 002 posterior means are for release v0005'
+        summary = json.loads(MEMO002.read_text())
+        ant, tx = (np.array([float(v) for v in str(summary[k]).split(',')]) for k in ('antAdopted', 'txAdopted'))
+    log.info('positions (%s): antenna %s, transmitter %s', POSITIONS, ant, tx)
     hfields, _, hfreqs = read_beam(drop_last=False)
     hnorm, _, _ = bm.normalize_fields(hfields, hfreqs)
     fields_teeth = bm.interpolate_fields(hnorm, hfreqs, freqs)
@@ -215,7 +229,8 @@ def main(output, teeth_path, flags, bases, maxiter, concentration_min):
     at_zero = min(r['normalized_rms'] for r in scan if r['az_offset_deg'] == 0.0)
     log.info('coarse az offset %+.0f, alpha %.0f (best at offset 0: %.4f)',
              model.az_offset_deg, model.alpha0_deg, at_zero)
-    params, best_geometry, geometry_table, _ = bm.fit_geometry(data, fields_teeth, model)
+    candidates = bm.TILT_CANDIDATES if GEOMETRY == 'tilt' else bm.tx_fit.GEOMETRY_CANDIDATES
+    params, best_geometry, geometry_table, _ = bm.fit_geometry(data, fields_teeth, model, candidates=candidates)
     pd.DataFrame(geometry_table).to_csv(output / 'geometry_comparison.csv', index=False)
 
     band = (float(freqs.min()) - DF, float(freqs.max()) + DF)
@@ -307,6 +322,7 @@ def main(output, teeth_path, flags, bases, maxiter, concentration_min):
     import eigsep_data
     inputs = [SOURCE, POINT_TABLE, DEFAULT_BEAM_PATH, RELEASE, CAMPAIGN / 'curation/mode_table.jsonl', Path(teeth_path),
               Path(flags), CAMPAIGN / 'curation/antenna_resolution.json']
+    inputs += [MEMO002] if POSITIONS == 'posterior-mean' else []
     inputs += [CAMPAIGN / 'data' / Path(f).name for f in raw['files']]
     artifacts = {str(p.relative_to(output)): digest(p) for p in output.rglob('*')
                  if p.is_file() and p.name not in ('provenance.json', 'README.md')}
@@ -314,12 +330,15 @@ def main(output, teeth_path, flags, bases, maxiter, concentration_min):
     provenance = dict(
         status='exploratory', generator=workspace_path(SOURCE),
         geometry_release=dict(path=workspace_path(RELEASE), release=release['release']),
+        positions=dict(source=POSITIONS, antenna_enu_m=ant.tolist(), transmitter_enu_m=tx.tolist(),
+                       **({'path': workspace_path(MEMO002)} if POSITIONS == 'posterior-mean' else {})),
+        geometry_candidates=GEOMETRY,
         pipeline='eigsep_data.beam_mapping (tx_background, tx_fit, beam_basis, tx_export)',
         pointing=raw['point_prov']['compact'],
         pointing_rule='az_deg: commanded azimuth (motor counts plus one pot offset per anchor segment); el_deg: IMU',
         convention='highline',
-        rotation='v_ENU = Rz(psi) Rx(el + el_zero_delta) Rz(az + az_offset + az_zero_delta) v_body, psi = %.3f deg '
-                 '(eigsep_base.rotations.mount_rotation)' % PSI_DEG,
+        rotation='v_ENU = Rz(psi) Ry(axle_tilt_delta) Rx(el + el_zero_delta) Rz(az + az_offset + az_zero_delta) '
+                 'v_body, psi = %.3f deg (eigsep_data.beam_mapping.TxGeometryModel)' % PSI_DEG,
         az_offset_deg=model.az_offset_deg, alpha0_deg=model.alpha0_deg,
         table_az_zero_from_highline_deg=model.az_offset_deg + geometry['az_zero_delta_deg'],
         geometry=geometry, geometry_model=best_geometry,
@@ -358,6 +377,10 @@ if __name__ == '__main__':
     parser.add_argument('--output', type=Path, required=True,
                         help='new product directory, e.g. marjum-2026-07/derived/beam/empirical_raster_v0012')
     parser.add_argument('--release', default='v0005', help='geometry release supplying antenna and transmitter')
+    parser.add_argument('--positions', choices=['posterior-mean', 'release'], default='posterior-mean',
+                        help="antenna and transmitter: memo 002's adopted posterior means, or the release file")
+    parser.add_argument('--geometry', choices=['tilt', 'legacy'], default='tilt',
+                        help='geometry candidates: axle tilt with the transmitter fixed, or the v0012-v0014 set')
     parser.add_argument('--teeth', default=str(CAMPAIGN / 'derived/beam/tooth_selection_v0002.json'))
     parser.add_argument('--flags', default=str(CAMPAIGN / 'derived/beam/raster_flags_v0001.npz'))
     parser.add_argument('--bases', nargs='+', choices=['dpss', 'pca'], default=['dpss', 'pca'])
@@ -368,4 +391,5 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(name)s %(message)s')
     cmin = None if args.concentration_min == 'legacy' else float(args.concentration_min)
     RELEASE = CAMPAIGN / f'imgs/fits/{args.release}_marjum_geometry/shared.json'
+    POSITIONS, GEOMETRY = args.positions, args.geometry
     main(args.output, args.teeth, args.flags, tuple(args.bases), args.maxiter, cmin)
