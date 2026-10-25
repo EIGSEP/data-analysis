@@ -102,6 +102,7 @@ Superseded generators are in `debug/` (see `debug/README.md`).
 
 ## Recent changes
 
+- 2026-10-25: `fit_beam.py` picks the strongest converged spectral penalty within 1% of the best validation score, not the minimum. The minimum chose an unconverged 1e-4 fit over 1e-2 on a 0.7% difference and moved the 64-90 MHz beam by more than 100%.
 - 2026-10-25: `fit_beam.py --release` (default v0005) picks the geometry release for the antenna and transmitter, and the fit keeps only raster rows whose mode-table height era is ~91m (the raster's last minutes are of unknown height in the 2026-10-18 table); the number dropped is in the product's provenance. `empirical_raster_v0014` is the first product made this way.
 - 2026-10-25: `fit_beam.py` requires pointing table v4, now on main; it refused v4 because it asserted v3. The columns it reads (time, az, el, quality, fused az) are identical in v3 and v4, so a fit on the same geometry does not change.
 - 2026-10-21: `build_horizon_profiles.py` places the antenna from geometry release v0005 (converged posterior) by default and records the release's uncertainty (`antenna_uncertainty`) instead of stating that there is none; the limitations name the 30 m era's shared (E, N). The pointing table v4 (`notebooks/arp/marjum-2026-07/pointing/build_table.py`) follows: heights from that horizon, common sigma memo 002's 3.5 m bound on the v0005 antenna.

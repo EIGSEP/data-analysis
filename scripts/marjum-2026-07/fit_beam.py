@@ -60,6 +60,7 @@ DF = 250.0 / 1024
 FM_MHZ = (87.0, 108.5)
 BACKGROUND_LIMITS_MHZ = (40.0, 249.5)
 PENALTIES = (1e-2, 1e-3, 1e-4)
+PENALTY_TOL = 0.01              # strongest converged penalty within 1% of the best validation
 log = logging.getLogger('fit_beam')
 
 
@@ -259,7 +260,15 @@ def main(output, teeth_path, flags, bases, maxiter, concentration_min):
             all_metrics.extend(records)
             optimizations.append(info)
             log.info('%s penalty %g: validation %.4f', kind, penalty, validation)
-        _, coeff, gain, heldout, selected = min(trials, key=lambda entry: entry[0])
+        # Validation differences between penalties are ~1% and the weakest penalty may stop at
+        # maxiter, so take the strongest converged penalty whose validation is within PENALTY_TOL
+        # of the best converged one. Picking the minimum let an unconverged 1e-4 trial, better by
+        # 0.7%, change the 64-90 MHz beam by >100% on geometry v0005.
+        converged = [entry for entry in trials if entry[4]['success']] or trials
+        best = min(entry[0] for entry in converged)
+        _, coeff, gain, heldout, selected = max(
+            (entry for entry in converged if entry[0] <= best * (1 + PENALTY_TOL)),
+            key=lambda entry: entry[4]['penalty'])
         all_metrics.extend(bm.score(data, heldout, kind + '_heldout'))
         final_coeff, final_gain, final_prediction, final_info = fit.fit(
             np.ones(len(data.t), bool), selected['penalty'], initial=coeff, initial_gain=gain, maxiter=maxiter)
