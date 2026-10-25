@@ -118,8 +118,10 @@ def load_data(teeth, concentration_min):
     freq = np.asarray(bundle.freqs_mhz, float)
     assert np.allclose(freq, np.arange(1024) * DF)
     point_prov = json.loads(pq.read_schema(POINT_TABLE).metadata[b'eigsep_provenance'])
-    # v3 (#28): v2.x left some elevation-glitch rows quality 'ok'
-    assert point_prov['version'].startswith('v3'), point_prov['version']
+    # v3 (#28): v2.x left some elevation-glitch rows quality 'ok'. v4 (geometry release v0005)
+    # has the same az, el and quality as v3 on every row; it changes only heights, height eras
+    # and 509 flag values. Fit on the current table only.
+    assert point_prov['version'].startswith('v4'), point_prov['version']
     pointing = pq.read_table(POINT_TABLE, columns=['t_utc_s', 'az_deg', 'el_deg', 'quality', 'az_fused_deg'],
                              filters=[('t_utc_s', '>=', t0 - 60), ('t_utc_s', '<=', t1 + 60)]).to_pandas()
     meta = bundle.meta.reset_index(drop=True).assign(t=lambda x: x.time_best.astype(float))
