@@ -169,14 +169,19 @@ def apply_flags(raw, flags):
         order = np.argsort(f['t'])
         pos = np.clip(np.searchsorted(f['t'][order], raw['t']), 0, len(order) - 1)
         near = order[np.where(abs(f['t'][order][pos] - raw['t']) <= 1e-5, pos, 0)]
-        assert np.all(abs(f['t'][near] - raw['t']) <= 1e-5), 'samples missing from flags'
-        sample_flag = f['sample_flag'][near].astype(bool)
+        # A sample the flags product does not cover has no flag information; it is treated as
+        # flagged. (raster_flags_v0001 was built on the pointing v2.0 selection; on v3 and later
+        # the glitch filter keeps a few samples it did not.)
+        covered = abs(f['t'][near] - raw['t']) <= 1e-5
+        sample_flag = f['sample_flag'][near].astype(bool) | ~covered
         tooth_flag = np.zeros_like(raw['good'])
         fcol = {int(c): i for i, c in enumerate(f['channels'])}
         for i, c in enumerate(raw['channels']):
             if int(c) in fcol:
                 tooth_flag[i] = f['tooth_flag'][fcol[int(c)], near].astype(bool)
-        return sample_flag, tooth_flag, json.loads(str(f['provenance']))
+        prov = json.loads(str(f['provenance']))
+        prov['n_samples_not_covered'] = int((~covered).sum())
+        return sample_flag, tooth_flag, prov
 
 
 def main(output, teeth_path, flags, bases, maxiter, concentration_min):
@@ -316,7 +321,8 @@ def main(output, teeth_path, flags, bases, maxiter, concentration_min):
         tooth_selection=dict(path=workspace_path(teeth_path), version=selection['version'],
                              channels=len(selection['channels'])),
         flags=dict(path=workspace_path(flags), version=flag_prov['version'],
-                   samples=int(sample_flag.sum()), tooth_spikes=int(tooth_flag.sum())),
+                   samples=int(sample_flag.sum()), tooth_spikes=int(tooth_flag.sum()),
+                   samples_not_covered=flag_prov['n_samples_not_covered']),
         spectral_bases=descriptions, lmax=lmax, band_mhz=list(band), raster_utc=list(RASTER),
         split='12 deg stripes of pointing-table azimuth (tx_fit.stripe_split)', maxiter=maxiter,
         n_glitches=raw['n_glitches'],
