@@ -6,14 +6,17 @@ flags, tooth selection, site geometry) and writes the product in the layout of
 derived/beam/empirical_raster_v0008-v0011:
 
 1. Data: the elevation-sweep raster (07-17 20:26:00-21:28:40 UTC), box-air,
-   RFANT rows with pointing_table v2.x quality 'ok' (commanded azimuth, IMU
-   elevation), with isolated elevation glitches dropped.
+   RFANT rows with pointing_table quality 'ok' (commanded azimuth, IMU
+   elevation), with isolated elevation glitches dropped, and only rows whose
+   height era (curation/mode_table.jsonl, by source file) is ~91m: the raster's
+   last minutes are of unknown height in the 2026-10-18 mode table.
 2. Background under each tooth: tx_background.tooth_background (local DPSS,
    150 ns, FM excluded). Broadband dropouts are masked by the gap-ratio test;
    raster flags (sample flags and tooth spikes) are applied.
 3. Geometry: highline pointing convention (psi = 142.164 deg), antenna and
-   transmitter from the geometry release (v0004 from empirical_raster_v0013;
-   v0012 and earlier used the v0001 antenna and curation's transmitter). A joint
+   transmitter from the geometry release (--release; v0005 from
+   empirical_raster_v0014, v0004 for v0013; v0012 and earlier used the v0001
+   antenna and curation's transmitter). A joint
    scan finds the az offset and polarization centre, then fit_geometry refines
    the corrections.
 4. Beams: ell_max and a spectral basis (PCA or DPSS) from the normalized HFSS
@@ -49,7 +52,8 @@ CAMPAIGN = _campaign()
 # Provenance paths are recorded relative to the workspace holding the campaign.
 ROOT = CAMPAIGN.parent
 POINT_TABLE = CAMPAIGN / 'curation/pointing_table.parquet'
-RELEASE = CAMPAIGN / 'imgs/fits/v0004_marjum_geometry/shared.json'
+RELEASE = CAMPAIGN / 'imgs/fits/v0005_marjum_geometry/shared.json'   # --release sets it
+HEIGHT_ERA = '~91m'                # the raster's era; rows of any other era are dropped
 RASTER = ('2026-07-17 20:26:00', '2026-07-17 21:28:40')
 PSI_DEG = 142.164                 # highline direction, deg ccw from East (known_quantities v0001)
 DF = 250.0 / 1024
@@ -103,6 +107,16 @@ def reversal_glitches(el_deg, tol=15.0):
     return close < 3
 
 
+def file_eras(files):
+    """Height era of each raw file from curation/mode_table.jsonl ('' if no block holds it)."""
+    rows = [json.loads(line) for line in open(CAMPAIGN / 'curation/mode_table.jsonl')]
+    blocks = [(r['file_first'], r['file_last'], r.get('height_era') or '') for r in rows if 'file_first' in r]
+    out = {}
+    for f in set(files):
+        out[f] = next((e for a, b, e in blocks if a <= f <= b), '')
+    return np.array([out[f] for f in files], dtype=object)
+
+
 def load_data(teeth, concentration_min):
     """Raster spectra, pointing and the background-subtracted teeth."""
     import eigsep_data
@@ -128,6 +142,10 @@ def load_data(teeth, concentration_min):
     j = pd.merge_asof(meta.sort_values('t').reset_index(names='bundle_row'), pointing.sort_values('t_utc_s'),
                       left_on='t', right_on='t_utc_s', direction='nearest', tolerance=.35)
     j = j[(j.quality == 'ok') & (j.rfswitch == 'RFANT')].reset_index(drop=True)
+    era = file_eras(j.file.astype(str).to_numpy())
+    at_height = era == HEIGHT_ERA
+    n_off_height = int((~at_height).sum())
+    j = j[at_height].reset_index(drop=True)
     glitch = reversal_glitches(j.el_deg.to_numpy())
     j = j[~glitch].reset_index(drop=True)
     raw = np.asarray(bundle.data[j.bundle_row.to_numpy()], float)
@@ -141,7 +159,8 @@ def load_data(teeth, concentration_min):
     good = (ratio > 1 / 1.5) & (ratio < 1.5) & np.isfinite(tooth - background)
     return dict(t=j.t.to_numpy(), az=j.az_deg.to_numpy(), el=j.el_deg.to_numpy(),
                 az_v1=j.az_fused_deg.to_numpy(), data=tooth - background, good=good, channels=channels,
-                files=sorted(set(j.file.astype(str))), n_glitches=int(glitch.sum()), point_prov=point_prov)
+                files=sorted(set(j.file.astype(str))), n_glitches=int(glitch.sum()), point_prov=point_prov,
+                n_off_height=n_off_height)
 
 
 def apply_flags(raw, flags):
@@ -175,8 +194,8 @@ def main(output, teeth_path, flags, bases, maxiter, concentration_min):
     freqs = raw['channels'] * DF
     data = bm.ToothData(t=raw['t'], az_deg=raw['az'], el_deg=raw['el'], data=raw['data'], good=good,
                         channels=raw['channels'], freqs_mhz=freqs, split=bm.stripe_split(raw['az']))
-    log.info('data %s teeth x %s samples; flags: %d samples, %d tooth spikes', *data.data.shape,
-             sample_flag.sum(), tooth_flag.sum())
+    log.info('data %s teeth x %s samples; flags: %d samples, %d tooth spikes; %d rows off %s dropped',
+             *data.data.shape, sample_flag.sum(), tooth_flag.sum(), raw['n_off_height'], HEIGHT_ERA)
 
     release = json.loads(RELEASE.read_text())
     ant = np.asarray(release['antenna_91m_era']['position_enu_m'], float)
@@ -272,7 +291,7 @@ def main(output, teeth_path, flags, bases, maxiter, concentration_min):
 
     import eigsep_base
     import eigsep_data
-    inputs = [SOURCE, POINT_TABLE, DEFAULT_BEAM_PATH, RELEASE, Path(teeth_path),
+    inputs = [SOURCE, POINT_TABLE, DEFAULT_BEAM_PATH, RELEASE, CAMPAIGN / 'curation/mode_table.jsonl', Path(teeth_path),
               Path(flags), CAMPAIGN / 'curation/antenna_resolution.json']
     inputs += [CAMPAIGN / 'data' / Path(f).name for f in raw['files']]
     artifacts = {str(p.relative_to(output)): digest(p) for p in output.rglob('*')
@@ -301,6 +320,8 @@ def main(output, teeth_path, flags, bases, maxiter, concentration_min):
         spectral_bases=descriptions, lmax=lmax, band_mhz=list(band), raster_utc=list(RASTER),
         split='12 deg stripes of pointing-table azimuth (tx_fit.stripe_split)', maxiter=maxiter,
         n_glitches=raw['n_glitches'],
+        height_era=dict(kept=HEIGHT_ERA, n_rows_dropped=raw['n_off_height'],
+                        source=workspace_path(CAMPAIGN / 'curation/mode_table.jsonl')),
         repositories={name: revision(repo_root(path)) for name, path in
                       (('data-analysis', SOURCE), ('eigsep_data', eigsep_data.__file__),
                        ('eigsep_base', eigsep_base.__file__), ('eigsep', RELEASE))},
@@ -321,6 +342,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--output', type=Path, required=True,
                         help='new product directory, e.g. marjum-2026-07/derived/beam/empirical_raster_v0012')
+    parser.add_argument('--release', default='v0005', help='geometry release supplying antenna and transmitter')
     parser.add_argument('--teeth', default=str(CAMPAIGN / 'derived/beam/tooth_selection_v0002.json'))
     parser.add_argument('--flags', default=str(CAMPAIGN / 'derived/beam/raster_flags_v0001.npz'))
     parser.add_argument('--bases', nargs='+', choices=['dpss', 'pca'], default=['dpss', 'pca'])
@@ -330,4 +352,5 @@ if __name__ == '__main__':
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(name)s %(message)s')
     cmin = None if args.concentration_min == 'legacy' else float(args.concentration_min)
+    RELEASE = CAMPAIGN / f'imgs/fits/{args.release}_marjum_geometry/shared.json'
     main(args.output, args.teeth, args.flags, tuple(args.bases), args.maxiter, cmin)
