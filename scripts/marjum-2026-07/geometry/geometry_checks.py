@@ -270,9 +270,11 @@ def main():
 
     if a.geometry and 'v0005' in a.geometry:
         import sys
-        sys.path.insert(0, '/home/aparsons/.gemini/antigravity-cli/brain/265525af-560e-4e5c-83cb-3c1cc78e2d96/scratch')
-        from test_schur_mcmc import build_model
-        model = build_model()
+        sys.path.insert(0, str(Path(__file__).resolve().parent / 'v0005_build'))
+        import test_schur_mcmc as v5
+        # the frozen script names this file by its old scratch path; same file (sha256 d90338cb...)
+        v5.v5_state_path = str(mp.CAMPAIGN / 'derived/geometry_posterior/v0005/inputs/model_v0005/fit_transmitter.npz')
+        model = v5.build_model()
     else:
         _, model = mp.load_model()
     geom = Path(a.geometry) if a.geometry else mp.HERE / 'provisional_geometry.npz'

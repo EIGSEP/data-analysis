@@ -102,6 +102,7 @@ Superseded generators are in `debug/` (see `debug/README.md`).
 
 ## Recent changes
 
+- 2026-10-26: `build_horizon_profiles.py` gains `phase_center_offset` and `profile_at_pointing`, which move the horizon's viewpoint to the antenna's phase centre at a given pointing (memo 003's offset and sag). Nothing calls them yet; the products are unchanged.
 - 2026-10-21: `build_horizon_profiles.py` places the antenna from geometry release v0005 (converged posterior) by default and records the release's uncertainty (`antenna_uncertainty`) instead of stating that there is none; the limitations name the 30 m era's shared (E, N). The pointing table v4 (`notebooks/arp/marjum-2026-07/pointing/build_table.py`) follows: heights from that horizon, common sigma memo 002's 3.5 m bound on the v0005 antenna.
 - 2026-10-16: `build_dem_sw_mosaic.py` takes the version, base and tile ranges as options (defaults reproduce DEM v0003) and builds DEM v0004; added `coverage_certificate.py`, which shows that terrain outside DEM v0004 cannot change `horizon_profiles_v0004`. v0003's south edge cut the skyline; its other edges do not matter. `build_horizon_profiles.py` no longer writes the stale DEM v0002 limitation note.
 - 2026-10-08: `build_known_quantities_xlsx.py` builds from geometry release v0004 on DEM v0002 (no uncertainty, GPS points placed on the UTM grid) instead of v0001 and the retired `terrain/` files it could no longer find; `--root` and `--output` let it run from a worktree.
