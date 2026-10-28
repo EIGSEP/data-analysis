@@ -75,6 +75,18 @@ v4  **meaning changes** -- ``height_m`` is the antenna's height above the DEM
     unmodelled lever arm, and on the 509 rows it did override (the 07-17 dwell)
     it read 92.3 m with outliers at 29 and 198 m. ``FLAG_HEIGHT_ASSUMED`` is
     now set on every row; the raw range stays in ``lidar_dist_m``.
+v5  **meaning changes** -- the azimuth is left-handed about the boresight
+    (memos 002 and 003: ``imu_az`` on the azimuth shaft turns the opposite way
+    to ``eigsep_base.rotations.mount_rotation``'s +az, and IMG_2217/2226 show
+    the dipole turning that way). The derived azimuths ``az_deg`` and
+    ``az_fused_deg`` are negated (``AZ_SENSE = -1``), so they go into
+    ``mount_rotation`` unchanged; ``az_deg = wrap360(-(motor_az_deg +
+    az_commanded_offset_deg))`` on commanded rows. The raw sensor columns
+    (``motor_az_deg``, ``pot_az_deg``, ``imu_az_yaw_deg``) and the offsets
+    between them (``az_commanded_offset_deg``, ``az_motor_pot_offset_deg``)
+    keep the sensors' own sense. Every other column is unchanged. The table's
+    zero on the 07-17 raster becomes +16.0 deg from the highline (memo 003),
+    where v4's was -16.2.
 
 Run::
 
@@ -100,8 +112,14 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-VERSION = "v4"
+VERSION = "v5"
 SCHEMA_VERSION = 5
+# Sense of the derived azimuth relative to the motor and pot counts. The
+# physical azimuth is left-handed about the boresight (v5; memos 002, 003),
+# while eigsep_base.rotations.mount_rotation turns +az right-handedly, so the
+# counts are negated here and nowhere downstream. Slip, slew and divergence
+# detection run on the counts' own sense, before the sign is applied.
+AZ_SENSE = -1
 
 # Antenna height per curation height_era (v4): metres of the antenna above the
 # DEM surface under it, read from the horizon product so that the table and the
@@ -332,8 +350,8 @@ def build(data_dir, t_start, t_stop, campaign_dir, index=None):
         "file": d["file_name"],
         "sample_idx": d["sample_idx"].astype("int32"),
         "hdr_time_bad": hdr_bad,
-        "az_deg": az,
-        "az_fused_deg": az_fused,
+        "az_deg": fuse.wrap360(AZ_SENSE * az),
+        "az_fused_deg": fuse.wrap360(AZ_SENSE * az_fused),
         "az_commanded_offset_deg": cmd_offset,
         "az_segment": az_segment.astype("int64"),
         "el_deg": el,
@@ -410,7 +428,7 @@ def main():
         "version": VERSION,
         "schema_version": SCHEMA_VERSION,
         "generated_utc": generated,
-        "generated_by": ("Claude Code sessions for C. H. Bye (v3, v4); Claude Code "
+        "generated_by": ("Claude Code session for Aaron (v5); Claude Code sessions for C. H. Bye (v3, v4); Claude Code "
                          "session for Aaron (v2.0); pointing-analyst (v1.x)"),
         "generator": "data-analysis/notebooks/arp/marjum-2026-07/pointing/build_table.py",
         "generator_commit": commit,
@@ -472,12 +490,20 @@ def main():
             "surface under the antenna (geometry v0005, with the S11 "
             "height changes for ~87.5m and the new ~91m-reraise era); LIDAR "
             "ranges no longer override it (unmodelled lever arm).",
+            "v5: az_deg and az_fused_deg are negated relative to the motor and "
+            "pot counts (AZ_SENSE = -1) because the azimuth is left-handed "
+            "about the boresight (memos 002, 003); they feed "
+            "eigsep_base.rotations.mount_rotation unchanged. Raw sensor columns "
+            "and az_commanded_offset_deg / az_motor_pot_offset_deg keep the "
+            "sensors' sense: az_deg = wrap360(-(motor_az_deg + "
+            "az_commanded_offset_deg)) on commanded rows.",
         ],
         "params": {
             "window_start_utc": extract.utc(table["t_utc_s"][0]),
             "window_stop_utc": extract.utc(table["t_utc_s"][-1]),
             "era_filter": args.era,
             "phase_filter": args.phase,
+            "az_sense": AZ_SENSE,
             "az_half_window_samples": 56,
             "az_slip_jump_deg": 1.0,
             "el_stuck_imu_ptp_deg": 3.0,
