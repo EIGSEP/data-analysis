@@ -142,9 +142,11 @@ def load_data(teeth, concentration_min):
     assert np.allclose(freq, np.arange(1024) * DF)
     point_prov = json.loads(pq.read_schema(POINT_TABLE).metadata[b'eigsep_provenance'])
     # v3 (#28): v2.x left some elevation-glitch rows quality 'ok'. v4 (geometry release v0005)
-    # has the same az, el and quality as v3 on every row; it changes only heights, height eras
-    # and 509 flag values. Fit on the current table only.
-    assert point_prov['version'].startswith('v4'), point_prov['version']
+    # has the same az, el and quality as v3 on every row. v5 makes the azimuth left-handed about
+    # the boresight (memos 002/003): az_deg = (-az_deg of v4) mod 360, everything else the same.
+    # The mount rotation below is unchanged, so on v5 it is the left-handed model of v4's az.
+    # Fit on the current table only.
+    assert point_prov['version'].startswith('v5'), point_prov['version']
     pointing = pq.read_table(POINT_TABLE, columns=['t_utc_s', 'az_deg', 'el_deg', 'quality', 'az_fused_deg'],
                              filters=[('t_utc_s', '>=', t0 - 60), ('t_utc_s', '<=', t1 + 60)]).to_pandas()
     meta = bundle.meta.reset_index(drop=True).assign(t=lambda x: x.time_best.astype(float))
@@ -335,7 +337,8 @@ def main(output, teeth_path, flags, bases, maxiter, concentration_min):
         geometry_candidates=GEOMETRY,
         pipeline='eigsep_data.beam_mapping (tx_background, tx_fit, beam_basis, tx_export)',
         pointing=raw['point_prov']['compact'],
-        pointing_rule='az_deg: commanded azimuth (motor counts plus one pot offset per anchor segment); el_deg: IMU',
+        pointing_rule='az_deg: commanded azimuth (motor counts plus one pot offset per anchor segment), '
+                      'left-handed about the boresight from pointing table v5; el_deg: IMU',
         convention='highline',
         rotation='v_ENU = Rz(psi) Ry(axle_tilt_delta) Rx(el + el_zero_delta) Rz(az + az_offset + az_zero_delta) '
                  'v_body, psi = %.3f deg (eigsep_data.beam_mapping.TxGeometryModel)' % PSI_DEG,
