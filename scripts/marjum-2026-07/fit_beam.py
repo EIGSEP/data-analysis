@@ -6,19 +6,30 @@ flags, tooth selection, site geometry) and writes the product in the layout of
 derived/beam/empirical_raster_v0008-v0011:
 
 1. Data: the elevation-sweep raster (07-17 20:26:00-21:28:40 UTC), box-air,
-   RFANT rows with pointing_table v2.x quality 'ok' (commanded azimuth, IMU
-   elevation), with isolated elevation glitches dropped.
+   RFANT rows with pointing_table quality 'ok' (commanded azimuth, IMU
+   elevation), with isolated elevation glitches dropped, and only rows whose
+   height era (curation/mode_table.jsonl, by source file) is ~91m: the raster's
+   last minutes are of unknown height in the 2026-10-18 mode table.
 2. Background under each tooth: tx_background.tooth_background (local DPSS,
    150 ns, FM excluded). Broadband dropouts are masked by the gap-ratio test;
    raster flags (sample flags and tooth spikes) are applied.
-3. Geometry: highline pointing convention (psi = 142.164 deg), antenna and
-   transmitter from the geometry release (v0004 from empirical_raster_v0013;
-   v0012 and earlier used the v0001 antenna and curation's transmitter). A joint
-   scan finds the az offset and polarization centre, then fit_geometry refines
-   the corrections.
+3. Geometry: highline pointing convention (psi = 142.164 deg). Antenna and
+   transmitter positions are memo 002's adopted posterior means (--positions
+   posterior-mean, the default from v0015), or the release's selected state
+   (--positions release, v0013-v0014). --release picks the release: v0005 from
+   v0014, v0004 for v0013; v0012 and earlier used the v0001 antenna and
+   curation's transmitter. A joint scan finds the az offset and polarization
+   centre, then fit_geometry refines the corrections. From v0015 the candidates are
+   tx_fit.TILT_CANDIDATES (--geometry tilt): the elevation axle may tilt along the
+   highline, and the transmitter stays where the site geometry puts it. v0012-v0014
+   instead let the transmitter shift (--geometry legacy), and that shift stood in for
+   the tilt, running to its bound along the line.
 4. Beams: ell_max and a spectral basis (PCA or DPSS) from the normalized HFSS
    fields; JointBeamFit at prior weights 1e-2, 1e-3, 1e-4, chosen on the
-   validation stripes, then refitted on all samples and exported.
+   validation stripes, then refitted on all samples and exported. --penalty
+   KIND=VALUE fixes a basis's weight instead (all three are still fitted and
+   scored); v0017 fixes DPSS at 1e-2, because the rule's 1e-3 left the
+   64-75 MHz exported beam several times HFSS's peak in unsampled directions.
 
 --concentration-min legacy uses the floor(2NW)+1 DPSS background of
 v0009-v0011. The default (1e-6) represents smooth backgrounds correctly. The
@@ -49,13 +60,19 @@ CAMPAIGN = _campaign()
 # Provenance paths are recorded relative to the workspace holding the campaign.
 ROOT = CAMPAIGN.parent
 POINT_TABLE = CAMPAIGN / 'curation/pointing_table.parquet'
-RELEASE = CAMPAIGN / 'imgs/fits/v0004_marjum_geometry/shared.json'
+RELEASE = CAMPAIGN / 'imgs/fits/v0005_marjum_geometry/shared.json'   # --release sets it
+POSITIONS = 'posterior-mean'      # --positions: 'posterior-mean' (memo 002's adopted values) or 'release'
+MEMO002 = CAMPAIGN.parent / 'memos/memo-002-marjum-2026-07-geometry/tables/summary.json'
+GEOMETRY = 'tilt'                 # --geometry: 'tilt' (tx_fit.TILT_CANDIDATES) or 'legacy' (GEOMETRY_CANDIDATES)
+HEIGHT_ERA = '~91m'                # the raster's era; rows of any other era are dropped
 RASTER = ('2026-07-17 20:26:00', '2026-07-17 21:28:40')
 PSI_DEG = 142.164                 # highline direction, deg ccw from East (known_quantities v0001)
 DF = 250.0 / 1024
 FM_MHZ = (87.0, 108.5)
 BACKGROUND_LIMITS_MHZ = (40.0, 249.5)
 PENALTIES = (1e-2, 1e-3, 1e-4)
+PENALTY_TOL = 0.01              # strongest converged penalty within 1% of the best validation
+FIXED_PENALTY = {}                # --penalty KIND=VALUE overrides the rule for that basis
 log = logging.getLogger('fit_beam')
 
 
@@ -103,6 +120,16 @@ def reversal_glitches(el_deg, tol=15.0):
     return close < 3
 
 
+def file_eras(files):
+    """Height era of each raw file from curation/mode_table.jsonl ('' if no block holds it)."""
+    rows = [json.loads(line) for line in open(CAMPAIGN / 'curation/mode_table.jsonl')]
+    blocks = [(r['file_first'], r['file_last'], r.get('height_era') or '') for r in rows if 'file_first' in r]
+    out = {}
+    for f in set(files):
+        out[f] = next((e for a, b, e in blocks if a <= f <= b), '')
+    return np.array([out[f] for f in files], dtype=object)
+
+
 def load_data(teeth, concentration_min):
     """Raster spectra, pointing and the background-subtracted teeth."""
     import eigsep_data
@@ -118,14 +145,22 @@ def load_data(teeth, concentration_min):
     freq = np.asarray(bundle.freqs_mhz, float)
     assert np.allclose(freq, np.arange(1024) * DF)
     point_prov = json.loads(pq.read_schema(POINT_TABLE).metadata[b'eigsep_provenance'])
-    # v3 (#28): v2.x left some elevation-glitch rows quality 'ok'
-    assert point_prov['version'].startswith('v3'), point_prov['version']
+    # v3 (#28): v2.x left some elevation-glitch rows quality 'ok'. v4 (geometry release v0005)
+    # has the same az, el and quality as v3 on every row. v5 makes the azimuth left-handed about
+    # the boresight (memos 002/003): az_deg = (-az_deg of v4) mod 360, everything else the same.
+    # The mount rotation below is unchanged, so on v5 it is the left-handed model of v4's az.
+    # Fit on the current table only.
+    assert point_prov['version'].startswith('v5'), point_prov['version']
     pointing = pq.read_table(POINT_TABLE, columns=['t_utc_s', 'az_deg', 'el_deg', 'quality', 'az_fused_deg'],
                              filters=[('t_utc_s', '>=', t0 - 60), ('t_utc_s', '<=', t1 + 60)]).to_pandas()
     meta = bundle.meta.reset_index(drop=True).assign(t=lambda x: x.time_best.astype(float))
     j = pd.merge_asof(meta.sort_values('t').reset_index(names='bundle_row'), pointing.sort_values('t_utc_s'),
                       left_on='t', right_on='t_utc_s', direction='nearest', tolerance=.35)
     j = j[(j.quality == 'ok') & (j.rfswitch == 'RFANT')].reset_index(drop=True)
+    era = file_eras(j.file.astype(str).to_numpy())
+    at_height = era == HEIGHT_ERA
+    n_off_height = int((~at_height).sum())
+    j = j[at_height].reset_index(drop=True)
     glitch = reversal_glitches(j.el_deg.to_numpy())
     j = j[~glitch].reset_index(drop=True)
     raw = np.asarray(bundle.data[j.bundle_row.to_numpy()], float)
@@ -139,7 +174,8 @@ def load_data(teeth, concentration_min):
     good = (ratio > 1 / 1.5) & (ratio < 1.5) & np.isfinite(tooth - background)
     return dict(t=j.t.to_numpy(), az=j.az_deg.to_numpy(), el=j.el_deg.to_numpy(),
                 az_v1=j.az_fused_deg.to_numpy(), data=tooth - background, good=good, channels=channels,
-                files=sorted(set(j.file.astype(str))), n_glitches=int(glitch.sum()), point_prov=point_prov)
+                files=sorted(set(j.file.astype(str))), n_glitches=int(glitch.sum()), point_prov=point_prov,
+                n_off_height=n_off_height)
 
 
 def apply_flags(raw, flags):
@@ -148,14 +184,19 @@ def apply_flags(raw, flags):
         order = np.argsort(f['t'])
         pos = np.clip(np.searchsorted(f['t'][order], raw['t']), 0, len(order) - 1)
         near = order[np.where(abs(f['t'][order][pos] - raw['t']) <= 1e-5, pos, 0)]
-        assert np.all(abs(f['t'][near] - raw['t']) <= 1e-5), 'samples missing from flags'
-        sample_flag = f['sample_flag'][near].astype(bool)
+        # A sample the flags product does not cover has no flag information; it is treated as
+        # flagged. (raster_flags_v0001 was built on the pointing v2.0 selection; on v3 and later
+        # the glitch filter keeps a few samples it did not.)
+        covered = abs(f['t'][near] - raw['t']) <= 1e-5
+        sample_flag = f['sample_flag'][near].astype(bool) | ~covered
         tooth_flag = np.zeros_like(raw['good'])
         fcol = {int(c): i for i, c in enumerate(f['channels'])}
         for i, c in enumerate(raw['channels']):
             if int(c) in fcol:
                 tooth_flag[i] = f['tooth_flag'][fcol[int(c)], near].astype(bool)
-        return sample_flag, tooth_flag, json.loads(str(f['provenance']))
+        prov = json.loads(str(f['provenance']))
+        prov['n_samples_not_covered'] = int((~covered).sum())
+        return sample_flag, tooth_flag, prov
 
 
 def main(output, teeth_path, flags, bases, maxiter, concentration_min):
@@ -173,12 +214,18 @@ def main(output, teeth_path, flags, bases, maxiter, concentration_min):
     freqs = raw['channels'] * DF
     data = bm.ToothData(t=raw['t'], az_deg=raw['az'], el_deg=raw['el'], data=raw['data'], good=good,
                         channels=raw['channels'], freqs_mhz=freqs, split=bm.stripe_split(raw['az']))
-    log.info('data %s teeth x %s samples; flags: %d samples, %d tooth spikes', *data.data.shape,
-             sample_flag.sum(), tooth_flag.sum())
+    log.info('data %s teeth x %s samples; flags: %d samples, %d tooth spikes; %d rows off %s dropped',
+             *data.data.shape, sample_flag.sum(), tooth_flag.sum(), raw['n_off_height'], HEIGHT_ERA)
 
     release = json.loads(RELEASE.read_text())
     ant = np.asarray(release['antenna_91m_era']['position_enu_m'], float)
     tx = np.asarray(release['transmitter']['recommended_for_propagation']['position_enu_m'], float)
+    if POSITIONS == 'posterior-mean':
+        # memo 002 adopts the v0005 posterior means; the release file still holds the selected state.
+        assert release['release'] == 'v0005', 'memo 002 posterior means are for release v0005'
+        summary = json.loads(MEMO002.read_text())
+        ant, tx = (np.array([float(v) for v in str(summary[k]).split(',')]) for k in ('antAdopted', 'txAdopted'))
+    log.info('positions (%s): antenna %s, transmitter %s', POSITIONS, ant, tx)
     hfields, _, hfreqs = read_beam(drop_last=False)
     hnorm, _, _ = bm.normalize_fields(hfields, hfreqs)
     fields_teeth = bm.interpolate_fields(hnorm, hfreqs, freqs)
@@ -188,7 +235,8 @@ def main(output, teeth_path, flags, bases, maxiter, concentration_min):
     at_zero = min(r['normalized_rms'] for r in scan if r['az_offset_deg'] == 0.0)
     log.info('coarse az offset %+.0f, alpha %.0f (best at offset 0: %.4f)',
              model.az_offset_deg, model.alpha0_deg, at_zero)
-    params, best_geometry, geometry_table, _ = bm.fit_geometry(data, fields_teeth, model)
+    candidates = bm.TILT_CANDIDATES if GEOMETRY == 'tilt' else bm.tx_fit.GEOMETRY_CANDIDATES
+    params, best_geometry, geometry_table, _ = bm.fit_geometry(data, fields_teeth, model, candidates=candidates)
     pd.DataFrame(geometry_table).to_csv(output / 'geometry_comparison.csv', index=False)
 
     band = (float(freqs.min()) - DF, float(freqs.max()) + DF)
@@ -233,7 +281,20 @@ def main(output, teeth_path, flags, bases, maxiter, concentration_min):
             all_metrics.extend(records)
             optimizations.append(info)
             log.info('%s penalty %g: validation %.4f', kind, penalty, validation)
-        _, coeff, gain, heldout, selected = min(trials, key=lambda entry: entry[0])
+        # Validation differences between penalties are ~1% and the weakest penalty may stop at
+        # maxiter, so take the strongest converged penalty whose validation is within PENALTY_TOL
+        # of the best converged one. Picking the minimum let an unconverged 1e-4 trial, better by
+        # 0.7%, change the 64-90 MHz beam by >100% on geometry v0005.
+        converged = [entry for entry in trials if entry[4]['success']] or trials
+        best = min(entry[0] for entry in converged)
+        _, coeff, gain, heldout, selected = max(
+            (entry for entry in converged if entry[0] <= best * (1 + PENALTY_TOL)),
+            key=lambda entry: entry[4]['penalty'])
+        rule = 'strongest converged within %g of the best validation' % PENALTY_TOL
+        if kind in FIXED_PENALTY:
+            _, coeff, gain, heldout, selected = next(
+                entry for entry in trials if entry[4]['penalty'] == FIXED_PENALTY[kind])
+            rule = 'fixed by --penalty'
         all_metrics.extend(bm.score(data, heldout, kind + '_heldout'))
         final_coeff, final_gain, final_prediction, final_info = fit.fit(
             np.ones(len(data.t), bool), selected['penalty'], initial=coeff, initial_gain=gain, maxiter=maxiter)
@@ -251,7 +312,8 @@ def main(output, teeth_path, flags, bases, maxiter, concentration_min):
         export_error = np.sqrt(np.sum(np.where(data.good, (exported - final_prediction) ** 2, 0), axis=1)
                                / np.sum(np.where(data.good, data.data ** 2, 0), axis=1))
         assert np.max(export_error[data.fit_channels]) < .01, export_error
-        description.update(selected_penalty=selected['penalty'], lmax=lmax,
+        description.update(selected_penalty=selected['penalty'], penalty_rule=rule,
+                           penalty_converged=bool(selected['success']), lmax=lmax,
                            max_export_prediction_error_relative_to_data=float(export_error.max()))
         descriptions[kind] = description
         np.savez_compressed(
@@ -270,8 +332,9 @@ def main(output, teeth_path, flags, bases, maxiter, concentration_min):
 
     import eigsep_base
     import eigsep_data
-    inputs = [SOURCE, POINT_TABLE, DEFAULT_BEAM_PATH, RELEASE, Path(teeth_path),
+    inputs = [SOURCE, POINT_TABLE, DEFAULT_BEAM_PATH, RELEASE, CAMPAIGN / 'curation/mode_table.jsonl', Path(teeth_path),
               Path(flags), CAMPAIGN / 'curation/antenna_resolution.json']
+    inputs += [MEMO002] if POSITIONS == 'posterior-mean' else []
     inputs += [CAMPAIGN / 'data' / Path(f).name for f in raw['files']]
     artifacts = {str(p.relative_to(output)): digest(p) for p in output.rglob('*')
                  if p.is_file() and p.name not in ('provenance.json', 'README.md')}
@@ -279,12 +342,16 @@ def main(output, teeth_path, flags, bases, maxiter, concentration_min):
     provenance = dict(
         status='exploratory', generator=workspace_path(SOURCE),
         geometry_release=dict(path=workspace_path(RELEASE), release=release['release']),
+        positions=dict(source=POSITIONS, antenna_enu_m=ant.tolist(), transmitter_enu_m=tx.tolist(),
+                       **({'path': workspace_path(MEMO002)} if POSITIONS == 'posterior-mean' else {})),
+        geometry_candidates=GEOMETRY,
         pipeline='eigsep_data.beam_mapping (tx_background, tx_fit, beam_basis, tx_export)',
         pointing=raw['point_prov']['compact'],
-        pointing_rule='az_deg: commanded azimuth (motor counts plus one pot offset per anchor segment); el_deg: IMU',
+        pointing_rule='az_deg: commanded azimuth (motor counts plus one pot offset per anchor segment), '
+                      'left-handed about the boresight from pointing table v5; el_deg: IMU',
         convention='highline',
-        rotation='v_ENU = Rz(psi) Rx(el + el_zero_delta) Rz(az + az_offset + az_zero_delta) v_body, psi = %.3f deg '
-                 '(eigsep_base.rotations.mount_rotation)' % PSI_DEG,
+        rotation='v_ENU = Rz(psi) Ry(axle_tilt_delta) Rx(el + el_zero_delta) Rz(az + az_offset + az_zero_delta) '
+                 'v_body, psi = %.3f deg (eigsep_data.beam_mapping.TxGeometryModel)' % PSI_DEG,
         az_offset_deg=model.az_offset_deg, alpha0_deg=model.alpha0_deg,
         table_az_zero_from_highline_deg=model.az_offset_deg + geometry['az_zero_delta_deg'],
         geometry=geometry, geometry_model=best_geometry,
@@ -295,10 +362,13 @@ def main(output, teeth_path, flags, bases, maxiter, concentration_min):
         tooth_selection=dict(path=workspace_path(teeth_path), version=selection['version'],
                              channels=len(selection['channels'])),
         flags=dict(path=workspace_path(flags), version=flag_prov['version'],
-                   samples=int(sample_flag.sum()), tooth_spikes=int(tooth_flag.sum())),
+                   samples=int(sample_flag.sum()), tooth_spikes=int(tooth_flag.sum()),
+                   samples_not_covered=flag_prov['n_samples_not_covered']),
         spectral_bases=descriptions, lmax=lmax, band_mhz=list(band), raster_utc=list(RASTER),
         split='12 deg stripes of pointing-table azimuth (tx_fit.stripe_split)', maxiter=maxiter,
         n_glitches=raw['n_glitches'],
+        height_era=dict(kept=HEIGHT_ERA, n_rows_dropped=raw['n_off_height'],
+                        source=workspace_path(CAMPAIGN / 'curation/mode_table.jsonl')),
         repositories={name: revision(repo_root(path)) for name, path in
                       (('data-analysis', SOURCE), ('eigsep_data', eigsep_data.__file__),
                        ('eigsep_base', eigsep_base.__file__), ('eigsep', RELEASE))},
@@ -319,13 +389,26 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--output', type=Path, required=True,
                         help='new product directory, e.g. marjum-2026-07/derived/beam/empirical_raster_v0012')
+    parser.add_argument('--release', default='v0005', help='geometry release supplying antenna and transmitter')
+    parser.add_argument('--positions', choices=['posterior-mean', 'release'], default='posterior-mean',
+                        help="antenna and transmitter: memo 002's adopted posterior means, or the release file")
+    parser.add_argument('--geometry', choices=['tilt', 'legacy'], default='tilt',
+                        help='geometry candidates: axle tilt with the transmitter fixed, or the v0012-v0014 set')
     parser.add_argument('--teeth', default=str(CAMPAIGN / 'derived/beam/tooth_selection_v0002.json'))
     parser.add_argument('--flags', default=str(CAMPAIGN / 'derived/beam/raster_flags_v0001.npz'))
     parser.add_argument('--bases', nargs='+', choices=['dpss', 'pca'], default=['dpss', 'pca'])
     parser.add_argument('--maxiter', type=int, default=3000)
     parser.add_argument('--concentration-min', default='1e-6',
                         help="DPSS background mode cutoff; 'legacy' for the floor(2NW)+1 modes of v0009-v0011")
+    parser.add_argument('--penalty', action='append', default=[], metavar='KIND=VALUE',
+                        help='fix a basis\'s prior weight (one of %s) instead of the selection rule' % (PENALTIES,))
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(name)s %(message)s')
     cmin = None if args.concentration_min == 'legacy' else float(args.concentration_min)
+    RELEASE = CAMPAIGN / f'imgs/fits/{args.release}_marjum_geometry/shared.json'
+    POSITIONS, GEOMETRY = args.positions, args.geometry
+    for item in args.penalty:
+        kind, value = item.split('=')
+        assert kind in ('dpss', 'pca') and float(value) in PENALTIES, item
+        FIXED_PENALTY[kind] = float(value)
     main(args.output, args.teeth, args.flags, tuple(args.bases), args.maxiter, cmin)

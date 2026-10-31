@@ -42,6 +42,7 @@ those steps means a new release version.
 
 ## Recent changes
 
+- 2026-10-31: `tx_feed_orientation.py --geometry v0005` reads the current `chain_diagnostics.json`, whose 10-21 rewrite renamed the camera parameters (`cam2203_e`, was `cam_2203_e`); on the current files it reproduces `tx_feed_orientation` v0003 exactly.
 - 2026-10-26: the scripts that built geometry v0005 and its checks are frozen in `v0005_build/`, with their data beside the product; until now they existed only in an Antigravity session's scratch. `geometry_checks.py` and `tx_feed_orientation.py` take v0005 as they did when they made `geometry_checks` v0002 and `tx_feed_orientation` v0003; `geometry_checks` now finds the v0005 model in `v0005_build/` instead of the scratch directory.
 - 2026-10-10: `tx_feed_orientation.py`, ported from the retired terrain script; it reproduces v0001 to 3e-5 deg per draw and re-solves the feed at release v0004, reporting true bearings (the raster axes are UTM grid axes, 1.52 deg from true north).
 - 2026-10-09: added `geometry_checks.py` and `lidar_constraint.py`, the independent checks that give v0004 its bounds in memo 002 (`geometry_checks` v0001, `lidar_constraint` v0002). The LIDAR port applies true bearings as UTM grid bearings, which the retired terrain version did not.

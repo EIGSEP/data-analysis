@@ -261,7 +261,9 @@ def geometry_v0005(campaign, stride):
             c[:, 6] = np.exp(c[:, 6])
             samples.append((int(chain), j, c))
     diag = json.loads((product / 'chain_diagnostics.json').read_text())
-    rec = [diag['parameters'][f'cam_{k}_{v}'] for k in KEYS for v in ('e', 'n', 'u', 'th', 'ph', 'ti', 'logf')]
+    par = diag['parameters']
+    # the 2026-10-21 rewrite of chain_diagnostics.json names cameras cam2203_e, the 10-17 one cam_2203_e
+    rec = [par.get(f'cam{k}_{v}', par.get(f'cam_{k}_{v}')) for k in KEYS for v in ('e', 'n', 'u', 'th', 'ph', 'ti', 'logf')]
     convergence = dict(max_rhat=max(r['rhat'] for r in rec), min_ess_bulk=min(r['ess_bulk'] for r in rec))
     from eigsep_terrain.dem import DEM
     dem = DEM(cache_file=str(campaign / 'derived/dem/v0002/marjum_dem.npz'))
