@@ -41,7 +41,6 @@ import eigsep_base
 import eigsep_sim
 
 from eigsep_base.const import MARJUM_PASS
-from eigsep_base.rotations import mount_rotation
 from eigsep_sim.design_matrix import (
     HealpixBeam,
     HorizonProfile,
@@ -51,14 +50,14 @@ from eigsep_sim.design_matrix import (
 )
 from eigsep_sim.observer import EarthSurface
 
-from common import HORIZON_PROFILES, era_of_files, mount_offsets
+from common import BEAM_PRODUCT, HORIZON_PROFILES, beam_geometry, beam_rotation, era_of_files
 
 HERE = Path(__file__).resolve().parent
 CAMPAIGN = Path(os.environ["EIGSEP_CAMPAIGN_ROOT"])
 WORKSPACE = CAMPAIGN.parent
 POINTING = CAMPAIGN / "curation" / "pointing_table.parquet"
 HORIZONS = CAMPAIGN / f"{HORIZON_PROFILES}.npz"
-EMPIRICAL = CAMPAIGN / "derived/beam/empirical_raster_v0013/dpss"   # common.BEAM_PRODUCT
+EMPIRICAL = CAMPAIGN / BEAM_PRODUCT / "dpss"
 HFSS = WORKSPACE / "data-analysis/hfss_beam_maps/bowtie_beam.npz"
 
 ERAS = {"~30m": "30m", "~87.5m": "87.5m", "~91m": "91m",
@@ -168,8 +167,8 @@ def main():
     lat, lon, hgt = MARJUM_PASS
     times = Time(bins.t.values, format="unix")
     rot_g2t = EarthSurface(lat, lon, hgt).rot_gal2top_stack(times).astype(float)
-    az_offset, el_offset, psi = mount_offsets(CAMPAIGN)
-    rot_b2e = mount_rotation(bins.az.values + az_offset, bins.el.values + el_offset, psi)
+    geometry = beam_geometry(CAMPAIGN)
+    rot_b2e = beam_rotation(bins.az.values, bins.el.values, geometry)
     era_keys = list(ERAS)
     horizons = [HorizonProfile.from_npz(HORIZONS, ERAS[e]) for e in era_keys]
     hidx = bins.height_era.map(era_keys.index).values
@@ -270,9 +269,8 @@ def main():
                 "campaign": git_commit(CAMPAIGN),
             },
             "inputs": [str(POINTING), str(HORIZONS), str(HFSS), str(EMPIRICAL)],
-            "pointing": {"az_offset_deg": az_offset, "el_offset_deg": el_offset, "psi_deg": psi,
-                         "beam_product": str(EMPIRICAL.parent.relative_to(CAMPAIGN)),
-                         "convention": "mount_rotation(az_table + az_offset, el + el_offset, psi)"},
+            "pointing": {**geometry,
+                         "convention": "common.beam_rotation: Rz(psi) Ry(tilt) Rx(el + el_add) Rz(az + az_add)"},
             "noise": "radiometer: T_model / sqrt(channel_width * bin_s)",
         },
         "results": results,

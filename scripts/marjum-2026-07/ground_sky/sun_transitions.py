@@ -46,12 +46,11 @@ import pandas as pd
 
 import eigsep_data
 import eigsep_sim
-from eigsep_base.rotations import mount_rotation
 from eigsep_data import MetadataIndex
 from eigsep_sim.design_matrix import HealpixBeam
 
 import sun as sunmod
-from common import CHANNEL_MHZ, HERE, campaign_root, git_rev, mount_offsets, sha256, workspace_root
+from common import CHANNEL_MHZ, HERE, POINTING, beam_rotation, campaign_root, git_rev, sha256, workspace_root
 
 # Defaults: the products built on horizon_profiles_v0005 and beam v0013
 # (sun_events_v0006 from fit_v0023, the counterpart of fit_v0003).
@@ -142,7 +141,6 @@ def main():
     bf = hb.freqs_hz / 1e6
     freqs = np.array([x for x in bf if 45 < x < 235 and not 85 < x < 110])
     beam = hb.select([int(np.argmin(np.abs(bf - x))) for x in freqs])
-    az_off, el_off, psi = mount_offsets(campaign)
     with np.load(campaign / FIT_T, allow_pickle=True) as z:
         fT = z["freqs_mhz"]
         Tlo, Thi = np.nanpercentile(z["data_k"], [5, 95], axis=1)
@@ -160,7 +158,7 @@ def main():
             rec["status"] = "no data"
             summary.append(rec)
             continue
-        B = sel.load_bundle(antenna="box-air", products=["flags@v3", "pointing@v4"])
+        B = sel.load_bundle(antenna="box-air", products=["flags@v3", f"pointing@{POINTING}"])
         spec, meta, states = minute_context(B, a, n_min, tx)
         tm = a + 60 * np.arange(n_min) + 30
         f = B.freqs_mhz
@@ -211,7 +209,7 @@ def main():
                 if not tx_all:
                     seg = seg[~txon[seg]]
             grid = np.arange(tev - 3 * 3600, tev + 3 * 3600, 30.0)
-            R = np.broadcast_to(mount_rotation(az0 + az_off, el0 + el_off, psi), (len(grid), 3, 3))
+            R = np.broadcast_to(beam_rotation(az0, el0, campaign=campaign), (len(grid), 3, 3))
             geom = sunmod.sun_geometry(grid, era)
             col = sunmod.sun_column(beam, R, geom, "knife")
             arrays[f"grid_{i}"], arrays[f"col_{i}"] = grid, col.astype(np.float32)

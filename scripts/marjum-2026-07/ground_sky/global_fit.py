@@ -155,14 +155,13 @@ from scipy.optimize import least_squares
 import eigsep_data
 import eigsep_sim
 from eigsep_base.const import MARJUM_PASS
-from eigsep_base.rotations import mount_rotation
 from eigsep_sim.design_matrix import HorizonProfile, build_design_matrix
 from eigsep_sim.observer import EarthSurface
 
 import sun as sunmod
 from common import (
     CHANNEL_MHZ, DEM_PATH, ERAS, HERE, HORIZON_PROFILES, calibrate, campaign_root, git_rev,
-    mount_offsets, sha256,
+    beam_geometry, beam_rotation, sha256,
 )
 from fit_ground_sky import gsm_maps, load_beam
 from raster_sky import real_ylm_maps
@@ -193,7 +192,6 @@ def windows_of(df, window_s):
 def columns(df, freqs, beam, nside, lmax, campaign, geom, chunk=1500):
     """Per-bin columns at each frequency: GSM, ground fraction, Y_lm,
     transmitter, and the Sun (K per SFU, knife-edge terrain visibility)."""
-    az_off, el_off, psi = mount_offsets(campaign)
     eras = sorted(set(df.era))
     hz = [sunmod.true_horizon(HorizonProfile.from_npz(
         campaign / f"{HORIZON_PROFILES}.npz", ERAS[e])) for e in eras]
@@ -201,7 +199,7 @@ def columns(df, freqs, beam, nside, lmax, campaign, geom, chunk=1500):
     lat, lon, hgt = MARJUM_PASS
     t = df.t.to_numpy()
     rg = EarthSurface(lat, lon, hgt).rot_gal2top_stack(Time(t, format="unix")).astype(float)
-    rb = mount_rotation(df.az.to_numpy() + az_off, df.el.to_numpy() + el_off, psi)
+    rb = beam_rotation(df.az.to_numpy(), df.el.to_numpy(), campaign=campaign)
     gsm = gsm_maps(freqs, nside)
     ylm, labels = real_ylm_maps(nside, lmax) if lmax else (np.zeros((0, gsm.shape[1])), [])
     nf, nb = len(freqs), len(df)
@@ -1030,7 +1028,7 @@ def main():
             "binned": sha256(args.binned / "binned.npz"), "beam": sha256(beam_path),
             "freqs": [round(float(x), 6) for x in fr], "nside": args.nside, "lmax": lmax_c,
             "bins": hashlib.sha256(df.t.to_numpy().tobytes()).hexdigest(),
-            "mount": mount_offsets(campaign), "horizon": HORIZON_PROFILES,
+            "mount": beam_geometry(campaign), "horizon": HORIZON_PROFILES,
             "tx": [round(float(x), 3) for x in sunmod.transmitter_enu()]}).encode()).hexdigest()
     key = column_key(freqs)
     # A --only-mhz run reads the full grid's cache, if there is one, and takes its rows.
@@ -1393,7 +1391,7 @@ def main():
             "inputs": {"beam_sha256": sha256(beam_path),
                        "binned_sha256": sha256(args.binned / "binned.npz"),
                        "tcal_scale": tcal_used,
-                       "mount_offsets_deg": mount_offsets(campaign),
+                       "mount_geometry": beam_geometry(campaign),
                        "horizon_profiles": HORIZON_PROFILES, "dem": DEM_PATH}},
         "params": {k: (str(v) if isinstance(v, Path) else v) for k, v in vars(args).items()
                    if k not in ("version", "out_dir")},

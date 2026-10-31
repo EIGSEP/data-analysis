@@ -4,7 +4,7 @@ Builds ``derived/ground_sky/sun_profile_vNNNN``: for every minute of phase C
 with pointing, the Sun column (K per SFU: beam gain toward the Sun ×
 knife-edge visibility at the ridge, and without the terrain) at six HFSS beam
 frequencies, with the pointing and whether the antenna moved. Pointing is the
-minute's median of ``pointing@v4`` rows of quality ok or suspect. In a
+minute's median of the pointing table's rows of quality ok or suspect. In a
 parked block of ``curation/mode_table.jsonl``, minutes with no such rows take
 the block's median. Outside the 07-17 raster the table's azimuth zero inherits
 potentiometer slips (memo 003), so the Sun's gain on other days carries that
@@ -27,11 +27,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from eigsep_base.rotations import mount_rotation
 from eigsep_sim.design_matrix import HealpixBeam
 
 import sun as sunmod
-from common import ERAS, HERE, campaign_root, git_rev, mount_offsets, sha256, workspace_root
+from common import ERAS, HERE, beam_rotation, campaign_root, git_rev, sha256, workspace_root
 
 FREQS = (50.78125, 74.21875, 101.5625, 148.4375, 199.21875, 234.375)
 
@@ -83,10 +82,9 @@ def main():
                               drop_last=True)
     bf = hb.freqs_hz / 1e6
     beam = hb.select([int(np.argmin(np.abs(bf - x))) for x in FREQS])
-    az_off, el_off, psi = mount_offsets(campaign)
     keys = np.array([ERAS[e] for e in era], dtype=object)
     geom = sunmod.sun_geometry(t, keys)
-    rot = mount_rotation(g.az.values + az_off, g.el.values + el_off, psi)
+    rot = beam_rotation(g.az.values, g.el.values, campaign=campaign)
     out_dir.mkdir(parents=True)
     np.savez_compressed(
         out_dir / "sun_profile.npz", t=t, freqs_mhz=np.array(FREQS), az=g.az.values,

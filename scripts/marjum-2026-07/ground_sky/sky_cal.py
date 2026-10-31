@@ -38,7 +38,7 @@ frequency and into ``--bin-s`` bins. Rows of files recorded with the switch
 daemon off (all ``MISSING``; the 07-15 night) count as antenna rows, as in
 ``flags@v3``. The Sun is below ``--max-sun-alt`` (it is
 behind the ridge long before that, ``sun.py``). Pointing comes from
-``pointing@v4``, or the stretch median where the table has none (the
+``pointing`` (``common.POINTING``), or the stretch median where the table has none (the
 antenna is parked).
 
 Run::
@@ -63,14 +63,13 @@ from astropy.time import Time
 import eigsep_data
 import eigsep_sim
 from eigsep_base.const import MARJUM_PASS
-from eigsep_base.rotations import mount_rotation
 from eigsep_data import MetadataIndex
 from eigsep_sim.design_matrix import HorizonProfile, build_design_matrix
 from eigsep_sim.observer import EarthSurface
 
 import sun as sunmod
 from common import (
-    CHANNEL_MHZ, HERE, HORIZON_PROFILES, campaign_root, git_rev, mount_offsets, rows_at_height, sha256,
+    CHANNEL_MHZ, HERE, HORIZON_PROFILES, POINTING, beam_rotation, campaign_root, git_rev, rows_at_height, sha256,
 )
 from fit_ground_sky import gsm_maps, load_beam
 
@@ -99,7 +98,7 @@ def bin_stretch(index, st, freqs, bin_s, max_sun_alt, tcal):
         sel = index.select(time=(c, min(c + 3600.0, b)))
         if sel.nrows == 0:
             continue
-        prods = ["flags@v3", "pointing@v4"] + ([f"tcal@{tcal}"] if tcal else [])
+        prods = ["flags@v3", f"pointing@{POINTING}"] + ([f"tcal@{tcal}"] if tcal else [])
         B = sel.load_bundle(antenna="box-air", products=prods)
         f = B.freqs_mhz
         ch = np.rint(f / CHANNEL_MHZ).astype(int)
@@ -157,7 +156,7 @@ def main():
     ap.add_argument("--beam", choices=["hfss", "empirical"], required=True)
     ap.add_argument("--bin-s", type=float, default=600.0)
     ap.add_argument("--max-sun-alt", type=float, default=-10.0)
-    ap.add_argument("--tcal", default="v0003")
+    ap.add_argument("--tcal", default="v0004")
     ap.add_argument("--max-resid", type=float, default=0.05,
                     help="use a stretch in the regression only if the sky fit's median residual "
                          "is below this fraction of the power")
@@ -184,7 +183,6 @@ def main():
     beam = beam.select(use)
     freqs = beam.freqs_hz / 1e6
     gsm = gsm_maps(freqs, 8)
-    az_off, el_off, psi = mount_offsets(campaign)
     lat, lon, hgt = MARJUM_PASS
     index = MetadataIndex(campaign / "data")
 
@@ -202,7 +200,7 @@ def main():
             df = df[df.t.values >= ts(st["fit_from"])].reset_index(drop=True)
         t = df.t.values
         rg = EarthSurface(lat, lon, hgt).rot_gal2top_stack(Time(t, format="unix")).astype(float)
-        rb = mount_rotation(df.az.values + az_off, df.el.values + el_off, psi)
+        rb = beam_rotation(df.az.values, df.el.values, campaign=campaign)
         hz = sunmod.true_horizon(HorizonProfile.from_npz(
             campaign / f"{HORIZON_PROFILES}.npz", st["height"]))
         dm = build_design_matrix(beam, [hz], rg, rb, 8, offset_groups=False, nside_int=64)

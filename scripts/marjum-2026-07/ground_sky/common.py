@@ -31,30 +31,58 @@ HORIZON_PROFILES = "curation/horizon_profiles_v0005"
 DEM_PATH = "derived/dem/v0004/marjum_dem.npz"
 
 # The empirical beam product: its beam (dpss/empirical_beam.npz) and the mount
-# geometry it was fitted in (dpss/diagnostics.npz). v0013 is v0012 refitted on
-# geometry v0004 and is the reference beam.
-BEAM_PRODUCT = "derived/beam/empirical_raster_v0013"
+# geometry it was fitted in (dpss/diagnostics.npz). v0017 is the reference beam
+# (memo 005): fitted on pointing table v5 (left-handed azimuth) and geometry
+# release v0005, with a free along-axle tilt and DPSS penalty 1e-2.
+BEAM_PRODUCT = "derived/beam/empirical_raster_v0017"
+
+# The pointing table every script here reads. v5's azimuth is left-handed about
+# the boresight, the convention BEAM_PRODUCT was fitted in.
+POINTING = "v5"
 
 
 def beam_dir(campaign=None):
     return Path(campaign or campaign_root()) / BEAM_PRODUCT / "dpss"
 
 
-def mount_offsets(campaign=None):
-    """(az_add, el_add, psi) in degrees for ``mount_rotation(az + az_add, el + el_add, psi)``.
-
-    The beam was fitted with the table az shifted by ``az_offset_deg`` plus the
-    fitted ``az_zero_delta_deg``, the el by the fitted ``el_zero_delta_deg``,
-    and the elevation axle at ``psi_deg``; using the beam in any other frame
-    misplaces it. Before 2026-10-09 these scripts applied ``az_offset_deg`` and
-    ``psi_deg`` only.
-    """
+def beam_geometry(campaign=None):
+    """The mount geometry ``BEAM_PRODUCT`` was fitted in, as a dict for
+    ``beam_rotation`` and for manifests: ``az_add_deg`` (the beam's az offset
+    plus its fitted az-zero delta, added to the table az), ``el_add_deg`` (the
+    fitted el-zero delta), ``axle_tilt_deg`` (the fitted along-axle tilt) and
+    ``psi_deg`` (the elevation-axle direction). Using the beam in any other frame
+    misplaces it. Before 2026-10-31 these scripts had no axle tilt (the v0013
+    beam fitted none)."""
     from eigsep_data.beam_mapping.tx_fit import PARAM_NAMES
 
     with np.load(beam_dir(campaign) / "diagnostics.npz") as d:
-        p = dict(zip(PARAM_NAMES, np.asarray(d["params"], float)))
-        return (float(d["az_offset_deg"]) + p["az_zero_delta_deg"],
-                p["el_zero_delta_deg"], float(d["psi_deg"]))
+        vals = np.asarray(d["params"], float)
+        p = dict(zip(PARAM_NAMES, np.pad(vals, (0, len(PARAM_NAMES) - vals.size))))
+        return {"beam_product": BEAM_PRODUCT,
+                "az_add_deg": float(d["az_offset_deg"] + p["az_zero_delta_deg"]),
+                "el_add_deg": float(p["el_zero_delta_deg"]),
+                "axle_tilt_deg": float(p["axle_tilt_delta_deg"]),
+                "psi_deg": float(d["psi_deg"])}
+
+
+def beam_rotation(az_deg, el_deg, geometry=None, campaign=None):
+    """Body -> ENU rotations for table pointings, in the frame the beam was fitted in.
+
+    ``Rz(psi) Ry(tilt) Rx(el + el_add) Rz(az + az_add)``, built by the beam fit's
+    own model (``eigsep_data.beam_mapping.TxGeometryModel.rotations``).
+    ``geometry`` is a ``beam_geometry`` dict (default: ``BEAM_PRODUCT``'s), or
+    the ``geometry`` block of an older fit manifest (``az_offset_deg``,
+    ``el_offset_deg``, ``psi_deg``; no tilt)."""
+    from eigsep_data.beam_mapping.tx_fit import PARAM_NAMES, TxGeometryModel
+
+    g = geometry or beam_geometry(campaign)
+    if "az_add_deg" not in g:
+        g = {"az_add_deg": g["az_offset_deg"], "el_add_deg": g.get("el_offset_deg", 0.0),
+             "axle_tilt_deg": 0.0, "psi_deg": g["psi_deg"]}
+    model = TxGeometryModel(g["psi_deg"], np.zeros(3), np.zeros(3),
+                            az_offset_deg=g["az_add_deg"], axle_tilt_deg=g["axle_tilt_deg"])
+    az, el = np.broadcast_arrays(np.asarray(az_deg, float), np.asarray(el_deg, float))
+    return model.rotations(az, el + g["el_add_deg"], np.zeros(len(PARAM_NAMES)))
 
 
 # Horizon-profile keys by pointing-table era.

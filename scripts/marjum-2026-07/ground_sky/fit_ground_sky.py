@@ -74,7 +74,6 @@ from astropy.time import Time
 import eigsep_base
 import eigsep_sim
 from eigsep_base.const import MARJUM_PASS
-from eigsep_base.rotations import mount_rotation
 from eigsep_sim.design_matrix import (
     HealpixBeam,
     HorizonProfile,
@@ -86,7 +85,7 @@ from eigsep_sim.observer import EarthSurface
 import sun as sunmod
 from common import (
     BEAM_PRODUCT, CHANNEL_MHZ, ERAS, HERE, HORIZON_PROFILES, beam_dir, calibrate, campaign_root,
-    git_rev, mount_offsets, sha256, workspace_root,
+    beam_geometry, beam_rotation, git_rev, sha256, workspace_root,
 )
 
 BLUE, ORANGE = "#2a78d6", "#eb6834"
@@ -225,12 +224,11 @@ def main():
     Y, S = z["T"][:, fsel].T, z["sigma"][:, fsel].T  # (nfreq, nbin)
 
     # Geometry.
-    az_offset, el_off, psi = mount_offsets(campaign)
+    geometry = beam_geometry(campaign)
     lat, lon, hgt = MARJUM_PASS
     times = Time(z["t"], format="unix")
     rot_g2t = EarthSurface(lat, lon, hgt).rot_gal2top_stack(times).astype(float)
-    rot_b2e = mount_rotation(np.round(z["az"], 1) + az_offset,
-                             np.round(z["el"], 1) + el_off, psi)
+    rot_b2e = beam_rotation(np.round(z["az"], 1), np.round(z["el"], 1), geometry)
     era_keys = np.array([ERAS[e] for e in z["era"]], dtype=object)
     geom = sunmod.sun_geometry(z["t"], era_keys)
     A_sun = sunmod.sun_column(beam, rot_b2e, geom, args.sun_visibility)
@@ -384,8 +382,7 @@ def main():
         },
         "params": {k: (str(v) if isinstance(v, Path) else v)
                    for k, v in vars(args).items() if k not in ("version", "out_dir")},
-        "geometry": {"az_offset_deg": az_offset, "el_offset_deg": el_off, "psi_deg": psi,
-                     "beam_product": BEAM_PRODUCT,
+        "geometry": {**geometry,
                      "horizon_grid_to_true_deg": (
                          0.0 if args.no_grid_rotation else sunmod.grid_to_true_deg()),
                      "eras": eras, "regimes": regimes},

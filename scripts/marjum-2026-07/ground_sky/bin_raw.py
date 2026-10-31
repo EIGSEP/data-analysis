@@ -33,7 +33,7 @@ unmasked samples. Its noise is given two ways: the radiometer prediction
 y / sqrt(dnu tau) for the unmasked samples, and the standard error of its
 rows' values.
 
-Pointing: ``pointing`` (``--pointing``, default ``v4``) rows of quality ``ok`` or ``suspect``. A bin with
+Pointing: ``pointing`` (``--pointing``, default ``common.POINTING``) rows of quality ``ok`` or ``suspect``. A bin with
 none takes the pointing of the bins either side if those agree within
 ``--fill-tol-deg`` in az and el (the drives are locked when idle), and is
 marked ``pointing_filled``; otherwise its pointing stays NaN.
@@ -73,6 +73,7 @@ from delay_filter import BANDS, delay_lowpass
 from common import (
     CHANNEL_MHZ,
     HERE,
+    POINTING,
     RAW_CHANNEL_OFFSETS,
     campaign_root,
     era_of_files,
@@ -265,7 +266,7 @@ def main():
     ap.add_argument("--min-rows", type=int, default=1)
     ap.add_argument("--chunk-s", type=float, default=3600.0)
     ap.add_argument("--jobs", type=int, default=8)
-    ap.add_argument("--pointing", default="v4")
+    ap.add_argument("--pointing", default=POINTING)
     ap.add_argument("--delay-filter-ns", type=float, default=None,
                     help="delay low-pass (delay_filter.py) of each integration before binning")
     ap.add_argument("--union-mask-only", action="store_true",

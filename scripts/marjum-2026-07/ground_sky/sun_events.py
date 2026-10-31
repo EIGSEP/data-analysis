@@ -84,12 +84,12 @@ def tx_on_bins(t, half_bin_s, campaign):
     return on
 
 
-def dense_columns(beam, az, el, era_key, t_grid, az_offset, psi, el_offset=0.0):
-    """Sun columns (K/SFU) on a dense grid at fixed pointing: knife, flat."""
-    from eigsep_base.rotations import mount_rotation
+def dense_columns(beam, az, el, era_key, t_grid, geometry):
+    """Sun columns (K/SFU) on a dense grid at fixed pointing: knife, flat.
+    ``geometry``: the fit manifest's mount geometry (``common.beam_rotation``)."""
+    from common import beam_rotation
 
-    rot = np.broadcast_to(mount_rotation(az + az_offset, el + el_offset, psi),
-                          (len(t_grid), 3, 3))
+    rot = np.broadcast_to(beam_rotation(az, el, geometry), (len(t_grid), 3, 3))
     geom = sunmod.sun_geometry(t_grid, era_key)
     return (sunmod.sun_column(beam, rot, geom, "knife"),
             sunmod.sun_column(beam, rot, geom, "flat"), geom)
@@ -167,9 +167,7 @@ def main():
     geo = man["geometry"]
     n0, n1 = map(ts, args.null_window)
     grid = np.arange(min(n0, w0) - 3 * 3600, w1 + 3 * 3600, 30.0)
-    col_k, col_f, geom = dense_columns(beam, az, el, era_key, grid,
-                                       geo["az_offset_deg"], geo["psi_deg"],
-                                       geo.get("el_offset_deg", 0.0))
+    col_k, col_f, geom = dense_columns(beam, az, el, era_key, grid, geo)
     rise = grid[np.argmax(geom["theta_deg"] > 0)]
     alt0 = grid[np.argmax(geom["alt"] > 0)]
 

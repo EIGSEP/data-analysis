@@ -21,19 +21,17 @@ import numpy as np
 from astropy.time import Time
 
 from eigsep_base.const import MARJUM_PASS
-from eigsep_base.rotations import mount_rotation
 from eigsep_sim.design_matrix import HorizonProfile
 from eigsep_sim.observer import EarthSurface
 
 import sun as sunmod
-from common import ERAS, HORIZON_PROFILES, mount_offsets
+from common import ERAS, HORIZON_PROFILES, beam_rotation
 from raster_sky import real_ylm_maps
 
 
 def beam_corr_columns(df, freqs, beam, gsm, lmax, campaign, nside_int=32, chunk=500):
     """(cS, cN, labels): (nf, 1 + n_lm, nb) sky and ground columns. Index 0 is
     the uncorrected beam (C_GSM, C_gnd); 1.. are the Y_lm corrections."""
-    az_off, el_off, psi = mount_offsets(campaign)
     nside_sky = healpy.npix2nside(gsm.shape[1])
     eras = sorted(set(df.era))
     hz = [sunmod.true_horizon(HorizonProfile.from_npz(campaign / f"{HORIZON_PROFILES}.npz", ERAS[e]))
@@ -41,7 +39,7 @@ def beam_corr_columns(df, freqs, beam, gsm, lmax, campaign, nside_int=32, chunk=
     hidx = np.array([eras.index(e) for e in df.era])
     t = df.t.to_numpy()
     rg = EarthSurface(*MARJUM_PASS).rot_gal2top_stack(Time(t, format="unix")).astype(float)
-    rb = mount_rotation(df.az.to_numpy() + az_off, df.el.to_numpy() + el_off, psi)
+    rb = beam_rotation(df.az.to_numpy(), df.el.to_numpy(), campaign=campaign)
     nint = healpy.nside2npix(nside_int)
     dirs_b = np.array(healpy.pix2vec(nside_int, np.arange(nint)))      # (3, nint) body frame
     B0 = beam(dirs_b)                                                   # (nf, nint)

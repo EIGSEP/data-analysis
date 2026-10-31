@@ -50,14 +50,13 @@ from astropy.time import Time
 import eigsep_data
 import eigsep_sim
 from eigsep_base.const import MARJUM_PASS
-from eigsep_base.rotations import mount_rotation
 from eigsep_data import MetadataIndex
 from eigsep_sim.design_matrix import HorizonProfile, build_design_matrix
 from eigsep_sim.observer import EarthSurface
 
 import sun as sunmod
 from common import (
-    CHANNEL_MHZ, HERE, HORIZON_PROFILES, campaign_root, git_rev, mount_offsets, rows_at_height,
+    CHANNEL_MHZ, HERE, HORIZON_PROFILES, POINTING, beam_rotation, campaign_root, git_rev, rows_at_height,
     sha256,
 )
 from fit_ground_sky import gsm_maps, load_beam
@@ -108,7 +107,7 @@ def main():
         sys.exit("exists; versions are immutable")
     a, b = pd.Timestamp(args.start).timestamp(), pd.Timestamp(args.stop).timestamp()
     B = MetadataIndex(campaign / "data").select(time=(a, b)).load_bundle(
-        antenna="box-air", products=["flags@v3", "pointing@v4"])
+        antenna="box-air", products=["flags@v3", f"pointing@{POINTING}"])
     f = B.freqs_mhz
     ch = np.rint(f / CHANNEL_MHZ).astype(int)
     D = B.data.astype(float)
@@ -134,10 +133,9 @@ def main():
     t, az, el = B.t[ok], p.az_deg.to_numpy()[ok], p.el_deg.to_numpy()[ok]
     sl = slice(None, None, args.row_step)
     Y, t, az, el = Y[:, sl], t[sl], az[sl], el[sl]
-    az_off, el_off, psi = mount_offsets(campaign)
     lat, lon, hgt = MARJUM_PASS
     rg = EarthSurface(lat, lon, hgt).rot_gal2top_stack(Time(t, format="unix")).astype(float)
-    rb = mount_rotation(az + az_off, el + el_off, psi)
+    rb = beam_rotation(az, el, campaign=campaign)
     hz = sunmod.true_horizon(HorizonProfile.from_npz(
         campaign / f"{HORIZON_PROFILES}.npz", args.era))
     lab, names = labeller(args.split, hz, args.band_deg, args.n_az)
