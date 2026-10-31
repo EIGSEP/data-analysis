@@ -128,8 +128,10 @@ Validation: bins in alternating ``--block-s`` blocks are held out; the model
 is fitted on the rest and scored on them. Gains and per-window terms come
 from each window's training bins.
 
-Where ``tcal@v0003`` covers a window, its scale (K at plane P per count)
-times the window's gain gives a, the GSM amplitude in tcal's kelvin.
+Where ``tcal`` (``--tcal``) covers a window, its scale (K at plane P per
+count, from ``common.calibrate``) times the window's gain gives a, the GSM
+amplitude in tcal's kelvin. A raw binned product before v0005 stored a
+v0003 scale of its own; without ``--tcal`` that stored scale is used.
 
 Run::
 
@@ -159,7 +161,7 @@ from eigsep_sim.observer import EarthSurface
 
 import sun as sunmod
 from common import (
-    CHANNEL_MHZ, DEM_PATH, ERAS, HERE, HORIZON_PROFILES, campaign_root, git_rev,
+    CHANNEL_MHZ, DEM_PATH, ERAS, HERE, HORIZON_PROFILES, calibrate, campaign_root, git_rev,
     mount_offsets, sha256,
 )
 from fit_ground_sky import gsm_maps, load_beam
@@ -760,6 +762,9 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("version")
     ap.add_argument("--binned", type=Path, required=True)
+    ap.add_argument("--tcal", default=None,
+                    help="tcal version for the kelvin scale of a_tcal (default: v0004, or the scale a "
+                         "raw binned product before v0005 stored)")
     ap.add_argument("--beam", choices=["hfss", "empirical"], default="hfss")
     ap.add_argument("--offsets", choices=["regime", "window"], default="regime")
     ap.add_argument("--lmax", type=int, default=2)
@@ -982,7 +987,12 @@ def main():
             Yall = Yall.copy()
             for jm, fm in enumerate(zm["freqs_mhz"]):
                 Yall[:, int(np.argmin(np.abs(z["freqs_mhz"] - fm)))] = zm["y"][keep, jm]
-    scale = z["scale"][keep]
+    if args.tcal is None and "scale" in z:
+        tcal_used = "stored in the binned product"
+        scale = z["scale"][keep]
+    else:
+        tcal_used = f"tcal@{args.tcal or 'v0004'}"
+        scale = calibrate(z, args.tcal or "v0004", campaign)["scale"][keep]
 
     beam, beam_path = load_beam(args.beam, campaign)
     bf = beam.freqs_hz / 1e6
@@ -1382,6 +1392,7 @@ def main():
                      "eigsep_sim": git_rev(Path(eigsep_sim.__file__).parent)},
             "inputs": {"beam_sha256": sha256(beam_path),
                        "binned_sha256": sha256(args.binned / "binned.npz"),
+                       "tcal_scale": tcal_used,
                        "mount_offsets_deg": mount_offsets(campaign),
                        "horizon_profiles": HORIZON_PROFILES, "dem": DEM_PATH}},
         "params": {k: (str(v) if isinstance(v, Path) else v) for k, v in vars(args).items()

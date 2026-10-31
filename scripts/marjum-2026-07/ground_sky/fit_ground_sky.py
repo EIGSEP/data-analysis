@@ -1,7 +1,13 @@
 """Fit ground temperature and sky to binned calibrated spectra, per frequency.
 
-Reads ``derived/ground_sky/binned_vNNNN`` and writes
-``derived/ground_sky/fit_vNNNN``. At each beam frequency the model is
+Reads a raw binned product (``derived/ground_sky/raw_binned_vNNNN``, from
+``bin_raw.py``), puts it in kelvin with ``common.calibrate`` and ``tcal``
+(``--tcal``), and writes ``derived/ground_sky/fit_vNNNN``. Binning and
+calibration are separate steps: a new tcal needs no new bins. Only bins that
+tcal covers, that have pointing, an era with a horizon profile and at least
+``--min-rows`` rows are used. An older calibrated product
+(``binned_vNNNN`` from the retired ``bin_spectra.py``) is still read as it
+is. At each beam frequency the model is
 
     T(t) = A_sky(t) . (a * GSM + delta) + A_gnd(t) T_gnd + T_off[regime(t)]
            [+ A_sun(t) S_sun]
@@ -33,8 +39,9 @@ Horizon bearings are rotated from the DEM's UTM grid to true bearings
 (``sun.grid_to_true_deg``, +1.52 deg) unless ``--no-grid-rotation``.
 
 Frequencies whose in-bin scatter exceeds ``--max-noise-ratio`` times the
-radiometer expectation (the binned manifest's ``noise_over_radiometer_median``)
-are skipped; that removes FM and the strongest RFI channels.
+radiometer expectation T / sqrt(dnu tau n) (median over the used bins; for an
+older calibrated product, its manifest's ``noise_over_radiometer_median``) are
+skipped; that removes FM and the strongest RFI channels.
 
 Validation: bins are split into alternating ``--block-s`` blocks in time; the
 model fitted to the even blocks predicts the odd ones. ``chi2_test`` close to
@@ -43,7 +50,7 @@ model fitted to the even blocks predicts the odd ones. ``chi2_test`` close to
 Run::
 
     export EIGSEP_CAMPAIGN_ROOT=/path/to/marjum-2026-07
-    python fit_ground_sky.py v0001 --binned v0001 [--beam hfss|empirical]
+    python fit_ground_sky.py v0001 --binned raw_binned_v0005 [--tcal v0004] [--beam hfss|empirical]
 """
 
 from __future__ import annotations
@@ -78,8 +85,8 @@ from eigsep_sim.observer import EarthSurface
 
 import sun as sunmod
 from common import (
-    BEAM_PRODUCT, ERAS, HERE, HORIZON_PROFILES, beam_dir, campaign_root, git_rev, mount_offsets,
-    sha256, workspace_root,
+    BEAM_PRODUCT, CHANNEL_MHZ, ERAS, HERE, HORIZON_PROFILES, beam_dir, calibrate, campaign_root,
+    git_rev, mount_offsets, sha256, workspace_root,
 )
 
 BLUE, ORANGE = "#2a78d6", "#eb6834"
@@ -119,11 +126,42 @@ def fit_one(dm, fi, y, sigma, prior, rows):
     return sol, resid
 
 
+def calibrated_bins(z, tcal, min_rows, campaign):
+    """A raw binned product in kelvin: the bins this fit can use, with ``T``
+    and ``sigma`` from ``common.calibrate``, and the noise over the radiometer
+    expectation per frequency. Returns ``(z, ratio_by_freq, selection)``."""
+    cal = calibrate(z, tcal, campaign)
+    n0 = len(z["t"])
+    has_t = np.isfinite(cal["T"]).any(1)
+    pointed = np.isfinite(z["az"]) & np.isfinite(z["el"])
+    era_ok = np.array([e in ERAS for e in z["era"]])
+    rows_ok = z["n"] >= min_rows
+    keep = has_t & pointed & era_ok & rows_ok
+    out = {k: (v[keep] if v.ndim and len(v) == n0 else v) for k, v in z.items()}
+    out["T"], out["sigma"] = cal["T"][keep], cal["sigma"][keep]
+    with np.errstate(invalid="ignore", divide="ignore"):
+        expected = out["T"] / np.sqrt(CHANNEL_MHZ * 1e6 * out["tau"][:, None] * out["nsamp"])
+        ratio = np.nanmedian(out["sigma"] / expected, axis=0)
+    ratio_by_f = {f"{f:.3f}": float(r) for f, r in zip(out["freqs_mhz"], ratio)}
+    selection = {"product": "raw (bin_raw.py), calibrated here", "tcal": tcal, "bins_in": int(n0),
+                 "with_tcal": int(has_t.sum()), "used": int(keep.sum()),
+                 "dropped_unpointed": int((has_t & ~pointed).sum()),
+                 "dropped_era_without_horizon": int((has_t & pointed & ~era_ok).sum()),
+                 "dropped_few_rows": int((has_t & pointed & era_ok & ~rows_ok).sum()),
+                 "min_rows": min_rows, "noise_over_radiometer_median": ratio_by_f}
+    return out, ratio_by_f, selection
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("version")
     ap.add_argument("--binned", required=True,
-                    help="binned product version, or a path to a trial directory")
+                    help="a product name under derived/ground_sky (raw_binned_vNNNN; a bare "
+                         "vNNNN means the older binned_vNNNN), or a path to a trial directory")
+    ap.add_argument("--tcal", default="v0004",
+                    help="tcal version that calibrates a raw binned product")
+    ap.add_argument("--min-rows", type=int, default=10,
+                    help="raw binned product: use bins of at least this many rows")
     ap.add_argument("--beam", choices=["hfss", "empirical"], default="hfss")
     ap.add_argument("--nside-sky", type=int, default=8)
     ap.add_argument("--nside-int", type=int, default=64)
@@ -149,10 +187,20 @@ def main():
     out_dir = args.out_dir or campaign / "derived/ground_sky" / f"fit_{args.version}"
     if out_dir.exists():
         sys.exit(f"{out_dir} exists; versions are immutable")
-    bdir = (Path(args.binned) if Path(args.binned).is_dir()
-            else campaign / "derived/ground_sky" / f"binned_{args.binned}")
+    if Path(args.binned).is_dir():
+        bdir = Path(args.binned)
+    elif "binned_" in args.binned:
+        bdir = campaign / "derived/ground_sky" / args.binned
+    else:
+        bdir = campaign / "derived/ground_sky" / f"binned_{args.binned}"
     z = dict(np.load(bdir / "binned.npz"))
     bman = json.loads((bdir / "manifest.json").read_text())
+    calibrated = "T" in z
+    if calibrated:
+        ratio_by_f = bman["noise_over_radiometer_median"]
+        selection = {"product": "calibrated (bin_spectra.py)", "tcal": bman["params"]["tcal"]}
+    else:
+        z, ratio_by_f, selection = calibrated_bins(z, args.tcal, args.min_rows, campaign)
     n_all = len(z["t"])
     keep = np.ones(n_all, bool)
     if args.utc:
@@ -164,8 +212,7 @@ def main():
     z = {k: (v[keep] if v.ndim and len(v) == n_all else v) for k, v in z.items()}
 
     # Frequencies: radiometric ones that the beam covers.
-    ratio = np.array([bman["noise_over_radiometer_median"][f"{f:.3f}"]
-                      for f in z["freqs_mhz"]])
+    ratio = np.array([ratio_by_f[f"{f:.3f}"] for f in z["freqs_mhz"]])
     beam, beam_path = load_beam(args.beam, campaign)
     bidx = [int(np.argmin(np.abs(beam.freqs_hz / 1e6 - f))) for f in z["freqs_mhz"]]
     on_grid = np.abs(beam.freqs_hz[bidx] / 1e6 - z["freqs_mhz"]) < 1e-6
@@ -324,7 +371,8 @@ def main():
             },
             "inputs": {
                 "binned": {"version": args.binned,
-                           "sha256": sha256(bdir / "binned.npz")},
+                           "sha256": sha256(bdir / "binned.npz"),
+                           "selection": selection},
                 "beam": {"name": args.beam, "path": str(beam_path.relative_to(workspace_root())),
                          "sha256": sha256(beam_path)},
                 "horizons": {"path": f"marjum-2026-07/{HORIZON_PROFILES}.npz",

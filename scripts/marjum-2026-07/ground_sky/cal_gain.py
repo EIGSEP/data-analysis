@@ -3,8 +3,9 @@ and the sky drift.
 
     cal_gain.py FIT_JSON FIT_RESID_NPZ OUT.json [--start ... --stop ...]
 
-The calibration visits are those of tcal@v0003 (derived/tcal/v0003/solutions.npz under
-EIGSEP_CAMPAIGN_ROOT): rx-A load (RFAMB) and noise-source (RFNON) spectra, paired within 5 min.
+The calibration visits are those of tcal (``--tcal``, default v0004;
+derived/tcal/<version>/solutions.npz under EIGSEP_CAMPAIGN_ROOT; v0003 and v0004 share them,
+since they differ only in the noise source's temperature, which neither proxy uses): rx-A load (RFAMB) and noise-source (RFNON) spectra, paired within 5 min.
 Two gain proxies per visit, at each of the fit's frequencies:
   ns:   P_NS - P_load (gain x the noise source's excess, which itself drifts);
   load: P_load / T_load (gain x (T_load + T_rx) / T_load), T_load from the load's thermistor.
@@ -25,9 +26,10 @@ ap.add_argument("fit"); ap.add_argument("resid"); ap.add_argument("out")
 ap.add_argument("--start", default="2026-07-17T04:00")
 ap.add_argument("--stop", default="2026-07-17T16:30")
 ap.add_argument("--detrend-s", type=float, default=10800.0)
+ap.add_argument("--tcal", default="v0004")
 args = ap.parse_args()
 campaign = Path(os.environ["EIGSEP_CAMPAIGN_ROOT"])
-Z = np.load(campaign / "derived/tcal/v0003/solutions.npz")
+Z = np.load(campaign / f"derived/tcal/{args.tcal}/solutions.npz")
 J = json.load(open(args.fit)); R = np.load(args.resid)
 t0, t1 = (np.datetime64(x).astype("datetime64[s]").astype(int) for x in (args.start, args.stop))
 fz = Z["freqs"] / 1e6 if Z["freqs"].max() > 1e4 else Z["freqs"]

@@ -3,9 +3,10 @@
     cal_gain_mock.py BINNED_NPZ ns|load OUT.npz MHZ [MHZ ...] [--start ... --stop ...]
 
 y / (g / median g) at each frequency, rx-A, inside [start, stop), NaN elsewhere. Proxy 'ns':
-g = 1 / scale, the binned tcal@v0003 scale (noise-source based, with its S11 factors); proxy
-'load': P_load / T_load from the tcal@v0003 load visits (EIGSEP_CAMPAIGN_ROOT), linear in
-time between visits. Fitting it with one gain level fixes the gain to the calibration's.
+g = 1 / scale, tcal's scale for each bin (``--tcal``, default v0004, from ``common.calibrate``;
+noise-source based, with its S11 factors; a raw binned product before v0005 stored a v0003
+scale, used when ``--tcal`` is not given); proxy 'load': P_load / T_load from the tcal load
+visits (EIGSEP_CAMPAIGN_ROOT), linear in time between visits. Fitting it with one gain level fixes the gain to the calibration's.
 """
 import argparse
 import os
@@ -13,14 +14,20 @@ from pathlib import Path
 
 import numpy as np
 
+from common import calibrate
+
 ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
 ap.add_argument("binned"); ap.add_argument("proxy", choices=["ns", "load"]); ap.add_argument("out")
 ap.add_argument("mhz", type=float, nargs="+")
 ap.add_argument("--start", default="2026-07-17T04:10")
 ap.add_argument("--stop", default="2026-07-17T16:23")
+ap.add_argument("--tcal", default=None)
 args = ap.parse_args()
-B = np.load(args.binned)
-Z = np.load(Path(os.environ["EIGSEP_CAMPAIGN_ROOT"]) / "derived/tcal/v0003/solutions.npz")
+B = dict(np.load(args.binned))
+tcal = args.tcal or ("v0003" if "scale" in B else "v0004")
+if args.proxy == "ns" and (args.tcal or "scale" not in B):
+    B["scale"] = calibrate(B, tcal)["scale"]
+Z = np.load(Path(os.environ["EIGSEP_CAMPAIGN_ROOT"]) / f"derived/tcal/{tcal}/solutions.npz")
 t = B["t"]
 t0, t1 = (np.datetime64(x).astype("datetime64[s]").astype(int) for x in (args.start, args.stop))
 span = (B["regime"] == "rx-A") & (t >= t0) & (t < t1)

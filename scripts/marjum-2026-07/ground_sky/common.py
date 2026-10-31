@@ -64,6 +64,10 @@ ERAS = {"~30m": "30m", "~87.5m": "87.5m", "~91m": "91m",
 # Channel width of the correlator, MHz.
 CHANNEL_MHZ = 250.0 / 1024
 
+# Channel offsets from each beam slice that bin_raw.py averages: midway
+# between transmitter teeth.
+RAW_CHANNEL_OFFSETS = np.array([-5, -4, -3, 3, 4, 5])
+
 
 def sha256(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
@@ -129,3 +133,71 @@ def regime_of_files(files, campaign=None):
         before = windows[windows.file_first <= f]
         out[f] = before.receiver_regime.iloc[-1] if len(before) else ""
     return np.array([out[f] for f in files], dtype=object)
+
+
+# The correlator input tcal calibrates: box-air.
+TCAL_KEY = "4"
+
+
+def tcal_coefficients(t, version, campaign=None, chunk=1000):
+    """``(scale, offset, freqs_mhz)`` of ``tcal@<version>`` at Unix times ``t``.
+
+    The coefficients of T = scale * P + offset at plane P, on every correlator
+    channel, from ``eigsep_data``'s tcal product: the same interpolation between
+    calibration visits and S11 sweeps, and the same nearest load thermistor,
+    that ``Bundle.calibrated`` applies to each row. NaN wherever tcal does not
+    reach."""
+    from eigsep_data.bundle import Campaign
+    from eigsep_data.products.base import get
+
+    camp = Campaign(campaign or campaign_root())
+    tc = get("tcal")
+    sols = tc._solutions(camp, version)
+    if sols is None:
+        raise FileNotFoundError(f"no tcal@{version} under {camp.root}")
+    if TCAL_KEY not in set(np.asarray(sols["keys"]).astype(str)):
+        raise ValueError(f"tcal@{version} does not calibrate input {TCAL_KEY}")
+    t = np.asarray(t, float)
+    nchan = sols["freqs"].size
+    scale = np.full((t.size, nchan), np.nan)
+    offset = np.full((t.size, nchan), np.nan)
+    for i in range(0, t.size, chunk):
+        out = tc.fetch(camp, version, None, None, TCAL_KEY, None, t[i:i + chunk])
+        scale[i:i + chunk] = out["scale"]
+        offset[i:i + chunk] = out["offset"]
+    return scale, offset, np.asarray(sols["freqs"], float)
+
+
+def calibrate(z, version, campaign=None):
+    """Kelvin at plane P for a ``raw_binned`` product, from ``tcal@<version>``.
+
+    ``z`` is the product's arrays (``t``, ``chans``, ``yc``, ``nc``, ``sem``).
+    Each offset channel's bin mean is calibrated with that channel's
+    coefficients at the bin's mean time, then the channels are averaged with
+    their unmasked sample counts as weights, as the binner averages power.
+    The coefficients move over hours (between calibration visits), so one
+    time per bin stands for its rows.
+
+    Returns a dict of (nbin, nfreq) arrays: ``T``; ``sigma``, the bin's
+    standard error ``sem`` times ``scale`` (the offset adds no scatter);
+    ``scale`` and ``offset``, the sample-weighted mean coefficients, so that
+    ``T`` ~ ``scale * y + offset``. A bin is NaN at a frequency where tcal
+    does not cover any of its unmasked channels."""
+    s, o, _ = tcal_coefficients(z["t"], version, campaign)
+    cols = np.asarray(z["chans"])[:, None] + RAW_CHANNEL_OFFSETS[None, :]
+    sc, oc = s[:, cols], o[:, cols]                      # (nbin, nfreq, noff)
+    w = np.asarray(z["nc"], float)
+    yc = np.asarray(z["yc"], float)
+    use = w > 0
+    # A channel with data but no coefficient: the bin is not calibrated there.
+    bad = (use & ~(np.isfinite(sc) & np.isfinite(oc))).any(-1)
+    wsum = w.sum(-1)
+
+    def wmean(a):
+        with np.errstate(invalid="ignore", divide="ignore"):
+            return np.where(use, a * w, 0.0).sum(-1) / wsum
+
+    T, scale, offset = wmean(sc * yc + oc), wmean(sc), wmean(oc)
+    for a in (T, scale, offset):
+        a[bad | (wsum == 0)] = np.nan
+    return {"T": T, "sigma": scale * np.asarray(z["sem"], float), "scale": scale, "offset": offset}

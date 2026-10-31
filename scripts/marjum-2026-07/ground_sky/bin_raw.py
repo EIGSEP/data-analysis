@@ -1,10 +1,12 @@
 """Build derived/ground_sky/raw_binned_vNNNN: raw box-air power over all of phase C.
 
 The input to ``global_fit.py``, the per-frequency model of every phase-C
-spectrum. Unlike ``bin_spectra.py`` it uses raw correlator power, not
-``tcal`` temperatures, so it covers phase C wherever the switch rests on the
-antenna, not only where a kelvin scale exists. The receiver gain is left to
-the fit.
+spectrum, and to ``fit_ground_sky.py``. It bins raw correlator power and
+nothing else: no temperature calibration is applied or stored, so it covers
+phase C wherever the switch rests on the antenna, not only where a kelvin
+scale exists. A kelvin scale is a separate step, ``common.calibrate``, which
+applies any ``tcal`` version to the stored per-channel means at each bin's
+time.
 
 Rows:
 
@@ -38,10 +40,10 @@ marked ``pointing_filled``; otherwise its pointing stays NaN.
 
 Also stored per bin: the transmitter state (``curation/transmitter_transitions_boxgnd.jsonl``,
 on if any row is inside an episode, with the on fraction), whether box-air's
-self-EMI file flag is set, and where ``tcal`` (``--tcal``, default ``v0004``)
-covers the bin, its
-mean scale and offset at each frequency (T = scale P + offset at plane P),
-so the fit's gains can be tied to kelvin.
+self-EMI file flag is set, and each offset channel's own mean and unmasked
+sample count (``yc``, ``nc``; float32 and int16, shape (bin, frequency,
+offset)), which ``common.calibrate`` needs because tcal's coefficients differ
+from channel to channel.
 Housekeeping per bin (``s_<stream>``): the mean of each ``SENSORS`` stream
 over the bin's rows (system current, RF-switch and load temperatures, the
 elevation IMU's accelerations), and the spread of the pointed rows in az and
@@ -71,6 +73,7 @@ from delay_filter import BANDS, delay_lowpass
 from common import (
     CHANNEL_MHZ,
     HERE,
+    RAW_CHANNEL_OFFSETS,
     campaign_root,
     era_of_files,
     git_rev,
@@ -82,7 +85,7 @@ from common import (
 #: Flag bits that do not reject a sample: 9 (advisory high_scatter) and 10.
 KEEP_BITS = (1 << 9) | (1 << 10)
 #: Channel offsets from each beam slice: midway between transmitter teeth.
-OFFSETS = np.array([-5, -4, -3, 3, 4, 5])
+OFFSETS = RAW_CHANNEL_OFFSETS
 MAX_ROW_GAP_S = 5.0
 #: Housekeeping streams averaged per bin, as candidate gain regressors for the
 #: global fit: the ones the in-flight fluctuation followed (memo 007).
@@ -114,9 +117,9 @@ def emi_files(campaign):
     return {r["file"] for r in rows if r.get("boxair_emi") is True}
 
 
-def reduce_chunk(B, chans, emi, tcal, t=None, ant=None, delay_filter=None):
+def reduce_chunk(B, chans, emi, t=None, ant=None, delay_filter=None):
     """Per-row values at each beam frequency (mean over unmasked offset channels),
-    the unmasked sample count, and the tcal scale/offset there.
+    the unmasked sample count, and the masked samples of each offset channel.
 
     ``delay_filter``: None, or a dict of ``delay_filter.delay_lowpass`` keywords
     (``tau_ns`` None for its union-mask-only control), applied to the antenna
@@ -141,20 +144,17 @@ def reduce_chunk(B, chans, emi, tcal, t=None, ant=None, delay_filter=None):
     ok = idx >= 0
     Y = np.full((len(D), len(chans)), np.nan)
     N = np.zeros((len(D), len(chans)), int)
-    S = np.full((len(D), len(chans)), np.nan)
-    O = np.full((len(D), len(chans)), np.nan)
+    C = np.full((len(D), len(chans), len(OFFSETS)), np.nan)
     for j in range(len(chans)):
         cols = idx[j][ok[j]]
         if not cols.size:
             continue
         sub = D[:, cols]
+        C[:, j, ok[j]] = sub
         N[:, j] = np.isfinite(sub).sum(1)
         with np.errstate(invalid="ignore"):
             Y[:, j] = np.nanmean(sub, 1)
-        if tcal is not None:
-            S[:, j] = np.nanmean(tcal["scale"][:, cols], 1)
-            O[:, j] = np.nanmean(tcal["offset"][:, cols], 1)
-    return Y, N, S, O, row_emi
+    return Y, N, C, row_emi
 
 
 def process_chunk(c, args, chans, episodes, emi):
@@ -166,7 +166,7 @@ def process_chunk(c, args, chans, episodes, emi):
     sel = index.select(time=(c, min(c + args.chunk_s, a1)))
     if sel.nrows == 0:
         return []
-    B = sel.load_bundle(antenna="box-air", products=["flags@v3", f"pointing@{args.pointing}", f"tcal@{args.tcal}"])
+    B = sel.load_bundle(antenna="box-air", products=["flags@v3", f"pointing@{args.pointing}"])
     meta = B.meta.reset_index(drop=True)
     o = np.argsort(B.t, kind="stable")
     t = B.t[o]
@@ -175,13 +175,11 @@ def process_chunk(c, args, chans, episodes, emi):
     daemon_off = meta.groupby("file").rfswitch.transform(
         lambda x: (x == "MISSING").all()).to_numpy()[o]
     ant = (rf == "RFANT") | daemon_off
-    tc = B.products.get("tcal")
-    tcal = {"scale": np.asarray(tc["scale"])[o], "offset": np.asarray(tc["offset"])[o]} if tc else None
     dfk = None
     if args.delay_filter_ns is not None or args.union_mask_only:
         dfk = {"tau_ns": None if args.union_mask_only else args.delay_filter_ns,
                "block_s": args.filter_block_s}
-    Y, N, S, O, row_emi = reduce_chunk(_Ordered(B, o), chans, emi, tcal, t, ant, dfk)
+    Y, N, C, row_emi = reduce_chunk(_Ordered(B, o), chans, emi, t, ant, dfk)
     p = B.pointing.iloc[o].reset_index(drop=True)
     good_p = (p.quality.isin(["ok", "suspect"]).to_numpy()
               & np.isfinite(p.az_deg.to_numpy()) & np.isfinite(p.el_deg.to_numpy()))
@@ -214,6 +212,8 @@ def process_chunk(c, args, chans, episodes, emi):
             y = np.nansum(yv * w, 0) / w.sum(0)
             nrow = np.isfinite(yv).sum(0)
             sem = np.nanstd(yv, 0, ddof=1) / np.sqrt(nrow)
+            nc = np.isfinite(C[k]).sum(0)
+            yc = np.nansum(C[k], 0) / nc
         nsamp = w.sum(0)
         bins.append({
             "t": float(t[k].mean()), "t0": float(t[k[0]]), "t1": float(t[k[-1]]),
@@ -230,8 +230,7 @@ def process_chunk(c, args, chans, episodes, emi):
             **{f"s_{c}": (float(np.nanmean(v[k])) if np.isfinite(v[k]).any() else np.nan)
                for c, v in sens.items()},
             "y": y, "nsamp": nsamp, "sem": sem,
-            "scale": np.nanmean(S[k], 0) if tcal is not None else np.full(len(chans), np.nan),
-            "offset": np.nanmean(O[k], 0) if tcal is not None else np.full(len(chans), np.nan),
+            "yc": yc.astype(np.float32), "nc": nc.astype(np.int16),
         })
 
     for i in rows:
@@ -266,7 +265,6 @@ def main():
     ap.add_argument("--min-rows", type=int, default=1)
     ap.add_argument("--chunk-s", type=float, default=3600.0)
     ap.add_argument("--jobs", type=int, default=8)
-    ap.add_argument("--tcal", default="v0004")
     ap.add_argument("--pointing", default="v4")
     ap.add_argument("--delay-filter-ns", type=float, default=None,
                     help="delay low-pass (delay_filter.py) of each integration before binning")
@@ -293,7 +291,7 @@ def main():
     filter_stats = {k: int(sum(x[k] for x in fst)) for k in fst[0]} if fst else None
 
     df = pd.DataFrame([{k: v for k, v in b.items() if np.ndim(v) == 0} for b in bins])
-    arr = {k: np.stack([b[k] for b in bins]) for k in ("y", "nsamp", "sem", "scale", "offset")}
+    arr = {k: np.stack([b[k] for b in bins]) for k in ("y", "nsamp", "sem", "yc", "nc")}
     # Fill pointing across gaps where the pointing either side agrees.
     df["pointing_filled"] = False
     have = np.isfinite(df.az.to_numpy()) & np.isfinite(df.el.to_numpy())
@@ -324,7 +322,7 @@ def main():
             "inputs": {k: sha256(campaign / "curation" / k) for k in (
                 "transmitter_transitions_boxgnd.jsonl", "boxair_emi_presence.jsonl",
                 "mode_table.jsonl", "cal_windows.jsonl")},
-            "products": ["flags@v3", f"pointing@{args.pointing}", f"tcal@{args.tcal}"],
+            "products": ["flags@v3", f"pointing@{args.pointing}"],
         },
         "params": {k: (str(v) if isinstance(v, Path) else v) for k, v in vars(args).items() if k != "version"},
         "channel_offsets": OFFSETS.tolist(), "keep_flag_bits": [9, 10],
@@ -340,7 +338,6 @@ def main():
             "bins_by_regime": df.regime.value_counts().to_dict(),
             "bins_daemon_off": int(df.daemon_off.sum()),
             "bins_tx_on": int((df.tx_frac > 0).sum()),
-            "bins_with_tcal": int(np.isfinite(arr["scale"]).all(1).sum()),
         },
     }
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n")
