@@ -102,6 +102,7 @@ Superseded generators are in `debug/` (see `debug/README.md`).
 
 ## Recent changes
 
+- 2026-10-31: `fit_beam.py --penalty dpss=1e-2` fixes a basis's spectral penalty instead of applying the 1% rule; every penalty is still fitted and scored. The rule chose DPSS 1e-3 for `empirical_raster_v0016`, whose exported beam at 64-75 MHz then rose to several times HFSS's peak in directions the raster never sampled. `empirical_raster_v0017` is v0016 with DPSS fixed at 1e-2.
 - 2026-10-28: `fit_beam.py` requires pointing table v5, whose azimuth is left-handed about the boresight (v4's azimuth negated, mod 360). The mount rotation is unchanged, so the fit on v5 is the left-handed model; the az offset lands near +16 deg rather than -16. `empirical_raster_v0016` is the first product made this way.
 - 2026-10-25: `fit_beam.py` fits a tilt of the elevation axle along the highline and keeps the transmitter fixed (`--geometry tilt`, the default). By default it places the antenna and transmitter at memo 002's adopted v0005 posterior means (`--positions posterior-mean`). v0012-v0014 let the transmitter shift instead, and that shift stood in for the tilt the model lacked. This needs eigsep_data branch `tx-fit-axle-tilt` until that merges.
 - 2026-10-25: `fit_beam.py` picks the strongest converged spectral penalty within 1% of the best validation score, not the minimum. The minimum chose an unconverged 1e-4 fit over 1e-2 on a 0.7% difference and moved the 64-90 MHz beam by more than 100%.

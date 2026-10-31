@@ -26,7 +26,10 @@ derived/beam/empirical_raster_v0008-v0011:
    the tilt, running to its bound along the line.
 4. Beams: ell_max and a spectral basis (PCA or DPSS) from the normalized HFSS
    fields; JointBeamFit at prior weights 1e-2, 1e-3, 1e-4, chosen on the
-   validation stripes, then refitted on all samples and exported.
+   validation stripes, then refitted on all samples and exported. --penalty
+   KIND=VALUE fixes a basis's weight instead (all three are still fitted and
+   scored); v0017 fixes DPSS at 1e-2, because the rule's 1e-3 left the
+   64-75 MHz exported beam several times HFSS's peak in unsampled directions.
 
 --concentration-min legacy uses the floor(2NW)+1 DPSS background of
 v0009-v0011. The default (1e-6) represents smooth backgrounds correctly. The
@@ -69,6 +72,7 @@ FM_MHZ = (87.0, 108.5)
 BACKGROUND_LIMITS_MHZ = (40.0, 249.5)
 PENALTIES = (1e-2, 1e-3, 1e-4)
 PENALTY_TOL = 0.01              # strongest converged penalty within 1% of the best validation
+FIXED_PENALTY = {}                # --penalty KIND=VALUE overrides the rule for that basis
 log = logging.getLogger('fit_beam')
 
 
@@ -286,6 +290,11 @@ def main(output, teeth_path, flags, bases, maxiter, concentration_min):
         _, coeff, gain, heldout, selected = max(
             (entry for entry in converged if entry[0] <= best * (1 + PENALTY_TOL)),
             key=lambda entry: entry[4]['penalty'])
+        rule = 'strongest converged within %g of the best validation' % PENALTY_TOL
+        if kind in FIXED_PENALTY:
+            _, coeff, gain, heldout, selected = next(
+                entry for entry in trials if entry[4]['penalty'] == FIXED_PENALTY[kind])
+            rule = 'fixed by --penalty'
         all_metrics.extend(bm.score(data, heldout, kind + '_heldout'))
         final_coeff, final_gain, final_prediction, final_info = fit.fit(
             np.ones(len(data.t), bool), selected['penalty'], initial=coeff, initial_gain=gain, maxiter=maxiter)
@@ -303,7 +312,8 @@ def main(output, teeth_path, flags, bases, maxiter, concentration_min):
         export_error = np.sqrt(np.sum(np.where(data.good, (exported - final_prediction) ** 2, 0), axis=1)
                                / np.sum(np.where(data.good, data.data ** 2, 0), axis=1))
         assert np.max(export_error[data.fit_channels]) < .01, export_error
-        description.update(selected_penalty=selected['penalty'], lmax=lmax,
+        description.update(selected_penalty=selected['penalty'], penalty_rule=rule,
+                           penalty_converged=bool(selected['success']), lmax=lmax,
                            max_export_prediction_error_relative_to_data=float(export_error.max()))
         descriptions[kind] = description
         np.savez_compressed(
@@ -390,9 +400,15 @@ if __name__ == '__main__':
     parser.add_argument('--maxiter', type=int, default=3000)
     parser.add_argument('--concentration-min', default='1e-6',
                         help="DPSS background mode cutoff; 'legacy' for the floor(2NW)+1 modes of v0009-v0011")
+    parser.add_argument('--penalty', action='append', default=[], metavar='KIND=VALUE',
+                        help='fix a basis\'s prior weight (one of %s) instead of the selection rule' % (PENALTIES,))
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(name)s %(message)s')
     cmin = None if args.concentration_min == 'legacy' else float(args.concentration_min)
     RELEASE = CAMPAIGN / f'imgs/fits/{args.release}_marjum_geometry/shared.json'
     POSITIONS, GEOMETRY = args.positions, args.geometry
+    for item in args.penalty:
+        kind, value = item.split('=')
+        assert kind in ('dpss', 'pca') and float(value) in PENALTIES, item
+        FIXED_PENALTY[kind] = float(value)
     main(args.output, args.teeth, args.flags, tuple(args.bases), args.maxiter, cmin)
