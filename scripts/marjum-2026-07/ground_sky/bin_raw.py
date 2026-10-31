@@ -31,14 +31,15 @@ unmasked samples. Its noise is given two ways: the radiometer prediction
 y / sqrt(dnu tau) for the unmasked samples, and the standard error of its
 rows' values.
 
-Pointing: ``pointing@v4`` rows of quality ``ok`` or ``suspect``. A bin with
+Pointing: ``pointing`` (``--pointing``, default ``v4``) rows of quality ``ok`` or ``suspect``. A bin with
 none takes the pointing of the bins either side if those agree within
 ``--fill-tol-deg`` in az and el (the drives are locked when idle), and is
 marked ``pointing_filled``; otherwise its pointing stays NaN.
 
 Also stored per bin: the transmitter state (``curation/transmitter_transitions_boxgnd.jsonl``,
 on if any row is inside an episode, with the on fraction), whether box-air's
-self-EMI file flag is set, and where ``tcal@v0003`` covers the bin, its
+self-EMI file flag is set, and where ``tcal`` (``--tcal``, default ``v0004``)
+covers the bin, its
 mean scale and offset at each frequency (T = scale P + offset at plane P),
 so the fit's gains can be tied to kelvin.
 Housekeeping per bin (``s_<stream>``): the mean of each ``SENSORS`` stream
@@ -165,7 +166,7 @@ def process_chunk(c, args, chans, episodes, emi):
     sel = index.select(time=(c, min(c + args.chunk_s, a1)))
     if sel.nrows == 0:
         return []
-    B = sel.load_bundle(antenna="box-air", products=["flags@v3", "pointing@v4", "tcal@v0003"])
+    B = sel.load_bundle(antenna="box-air", products=["flags@v3", f"pointing@{args.pointing}", f"tcal@{args.tcal}"])
     meta = B.meta.reset_index(drop=True)
     o = np.argsort(B.t, kind="stable")
     t = B.t[o]
@@ -265,6 +266,8 @@ def main():
     ap.add_argument("--min-rows", type=int, default=1)
     ap.add_argument("--chunk-s", type=float, default=3600.0)
     ap.add_argument("--jobs", type=int, default=8)
+    ap.add_argument("--tcal", default="v0004")
+    ap.add_argument("--pointing", default="v4")
     ap.add_argument("--delay-filter-ns", type=float, default=None,
                     help="delay low-pass (delay_filter.py) of each integration before binning")
     ap.add_argument("--union-mask-only", action="store_true",
@@ -321,7 +324,7 @@ def main():
             "inputs": {k: sha256(campaign / "curation" / k) for k in (
                 "transmitter_transitions_boxgnd.jsonl", "boxair_emi_presence.jsonl",
                 "mode_table.jsonl", "cal_windows.jsonl")},
-            "products": ["flags@v3", "pointing@v4", "tcal@v0003"],
+            "products": ["flags@v3", f"pointing@{args.pointing}", f"tcal@{args.tcal}"],
         },
         "params": {k: (str(v) if isinstance(v, Path) else v) for k, v in vars(args).items() if k != "version"},
         "channel_offsets": OFFSETS.tolist(), "keep_flag_bits": [9, 10],

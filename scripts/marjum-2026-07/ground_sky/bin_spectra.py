@@ -8,7 +8,7 @@ and receiver regime.
 
 Row selection:
 
-- ``tcal`` (``--tcal``) calibrated temperatures at plane P, so RFANT rows
+- ``tcal`` (``--tcal``, default ``v0004``) calibrated temperatures at plane P, so RFANT rows
   inside its coverage only.
 - ``flags`` (``--flags``, default ``v3``): any bit except 9, the advisory
   ``high_scatter`` (``flags/v3/README.md``). For ``v2``, bits 0-7; its bit 8
@@ -16,7 +16,7 @@ Row selection:
 - Transmitter comb: channels = 0 mod 8 are dropped from 07-17 15:36 to
   07-18 03:00 whatever the flags say (memo 001, Combs). Every beam
   frequency is such a channel, so in that span the window loses its centre.
-- ``pointing@v4`` with ``quality == "ok"``; a bin is kept only if az and
+- ``pointing`` (``--pointing``, default ``v4``) with ``quality == "ok"``; a bin is kept only if az and
   el each span less than ``--max-spread-deg`` within it.
 - Height era from ``curation/mode_table.jsonl`` and receiver regime from
   ``curation/cal_windows.jsonl``, per file; a bin never mixes either.
@@ -55,8 +55,8 @@ from common import (
     workspace_root,
 )
 
-# tcal v0003 coverage (derived/tcal/v0003/README.md, Coverage; the same as
-# v0002), with margin;
+# tcal v0004 coverage (derived/tcal/v0003/README.md, Coverage; v0002-v0004
+# share it), with margin;
 # rows outside it are NaN in Bundle.calibrated anyway.
 DEFAULT_SPANS = [
     ("2026-07-17T04:00:00Z", "2026-07-17T16:30:00Z"),
@@ -120,7 +120,7 @@ def reduce_rows(b, chans, half_window, min_channels, bits):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("version", help="output version, e.g. v0001")
-    ap.add_argument("--tcal", default="v0003")
+    ap.add_argument("--tcal", default="v0004")
     ap.add_argument("--flags", default="v3")
     ap.add_argument("--pointing", default="v4")
     ap.add_argument("--bin-s", type=float, default=120.0)
