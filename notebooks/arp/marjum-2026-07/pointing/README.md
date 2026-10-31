@@ -19,6 +19,7 @@ the other way around; treat this directory as upstream of that one.
 
 ## Recent changes
 
+- 2026-10-28: v5 negates the derived azimuth (`AZ_SENSE = -1` in `build_table.py`) because the azimuth is left-handed about the boresight (memos 002, 003). `az_deg` now goes into `eigsep_base.rotations.mount_rotation` as is; the raw motor/pot columns keep the sensors' sense.
 - 2026-09-15 (`software-engineer`): added this file (README-convention
   retrofit, fleet-wide consolidation pass) — this generates the pointing
   table touched throughout B15's schema-v1.1 work and had no README.

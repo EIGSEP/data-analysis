@@ -87,6 +87,7 @@ style block near the top and a `save(fig, name)` helper that writes
 |---|---|---|
 | `rfi_dev_v2.1.ipynb` | Supported-DPSS RFI flagger: waterfalls, band summary, residual against the radiometer limit | `marjum-2026-07/data/`, `curation/antenna_resolution.json`, `eigsep_data.rfi_supported` |
 | `lidar_explorer.ipynb` | Platform-LIDAR constraint on the antenna position: range profile, ray footprint, plumb line, interactive fit | `marjum-2026-07/pointing/`, `marjum-2026-07/imgs/fits/vNNNN_marjum_geometry/`, `terrain/` |
+| `box_gnd_picker.ipynb` (built by `build_box_gnd_picker.py`) | Interactive picker for the ground antenna `box-gnd` (box centre, pink-flagged dipole tips) in its six photographs; writes `memos/memo-002-marjum-2026-07-geometry/box_gnd_picks.json` in the eigsep repo (`$EIGSEP_REPO`), which memo 002's `validate_box_gnd.py` fits | `marjum-2026-07/imgs/`, `ipympl` |
 
 `beam_explorer.ipynb` reads `marjum-2026-07/` at run time: data, pointing, and
 the `derived/beam/empirical_raster_v0013` fits (HFSS, PCA, DPSS) per tooth, as
@@ -175,6 +176,7 @@ intermediate state — not the endpoint.
 
 ## Recent changes
 
+- 2026-10-24: `box_gnd_picker.ipynb` picks `box-gnd` in its photographs for memo 002's ground-antenna fit; set `EIGSEP_REPO` to the eigsep checkout or worktree whose memo should receive the picks.
 - 2026-10-09: `terrain/` is retired; the explorer builders that read it need `EIGSEP_TERRAIN_ROOT` set to the retired copy.
 - 2026-10-09: `single_ch_beam_fit.ipynb` (executed render: `single_ch_beam_fit.html`) now fits channel 640 on the reference beam v0013's data, masks, split and geometry, with the antenna and transmitter from geometry release v0004, through `eigsep_data.beam_mapping.JointBeamFit`; it previously reproduced the withdrawn v0007 inputs. It reproduces v0013's HFSS baseline and scores exactly for that tooth.
 - 2026-10-08: The geometry, MCMC and LIDAR explorers are marked as showing the historical v0001 geometry; release v0004 (memo 002) is current.

@@ -254,6 +254,8 @@ def gps_withheld(model, state, log, rounds=2):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--out', required=True)
+    ap.add_argument('--geometry', default=None, help='Path to provisional_geometry.npz')
+    ap.add_argument('--subject', default='geometry_posterior/v0004')
     ap.add_argument('--checks', nargs='+', default=['loo_antenna', 'tx_pair', 'gps_withheld'])
     a = ap.parse_args()
     out = Path(a.out)
@@ -266,13 +268,21 @@ def main():
         logf.write(line + '\n')
         logf.flush()
 
-    _, model = mp.load_model()
-    geom = mp.HERE / 'provisional_geometry.npz'
+    if a.geometry and 'v0005' in a.geometry:
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parent / 'v0005_build'))
+        import test_schur_mcmc as v5
+        # the frozen script names this file by its old scratch path; same file (sha256 d90338cb...)
+        v5.v5_state_path = str(mp.CAMPAIGN / 'derived/geometry_posterior/v0005/inputs/model_v0005/fit_transmitter.npz')
+        model = v5.build_model()
+    else:
+        _, model = mp.load_model()
+    geom = Path(a.geometry) if a.geometry else mp.HERE / 'provisional_geometry.npz'
     with np.load(geom) as z:
         state = np.asarray(z['state'], float)
     lp = model.logp(state)
-    log(f"v0004 state logp {lp:.3f}")
-    results = dict(v0004_logp=lp)
+    log(f"{a.subject} state logp {lp:.3f}")
+    results = dict(logp=lp)
     for name in a.checks:
         t = time.time()
         results[name] = globals()[name](model, state, log)
@@ -281,7 +291,7 @@ def main():
     here = Path(__file__).resolve()
     import eigsep_terrain
     manifest = dict(
-        product='geometry_checks', subject='geometry_posterior/v0004',
+        product='geometry_checks', subject=a.subject,
         generated_utc=datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
         method='conditional maximum-density refits from the v0004 state with one kind of '
                'evidence removed; scipy Powell (Nelder-Mead for the network translation)',

@@ -143,6 +143,32 @@ def era_offsets(measured):
     return out
 
 
+def phase_center_offset(el_deg, az_deg=0.0, psi_deg=142.164, r_body=None, flex_a2=0.096):
+    """Antenna phase center 3-D displacement [dE, dN, dU] (m) in local ENU vs pointing (el, az).
+
+    Measured by cross-correlation phase on transmitter comb teeth (memo 003 sec 7):
+    r_body = [+0.161, -0.011, +0.556] m in body frame (HFSS convention),
+    flex_a2 = 0.096 m downward sag at el = +/- 90 deg.
+    """
+    if r_body is None:
+        r_body = np.array([0.161, -0.011, 0.556])
+    from eigsep_base.rotations import mount_rotation
+    R = mount_rotation(az_deg, el_deg, psi_deg)
+    d_rot = R @ r_body
+    el_r = np.radians(el_deg)
+    d_flex = np.array([0.0, 0.0, -flex_a2 * (np.sin(el_r) ** 2)])
+    return d_rot + d_flex
+
+
+def profile_at_pointing(grid, antenna_enu, el_deg, az_deg=0.0, bearings=None, psi_deg=142.164):
+    """Ray-trace terrain horizon seen from the antenna phase center at (el, az)."""
+    if bearings is None:
+        bearings = np.round(np.arange(0, 360, BEARING_STEP_DEG), 6)
+    d_pc = phase_center_offset(el_deg, az_deg, psi_deg)
+    pos = np.asarray(antenna_enu, float) + d_pc
+    return profile(grid, pos[0], pos[1], [pos[2]], bearings)[0]
+
+
 def build(grid, antenna, bearings, offsets):
     e, n, u91 = antenna
     heights = {era: u91 + offsets[era][0] for era in ERAS}

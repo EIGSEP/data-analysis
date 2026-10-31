@@ -234,6 +234,51 @@ def geometry_v0004(campaign, stride):
                 sensitivity_label='release v0004 pose', bearing_frame='UTM grid; true = grid + gamma')
 
 
+def geometry_v0005(campaign, stride):
+    """Release v0005 cameras and the v0005 chains."""
+    release = campaign / 'imgs/fits/v0005_marjum_geometry'
+    product = campaign / 'derived/geometry_posterior/v0005'
+    rows = {json.loads(l)['image'][4:8]: json.loads(l)
+            for l in (release / 'cameras.jsonl').read_text().splitlines()}
+    cams, shapes, dist = [], [], []
+    for k in KEYS:
+        c = rows[k]['camera']
+        o = c['orientation_rad']
+        cams.append([*c['position_enu_m'], o['theta'], o['phi'], o['tilt'], c['focal_length_px']])
+        shapes.append([c['image_shape_px']['height'], c['image_shape_px']['width']])
+        dist.append([c['radial_distortion']['k1'], c['radial_distortion']['k2']])
+    cams, shapes, dist = np.array(cams), np.array(shapes), np.array(dist)
+    with np.load(product / 'posterior_samples.npz') as g:
+        keys_list = [str(k) for k in g['keys']]
+        tx = np.asarray(g['transmitter'], float)
+        traces = np.asarray(g['traces'], float)
+    cols = [[keys_list.index(k) * 7 + p for p in range(7)] for k in KEYS]
+    samples = []
+    n_chains, n_draws, _ = traces.shape
+    for chain in range(n_chains):
+        for j in range(0, n_draws, stride):
+            c = np.array([traces[chain, j, ix] for ix in cols])
+            c[:, 6] = np.exp(c[:, 6])
+            samples.append((int(chain), j, c))
+    diag = json.loads((product / 'chain_diagnostics.json').read_text())
+    par = diag['parameters']
+    # the 2026-10-21 rewrite of chain_diagnostics.json names cameras cam2203_e, the 10-17 one cam_2203_e
+    rec = [par.get(f'cam{k}_{v}', par.get(f'cam_{k}_{v}')) for k in KEYS for v in ('e', 'n', 'u', 'th', 'ph', 'ti', 'logf')]
+    convergence = dict(max_rhat=max(r['rhat'] for r in rec), min_ess_bulk=min(r['ess_bulk'] for r in rec))
+    from eigsep_terrain.dem import DEM
+    dem = DEM(cache_file=str(campaign / 'derived/dem/v0002/marjum_dem.npz'))
+    gamma = float(np.degrees(dem.grid_convergence(tx[0], tx[1])))
+    picks = campaign / 'derived/tx_feed_orientation/v0001/inputs/tx_feed_picks.json'
+    sources = [release / 'cameras.jsonl', product / 'chain_diagnostics.json',
+               product / 'posterior_samples.npz',
+               picks, campaign / 'derived/dem/v0002/marjum_dem.npz']
+    return dict(baseline=cams, shapes=shapes, distortion=dist, samples=samples,
+                sensitivity_camera=cams, convergence=convergence, gamma_deg=gamma,
+                picks=picks, sources=sources,
+                pose_label='release v0005 pose', draws_label='geometry_posterior v0005 chains',
+                sensitivity_label='release v0005 pose', bearing_frame='UTM grid; true = grid + gamma')
+
+
 # ------------------------------------------------------------------ run
 
 def run(geo, out, stride, mode):
@@ -318,14 +363,15 @@ def run(geo, out, stride, mode):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument('--geometry', choices=['v0001', 'v0004'], required=True)
+    p.add_argument('--geometry', choices=['v0001', 'v0004', 'v0005'], required=True)
     p.add_argument('--out', type=Path, required=True)
     p.add_argument('--stride', type=int, default=None,
-                   help='draw stride (default 100 for v0001, as it was run; 20 for v0004)')
+                   help='draw stride (default 100 for v0001, as it was run; 20 for v0004 and v0005)')
     args = p.parse_args()
     campaign = campaign_root()
     stride = args.stride or (100 if args.geometry == 'v0001' else 20)
-    geo = (geometry_v0001 if args.geometry == 'v0001' else geometry_v0004)(campaign, stride)
+    geo_fn = {'v0001': geometry_v0001, 'v0004': geometry_v0004, 'v0005': geometry_v0005}[args.geometry]
+    geo = geo_fn(campaign, stride)
     s = run(geo, args.out, stride, args.geometry)
     print(json.dumps({k: s[k] for k in ('unweighted_axis6', 'unweighted_axis1', 'true_bearings_deg',
                                         'sampled_draws', 'convergence')}, indent=1))
