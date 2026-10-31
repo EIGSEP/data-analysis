@@ -18,26 +18,27 @@
    "offset_prior_k": 1.0,
    "t_ground": 290.0,
    "seed": 0,
-   "out": "/tmp/claude-1003/-mnt-data02-eigsep/1e625bc2-34a0-4c54-86de-a4dbf723b14e/scratchpad/wt-g5/scripts/marjum-2026-07/ground_sky/summary.json"
+   "out": "/tmp/claude-1003/-mnt-data02-eigsep/c45ae52e-d2ae-4572-b182-b9f64b300a49/scratchpad/wt-da-gsb/scripts/marjum-2026-07/ground_sky/summary.json"
   },
   "commits": {
-   "data-analysis": "4f6bb37",
+   "data-analysis": "b3cbff7",
    "eigsep_sim": "parked/experiments-17-gd050c83",
    "eigsep_base": "parked/coord-noise-utils-12-g840c10b",
-   "campaign": "8dd2bf7"
+   "campaign": "69d7cef-dirty"
   },
   "inputs": [
-   "/tmp/claude-1003/-mnt-data02-eigsep/1e625bc2-34a0-4c54-86de-a4dbf723b14e/scratchpad/wt-g5t/marjum-2026-07/curation/pointing_table.parquet",
-   "/tmp/claude-1003/-mnt-data02-eigsep/1e625bc2-34a0-4c54-86de-a4dbf723b14e/scratchpad/wt-g5t/marjum-2026-07/curation/horizon_profiles_v0005.npz",
-   "/tmp/claude-1003/-mnt-data02-eigsep/1e625bc2-34a0-4c54-86de-a4dbf723b14e/scratchpad/wt-g5t/data-analysis/hfss_beam_maps/bowtie_beam.npz",
-   "/tmp/claude-1003/-mnt-data02-eigsep/1e625bc2-34a0-4c54-86de-a4dbf723b14e/scratchpad/wt-g5t/marjum-2026-07/derived/beam/empirical_raster_v0013/dpss"
+   "/tmp/claude-1003/-mnt-data02-eigsep/c45ae52e-d2ae-4572-b182-b9f64b300a49/scratchpad/wt-gsb/marjum-2026-07/curation/pointing_table.parquet",
+   "/tmp/claude-1003/-mnt-data02-eigsep/c45ae52e-d2ae-4572-b182-b9f64b300a49/scratchpad/wt-gsb/marjum-2026-07/curation/horizon_profiles_v0005.npz",
+   "/tmp/claude-1003/-mnt-data02-eigsep/c45ae52e-d2ae-4572-b182-b9f64b300a49/scratchpad/wt-gsb/data-analysis/hfss_beam_maps/bowtie_beam.npz",
+   "/tmp/claude-1003/-mnt-data02-eigsep/c45ae52e-d2ae-4572-b182-b9f64b300a49/scratchpad/wt-gsb/marjum-2026-07/derived/beam/empirical_raster_v0017/dpss"
   ],
   "pointing": {
-   "az_offset_deg": -16.035010698302443,
-   "el_offset_deg": 0.9319537656380783,
+   "beam_product": "derived/beam/empirical_raster_v0017",
+   "az_add_deg": 15.933858301222541,
+   "el_add_deg": 0.04546076514557513,
+   "axle_tilt_deg": 4.740823949917005,
    "psi_deg": 142.164,
-   "beam_product": "derived/beam/empirical_raster_v0013",
-   "convention": "mount_rotation(az_table + az_offset, el + el_offset, psi)"
+   "convention": "common.beam_rotation: Rz(psi) Ry(tilt) Rx(el + el_add) Rz(az + az_add)"
   },
   "noise": "radiometer: T_model / sqrt(channel_width * bin_s)"
  },
@@ -47,44 +48,44 @@
    "freq_mhz": 58.59375,
    "n_rows": 299,
    "n_sky_observed": 593,
-   "median_noise_k": 0.2803099135573823,
+   "median_noise_k": 0.2889621254446163,
    "fisher": {
     "sky_free/offset_free": {
      "sigma_ground_k": Infinity,
      "sigma_offset_k": Infinity,
-     "corr_ground_offset": 0.988653668403048,
+     "corr_ground_offset": 0.9987812097384992,
      "sigma_sky_mean_k": Infinity,
      "n_null": 471
     },
     "sky_free/offset_known": {
      "sigma_ground_k": Infinity,
-     "sigma_offset_k": 1.0000000000001266,
-     "corr_ground_offset": -0.6671864237603102,
+     "sigma_offset_k": 1.0000000000002314,
+     "corr_ground_offset": -0.7595246811054795,
      "sigma_sky_mean_k": Infinity,
      "n_null": 470
     },
     "sky_gsm/offset_free": {
-     "sigma_ground_k": 746.7059245706361,
-     "sigma_offset_k": 519.3679110609644,
-     "corr_ground_offset": -0.9999415616698408,
-     "sigma_sky_mean_k": 16.887189703244395,
-     "n_null": 0
+     "sigma_ground_k": Infinity,
+     "sigma_offset_k": Infinity,
+     "corr_ground_offset": 0.9999999999446302,
+     "sigma_sky_mean_k": Infinity,
+     "n_null": 1
     },
     "sky_gsm/offset_known": {
-     "sigma_ground_k": 8.199498514703842,
-     "sigma_offset_k": 0.9999981463875803,
-     "corr_ground_offset": -0.1753319274066936,
-     "sigma_sky_mean_k": 16.87659919162231,
+     "sigma_ground_k": 9.138572379062436,
+     "sigma_offset_k": 0.9999999816380174,
+     "corr_ground_offset": -0.1612890487363028,
+     "sigma_sky_mean_k": 16.558284189045292,
      "n_null": 0
     }
    },
    "recovery": {
     "truth_hfss": {
-     "t_ground_k": 298.4106514751911,
-     "bias_k": 8.410651475191116,
-     "sigma_k": 8.199498514703842,
-     "offset_k": 0.0027624502563412534,
-     "chi2_per_row": 6.7508864737440835
+     "t_ground_k": 299.2278373837471,
+     "bias_k": 9.2278373837471,
+     "sigma_k": 9.138572379062436,
+     "offset_k": -5.5276308522422823e-05,
+     "chi2_per_row": 7.299539544283679
     }
    }
   },
@@ -93,51 +94,51 @@
    "freq_mhz": 78.125,
    "n_rows": 299,
    "n_sky_observed": 593,
-   "median_noise_k": 0.1477266632841808,
+   "median_noise_k": 0.15043275495434355,
    "fisher": {
     "sky_free/offset_free": {
      "sigma_ground_k": Infinity,
      "sigma_offset_k": Infinity,
-     "corr_ground_offset": 0.9913430232162189,
+     "corr_ground_offset": 0.9986720239171395,
      "sigma_sky_mean_k": Infinity,
      "n_null": 471
     },
     "sky_free/offset_known": {
      "sigma_ground_k": Infinity,
-     "sigma_offset_k": 0.9999999999973769,
-     "corr_ground_offset": -0.8548534806848974,
+     "sigma_offset_k": 0.9999999999971751,
+     "corr_ground_offset": -0.9125285170087811,
      "sigma_sky_mean_k": Infinity,
      "n_null": 470
     },
     "sky_gsm/offset_free": {
-     "sigma_ground_k": 389.0598130572511,
-     "sigma_offset_k": 273.9927201177878,
-     "corr_ground_offset": -0.9999572748274599,
-     "sigma_sky_mean_k": 7.843720464051934,
-     "n_null": 0
+     "sigma_ground_k": Infinity,
+     "sigma_offset_k": Infinity,
+     "corr_ground_offset": 0.9999999999473764,
+     "sigma_sky_mean_k": Infinity,
+     "n_null": 1
     },
     "sky_gsm/offset_known": {
-     "sigma_ground_k": 3.866552833962578,
-     "sigma_offset_k": 0.9999933397916231,
-     "corr_ground_offset": -0.3672247574971995,
-     "sigma_sky_mean_k": 7.838886981284155,
+     "sigma_ground_k": 4.262942516065115,
+     "sigma_offset_k": 0.9999999229959264,
+     "corr_ground_offset": -0.3409106922418761,
+     "sigma_sky_mean_k": 7.670990396361924,
      "n_null": 0
     }
    },
    "recovery": {
     "truth_hfss": {
-     "t_ground_k": 292.5188704133034,
-     "bias_k": 2.5188704133033752,
-     "sigma_k": 3.866552833962578,
-     "offset_k": 0.0072357095714323805,
-     "chi2_per_row": 6.129072420948097
+     "t_ground_k": 293.2546221166849,
+     "bias_k": 3.2546221166849136,
+     "sigma_k": 4.262942516065115,
+     "offset_k": 0.00022571333693122142,
+     "chi2_per_row": 6.642189998896086
     },
     "truth_empirical": {
-     "t_ground_k": 286.1444487720728,
-     "bias_k": -3.855551227927208,
-     "sigma_k": 3.866552833962578,
-     "offset_k": 0.0026530603313403844,
-     "chi2_per_row": 5.293584889545048
+     "t_ground_k": 289.5959118902683,
+     "bias_k": -0.4040881097316742,
+     "sigma_k": 4.262942516065115,
+     "offset_k": -0.0007132465966606105,
+     "chi2_per_row": 6.523190835277843
     }
    }
   },
@@ -146,51 +147,51 @@
    "freq_mhz": 101.5625,
    "n_rows": 299,
    "n_sky_observed": 593,
-   "median_noise_k": 0.09247910252215719,
+   "median_noise_k": 0.0933345314818357,
    "fisher": {
     "sky_free/offset_free": {
      "sigma_ground_k": Infinity,
      "sigma_offset_k": Infinity,
-     "corr_ground_offset": 0.9965884249357708,
+     "corr_ground_offset": 0.9998883172045192,
      "sigma_sky_mean_k": Infinity,
      "n_null": 471
     },
     "sky_free/offset_known": {
      "sigma_ground_k": Infinity,
-     "sigma_offset_k": 0.9999999999993543,
-     "corr_ground_offset": -0.9095167619217365,
+     "sigma_offset_k": 1.0000000000038107,
+     "corr_ground_offset": -0.9530082635668821,
      "sigma_sky_mean_k": Infinity,
      "n_null": 470
     },
     "sky_gsm/offset_free": {
-     "sigma_ground_k": 255.09935843847836,
-     "sigma_offset_k": 182.2347440115,
-     "corr_ground_offset": -0.9999763434254643,
-     "sigma_sky_mean_k": 4.050646815720897,
-     "n_null": 0
+     "sigma_ground_k": Infinity,
+     "sigma_offset_k": Infinity,
+     "corr_ground_offset": 0.9999999999799859,
+     "sigma_sky_mean_k": Infinity,
+     "n_null": 1
     },
     "sky_gsm/offset_known": {
-     "sigma_ground_k": 2.244615209789809,
-     "sigma_offset_k": 0.9999849444095446,
-     "corr_ground_offset": -0.6236191906088966,
-     "sigma_sky_mean_k": 4.048738749567819,
+     "sigma_ground_k": 2.403543226828543,
+     "sigma_offset_k": 0.9999998871109451,
+     "corr_ground_offset": -0.5942896882469395,
+     "sigma_sky_mean_k": 3.940839638072655,
      "n_null": 0
     }
    },
    "recovery": {
     "truth_hfss": {
-     "t_ground_k": 291.1789549663663,
-     "bias_k": 1.178954966366291,
-     "sigma_k": 2.244615209789809,
-     "offset_k": 0.012878689865829074,
-     "chi2_per_row": 4.915106315360163
+     "t_ground_k": 291.4216770604253,
+     "bias_k": 1.4216770604252815,
+     "sigma_k": 2.403543226828543,
+     "offset_k": 0.0011107737551014907,
+     "chi2_per_row": 5.376712594254776
     },
     "truth_empirical": {
-     "t_ground_k": 289.16282723098993,
-     "bias_k": -0.837172769010067,
-     "sigma_k": 2.244615209789809,
-     "offset_k": 0.020002509489131626,
-     "chi2_per_row": 5.267951499995002
+     "t_ground_k": 288.8393661901355,
+     "bias_k": -1.160633809864521,
+     "sigma_k": 2.403543226828543,
+     "offset_k": 0.001593084743660711,
+     "chi2_per_row": 5.920213394894693
     }
    }
   },
@@ -199,51 +200,51 @@
    "freq_mhz": 148.4375,
    "n_rows": 299,
    "n_sky_observed": 593,
-   "median_noise_k": 0.06048106311014567,
+   "median_noise_k": 0.06046033063938501,
    "fisher": {
     "sky_free/offset_free": {
      "sigma_ground_k": Infinity,
      "sigma_offset_k": Infinity,
-     "corr_ground_offset": 0.9966545622928159,
+     "corr_ground_offset": 0.9975305020035293,
      "sigma_sky_mean_k": Infinity,
      "n_null": 471
     },
     "sky_free/offset_known": {
      "sigma_ground_k": Infinity,
-     "sigma_offset_k": 0.9999999999947569,
-     "corr_ground_offset": -0.822752787881866,
+     "sigma_offset_k": 0.9999999999997098,
+     "corr_ground_offset": -0.8253151166051368,
      "sigma_sky_mean_k": Infinity,
      "n_null": 470
     },
     "sky_gsm/offset_free": {
-     "sigma_ground_k": 90.15854783067532,
-     "sigma_offset_k": 53.8889049331527,
-     "corr_ground_offset": -0.99992161396397,
-     "sigma_sky_mean_k": 1.6414228616675555,
+     "sigma_ground_k": 111.93938108805253,
+     "sigma_offset_k": 65.73840647298911,
+     "corr_ground_offset": -0.9999450818498758,
+     "sigma_sky_mean_k": 1.5922809413723467,
      "n_null": 0
     },
     "sky_gsm/offset_known": {
-     "sigma_ground_k": 2.0179093851984344,
-     "sigma_offset_k": 0.9998278689691737,
-     "corr_ground_offset": -0.828890349570285,
-     "sigma_sky_mean_k": 1.6414213131623037,
+     "sigma_ground_k": 2.0675583567337994,
+     "sigma_offset_k": 0.9998843205015686,
+     "corr_ground_offset": -0.8234398098165231,
+     "sigma_sky_mean_k": 1.5921811742642624,
      "n_null": 0
     }
    },
    "recovery": {
     "truth_hfss": {
-     "t_ground_k": 290.51407577469945,
-     "bias_k": 0.5140757746994495,
-     "sigma_k": 2.0179093851984344,
-     "offset_k": 0.10272374560372555,
-     "chi2_per_row": 4.696410391229545
+     "t_ground_k": 290.5843792632222,
+     "bias_k": 0.5843792632222176,
+     "sigma_k": 2.0675583567337994,
+     "offset_k": 0.07959964851033874,
+     "chi2_per_row": 5.4573331353320516
     },
     "truth_empirical": {
-     "t_ground_k": 289.6555228382349,
-     "bias_k": -0.34447716176509857,
-     "sigma_k": 2.0179093851984344,
-     "offset_k": 0.10060760138003388,
-     "chi2_per_row": 4.352138294650831
+     "t_ground_k": 290.9625855088234,
+     "bias_k": 0.9625855088233948,
+     "sigma_k": 2.0675583567337994,
+     "offset_k": 0.12052194915304426,
+     "chi2_per_row": 5.188775616428075
     }
    }
   },
@@ -252,51 +253,51 @@
    "freq_mhz": 199.21875,
    "n_rows": 299,
    "n_sky_observed": 593,
-   "median_noise_k": 0.04542897250623294,
+   "median_noise_k": 0.04572263733407899,
    "fisher": {
     "sky_free/offset_free": {
      "sigma_ground_k": Infinity,
      "sigma_offset_k": Infinity,
-     "corr_ground_offset": 0.9969254412842862,
+     "corr_ground_offset": 0.9982320311562011,
      "sigma_sky_mean_k": Infinity,
      "n_null": 471
     },
     "sky_free/offset_known": {
      "sigma_ground_k": Infinity,
-     "sigma_offset_k": 1.000000000013717,
-     "corr_ground_offset": -0.9311832395350794,
+     "sigma_offset_k": 1.000000000001042,
+     "corr_ground_offset": -0.9333205070524335,
      "sigma_sky_mean_k": Infinity,
      "n_null": 470
     },
     "sky_gsm/offset_free": {
-     "sigma_ground_k": 130.73827369012213,
-     "sigma_offset_k": 77.06045354298762,
-     "corr_ground_offset": -0.9999906007829213,
-     "sigma_sky_mean_k": 0.7318612432876905,
+     "sigma_ground_k": 158.88094797564045,
+     "sigma_offset_k": 94.69536399398451,
+     "corr_ground_offset": -0.9999940285259898,
+     "sigma_sky_mean_k": 0.7454674761746769,
      "n_null": 0
     },
     "sky_gsm/offset_known": {
-     "sigma_ground_k": 1.7886066561183944,
-     "sigma_offset_k": 0.9999158116268158,
-     "corr_ground_offset": -0.9484527424365636,
-     "sigma_sky_mean_k": 0.7312349177248536,
+     "sigma_ground_k": 1.7652704923194666,
+     "sigma_offset_k": 0.9999442459500005,
+     "corr_ground_offset": -0.950396952774447,
+     "sigma_sky_mean_k": 0.7451137671289579,
      "n_null": 0
     }
    },
    "recovery": {
     "truth_hfss": {
-     "t_ground_k": 290.1245005559176,
-     "bias_k": 0.12450055591762066,
-     "sigma_k": 1.7886066561183944,
-     "offset_k": 0.021039955328888027,
-     "chi2_per_row": 2.8023444964463833
+     "t_ground_k": 290.19935806281865,
+     "bias_k": 0.19935806281864643,
+     "sigma_k": 1.7652704923194666,
+     "offset_k": 0.027878310620508273,
+     "chi2_per_row": 3.1016890314147583
     },
     "truth_empirical": {
-     "t_ground_k": 291.36255242768675,
-     "bias_k": 1.3625524276867509,
-     "sigma_k": 1.7886066561183944,
-     "offset_k": 0.043515874345757766,
-     "chi2_per_row": 2.4223429688567295
+     "t_ground_k": 290.96846769191325,
+     "bias_k": 0.9684676919132471,
+     "sigma_k": 1.7652704923194666,
+     "offset_k": 0.03422855821008852,
+     "chi2_per_row": 2.6625640866784326
     }
    }
   },
@@ -305,44 +306,44 @@
    "freq_mhz": 58.59375,
    "n_rows": 652,
    "n_sky_observed": 645,
-   "median_noise_k": 0.30454482166409164,
+   "median_noise_k": 0.3119226045142227,
    "fisher": {
     "sky_free/offset_free": {
      "sigma_ground_k": Infinity,
      "sigma_offset_k": Infinity,
-     "corr_ground_offset": 0.9999998787477603,
+     "corr_ground_offset": 0.9999998194542926,
      "sigma_sky_mean_k": Infinity,
      "n_null": 127
     },
     "sky_free/offset_known": {
      "sigma_ground_k": Infinity,
-     "sigma_offset_k": 0.999999993649392,
-     "corr_ground_offset": -0.0022088517622786885,
+     "sigma_offset_k": 0.999999999761188,
+     "corr_ground_offset": -0.0021174505828740003,
      "sigma_sky_mean_k": Infinity,
      "n_null": 126
     },
     "sky_gsm/offset_free": {
-     "sigma_ground_k": 19.53100789556766,
-     "sigma_offset_k": 17.559393642996,
-     "corr_ground_offset": -0.9739701956169787,
-     "sigma_sky_mean_k": 14.789006506717532,
+     "sigma_ground_k": 21.51567534266829,
+     "sigma_offset_k": 18.577409839927814,
+     "corr_ground_offset": -0.9693679981996893,
+     "sigma_sky_mean_k": 15.238736849980533,
      "n_null": 0
     },
     "sky_gsm/offset_known": {
-     "sigma_ground_k": 4.557414158244054,
-     "sigma_offset_k": 0.9983823068521218,
-     "corr_ground_offset": -0.23732264867828198,
-     "sigma_sky_mean_k": 8.861262694557796,
+     "sigma_ground_k": 5.402129910998455,
+     "sigma_offset_k": 0.99855437003632,
+     "corr_ground_offset": -0.2075225002195278,
+     "sigma_sky_mean_k": 9.318187794665457,
      "n_null": 0
     }
    },
    "recovery": {
     "truth_hfss": {
-     "t_ground_k": 295.18266248703003,
-     "bias_k": 5.182662487030029,
-     "sigma_k": 4.557414158244054,
-     "offset_k": 0.056305380538105965,
-     "chi2_per_row": 6.059959981813744
+     "t_ground_k": 311.45543426275253,
+     "bias_k": 21.455434262752533,
+     "sigma_k": 5.402129910998455,
+     "offset_k": -0.06298848893493414,
+     "chi2_per_row": 6.350093363333428
     }
    }
   },
@@ -351,51 +352,51 @@
    "freq_mhz": 78.125,
    "n_rows": 652,
    "n_sky_observed": 645,
-   "median_noise_k": 0.1571051333405256,
+   "median_noise_k": 0.1596639756482501,
    "fisher": {
     "sky_free/offset_free": {
      "sigma_ground_k": Infinity,
      "sigma_offset_k": Infinity,
-     "corr_ground_offset": 0.9999998951007865,
+     "corr_ground_offset": 0.9999998387681577,
      "sigma_sky_mean_k": Infinity,
      "n_null": 127
     },
     "sky_free/offset_known": {
      "sigma_ground_k": Infinity,
-     "sigma_offset_k": 0.9999999840576856,
-     "corr_ground_offset": -0.004425490090567299,
+     "sigma_offset_k": 0.9999999992227099,
+     "corr_ground_offset": -0.004455597868344962,
      "sigma_sky_mean_k": Infinity,
      "n_null": 126
     },
     "sky_gsm/offset_free": {
-     "sigma_ground_k": 9.17908477683356,
-     "sigma_offset_k": 8.222598904352937,
-     "corr_ground_offset": -0.9750704837822907,
-     "sigma_sky_mean_k": 6.835361573817375,
+     "sigma_ground_k": 10.100219948502415,
+     "sigma_offset_k": 8.724413173038199,
+     "corr_ground_offset": -0.9717452026104123,
+     "sigma_sky_mean_k": 7.06033938545636,
      "n_null": 0
     },
     "sky_gsm/offset_known": {
-     "sigma_ground_k": 2.3056650279248045,
-     "sigma_offset_k": 0.9926858041779701,
-     "corr_ground_offset": -0.46864272989193295,
-     "sigma_sky_mean_k": 4.225400427994718,
+     "sigma_ground_k": 2.632970657767941,
+     "sigma_offset_k": 0.9934950523522977,
+     "corr_ground_offset": -0.4244892546169962,
+     "sigma_sky_mean_k": 4.424321664454755,
      "n_null": 0
     }
    },
    "recovery": {
     "truth_hfss": {
-     "t_ground_k": 291.8395660966635,
-     "bias_k": 1.839566096663475,
-     "sigma_k": 2.3056650279248045,
-     "offset_k": 0.11945990473031998,
-     "chi2_per_row": 5.549953100956212
+     "t_ground_k": 299.60859367251396,
+     "bias_k": 9.608593672513962,
+     "sigma_k": 2.632970657767941,
+     "offset_k": -0.13953300099819899,
+     "chi2_per_row": 5.849145049286674
     },
     "truth_empirical": {
-     "t_ground_k": 252.2582601979375,
-     "bias_k": -37.74173980206251,
-     "sigma_k": 2.3056650279248045,
-     "offset_k": 1.5665772836655378,
-     "chi2_per_row": 5.626471844072195
+     "t_ground_k": 282.0398297905922,
+     "bias_k": -7.960170209407806,
+     "sigma_k": 2.632970657767941,
+     "offset_k": 0.32433604449033737,
+     "chi2_per_row": 5.9942974760529735
     }
    }
   },
@@ -404,104 +405,104 @@
    "freq_mhz": 101.5625,
    "n_rows": 652,
    "n_sky_observed": 645,
-   "median_noise_k": 0.0960017149772546,
+   "median_noise_k": 0.09684050322382876,
    "fisher": {
     "sky_free/offset_free": {
      "sigma_ground_k": Infinity,
      "sigma_offset_k": Infinity,
-     "corr_ground_offset": 0.9999999114210821,
-     "sigma_sky_mean_k": Infinity,
-     "n_null": 127
-    },
-    "sky_free/offset_known": {
-     "sigma_ground_k": Infinity,
-     "sigma_offset_k": 0.9999999588847222,
-     "corr_ground_offset": -0.006450095647032151,
-     "sigma_sky_mean_k": Infinity,
-     "n_null": 126
-    },
-    "sky_gsm/offset_free": {
-     "sigma_ground_k": 4.909219962000487,
-     "sigma_offset_k": 4.328577753590128,
-     "corr_ground_offset": -0.9765343996917403,
-     "sigma_sky_mean_k": 3.4628560282544223,
-     "n_null": 0
-    },
-    "sky_gsm/offset_known": {
-     "sigma_ground_k": 1.5107155336221783,
-     "sigma_offset_k": 0.9743370434595061,
-     "corr_ground_offset": -0.7143011255759006,
-     "sigma_sky_mean_k": 2.303964286029969,
-     "n_null": 0
-    }
-   },
-   "recovery": {
-    "truth_hfss": {
-     "t_ground_k": 290.8375105112791,
-     "bias_k": 0.8375105112791061,
-     "sigma_k": 1.5107155336221783,
-     "offset_k": 0.193495056591928,
-     "chi2_per_row": 4.494137925307886
-    },
-    "truth_empirical": {
-     "t_ground_k": 283.8946510888636,
-     "bias_k": -6.105348911136389,
-     "sigma_k": 1.5107155336221783,
-     "offset_k": 0.7720076851546764,
-     "chi2_per_row": 4.586328691713074
-    }
-   }
-  },
-  {
-   "slice": "parked_all_eras",
-   "freq_mhz": 148.4375,
-   "n_rows": 652,
-   "n_sky_observed": 645,
-   "median_noise_k": 0.06107242411526562,
-   "fisher": {
-    "sky_free/offset_free": {
-     "sigma_ground_k": Infinity,
-     "sigma_offset_k": Infinity,
-     "corr_ground_offset": 0.9999992683540128,
-     "sigma_sky_mean_k": Infinity,
-     "n_null": 129
-    },
-    "sky_free/offset_known": {
-     "sigma_ground_k": Infinity,
-     "sigma_offset_k": 0.9999997429982224,
-     "corr_ground_offset": -0.004738109067061805,
+     "corr_ground_offset": 0.9999998080606184,
      "sigma_sky_mean_k": Infinity,
      "n_null": 128
     },
+    "sky_free/offset_known": {
+     "sigma_ground_k": Infinity,
+     "sigma_offset_k": 0.9999999959232992,
+     "corr_ground_offset": -0.008232293760313654,
+     "sigma_sky_mean_k": Infinity,
+     "n_null": 127
+    },
     "sky_gsm/offset_free": {
-     "sigma_ground_k": 2.3836104211291325,
-     "sigma_offset_k": 1.79887680253252,
-     "corr_ground_offset": -0.9561910684539164,
-     "sigma_sky_mean_k": 1.3310333495345255,
+     "sigma_ground_k": 5.305035678775165,
+     "sigma_offset_k": 4.583565963807419,
+     "corr_ground_offset": -0.9761192487612701,
+     "sigma_sky_mean_k": 3.6103065446257747,
      "n_null": 0
     },
     "sky_gsm/offset_known": {
-     "sigma_ground_k": 1.3089071569698825,
-     "sigma_offset_k": 0.8740285347965805,
-     "corr_ground_offset": -0.8460485898404464,
-     "sigma_sky_mean_k": 1.054591568348151,
+     "sigma_ground_k": 1.5957741403074002,
+     "sigma_offset_k": 0.9770180145907552,
+     "corr_ground_offset": -0.6917017090195788,
+     "sigma_sky_mean_k": 2.4080605317346473,
      "n_null": 0
     }
    },
    "recovery": {
     "truth_hfss": {
-     "t_ground_k": 288.6804279182106,
-     "bias_k": -1.3195720817893744,
-     "sigma_k": 1.3089071569698825,
-     "offset_k": 0.5915528051555157,
-     "chi2_per_row": 4.2482144536191555
+     "t_ground_k": 294.1798725426197,
+     "bias_k": 4.179872542619705,
+     "sigma_k": 1.5957741403074002,
+     "offset_k": -0.2129320539534092,
+     "chi2_per_row": 4.7627951578713015
     },
     "truth_empirical": {
-     "t_ground_k": 286.83140760171227,
-     "bias_k": -3.1685923982877284,
-     "sigma_k": 1.3089071569698825,
-     "offset_k": 1.0474791154265404,
-     "chi2_per_row": 4.553760284532325
+     "t_ground_k": 306.3628902435303,
+     "bias_k": 16.362890243530273,
+     "sigma_k": 1.5957741403074002,
+     "offset_k": -1.6472423542290926,
+     "chi2_per_row": 4.72167795008245
+    }
+   }
+  },
+  {
+   "slice": "parked_all_eras",
+   "freq_mhz": 148.4375,
+   "n_rows": 652,
+   "n_sky_observed": 645,
+   "median_noise_k": 0.06142767625875262,
+   "fisher": {
+    "sky_free/offset_free": {
+     "sigma_ground_k": Infinity,
+     "sigma_offset_k": Infinity,
+     "corr_ground_offset": 0.9999968149878807,
+     "sigma_sky_mean_k": Infinity,
+     "n_null": 130
+    },
+    "sky_free/offset_known": {
+     "sigma_ground_k": Infinity,
+     "sigma_offset_k": 0.9999999658135835,
+     "corr_ground_offset": -0.010243609610870886,
+     "sigma_sky_mean_k": Infinity,
+     "n_null": 129
+    },
+    "sky_gsm/offset_free": {
+     "sigma_ground_k": 2.2581291566126644,
+     "sigma_offset_k": 1.822444812214209,
+     "corr_ground_offset": -0.9704412798246654,
+     "sigma_sky_mean_k": 1.4142762328898253,
+     "n_null": 0
+    },
+    "sky_gsm/offset_known": {
+     "sigma_ground_k": 1.1867043914877409,
+     "sigma_offset_k": 0.8766917526249537,
+     "corr_ground_offset": -0.8883171075014792,
+     "sigma_sky_mean_k": 1.1716494522785237,
+     "n_null": 0
+    }
+   },
+   "recovery": {
+    "truth_hfss": {
+     "t_ground_k": 291.46329354308546,
+     "bias_k": 1.463293543085456,
+     "sigma_k": 1.1867043914877409,
+     "offset_k": -0.2785521913319826,
+     "chi2_per_row": 4.689577467234556
+    },
+    "truth_empirical": {
+     "t_ground_k": 287.0629949318245,
+     "bias_k": -2.9370050681754947,
+     "sigma_k": 1.1867043914877409,
+     "offset_k": 1.2253230772912502,
+     "chi2_per_row": 4.988760840216428
     }
    }
   },
@@ -510,51 +511,51 @@
    "freq_mhz": 199.21875,
    "n_rows": 652,
    "n_sky_observed": 645,
-   "median_noise_k": 0.04549987258170665,
+   "median_noise_k": 0.04577040725686758,
    "fisher": {
     "sky_free/offset_free": {
      "sigma_ground_k": Infinity,
      "sigma_offset_k": Infinity,
-     "corr_ground_offset": 0.9999901868690646,
+     "corr_ground_offset": 0.9999969821309909,
+     "sigma_sky_mean_k": Infinity,
+     "n_null": 127
+    },
+    "sky_free/offset_known": {
+     "sigma_ground_k": Infinity,
+     "sigma_offset_k": 0.9999996641622766,
+     "corr_ground_offset": -0.01775915385120202,
      "sigma_sky_mean_k": Infinity,
      "n_null": 126
     },
-    "sky_free/offset_known": {
-     "sigma_ground_k": Infinity,
-     "sigma_offset_k": 0.9999999977027224,
-     "corr_ground_offset": -0.019687082480578908,
-     "sigma_sky_mean_k": Infinity,
-     "n_null": 125
-    },
     "sky_gsm/offset_free": {
-     "sigma_ground_k": 0.8897486139370228,
-     "sigma_offset_k": 0.7574420467840856,
-     "corr_ground_offset": -0.9502665968351863,
-     "sigma_sky_mean_k": 0.6585739192571122,
+     "sigma_ground_k": 0.7875226397384963,
+     "sigma_offset_k": 0.7064365237303921,
+     "corr_ground_offset": -0.9485401085825188,
+     "sigma_sky_mean_k": 0.6339227874043346,
      "n_null": 0
     },
     "sky_gsm/offset_known": {
-     "sigma_ground_k": 0.728724112179164,
-     "sigma_offset_k": 0.6037899653350818,
-     "corr_ground_offset": -0.9248815691794167,
-     "sigma_sky_mean_k": 0.5836365049322524,
+     "sigma_ground_k": 0.6591097112842434,
+     "sigma_offset_k": 0.576985254289875,
+     "corr_ground_offset": -0.9256623638019208,
+     "sigma_sky_mean_k": 0.5635310094059377,
      "n_null": 0
     }
    },
    "recovery": {
     "truth_hfss": {
-     "t_ground_k": 290.29963268432766,
-     "bias_k": 0.299632684327662,
-     "sigma_k": 0.728724112179164,
-     "offset_k": 0.053488075733184814,
-     "chi2_per_row": 2.7404886457121247
+     "t_ground_k": 290.66919701267034,
+     "bias_k": 0.6691970126703382,
+     "sigma_k": 0.6591097112842434,
+     "offset_k": -0.14977093413472176,
+     "chi2_per_row": 2.9881742257308743
     },
     "truth_empirical": {
-     "t_ground_k": 284.7228151811287,
-     "bias_k": -5.277184818871319,
-     "sigma_k": 0.728724112179164,
-     "offset_k": 3.329633217304945,
-     "chi2_per_row": 2.7951221120188143
+     "t_ground_k": 288.8619243744761,
+     "bias_k": -1.1380756255239248,
+     "sigma_k": 0.6591097112842434,
+     "offset_k": 1.1410434804856777,
+     "chi2_per_row": 2.9865493204827667
     }
    }
   },
@@ -563,44 +564,44 @@
    "freq_mhz": 58.59375,
    "n_rows": 796,
    "n_sky_observed": 669,
-   "median_noise_k": 0.2990856331661945,
+   "median_noise_k": 0.3022929694379638,
    "fisher": {
     "sky_free/offset_free": {
      "sigma_ground_k": Infinity,
      "sigma_offset_k": Infinity,
-     "corr_ground_offset": 0.9999999456862722,
+     "corr_ground_offset": 0.9999999094845532,
      "sigma_sky_mean_k": Infinity,
      "n_null": 100
     },
     "sky_free/offset_known": {
-     "sigma_ground_k": 71.4088024838935,
-     "sigma_offset_k": 1.000000000002013,
-     "corr_ground_offset": -0.01400387604521064,
+     "sigma_ground_k": 79.45324633316186,
+     "sigma_offset_k": 1.0000000000020244,
+     "corr_ground_offset": -0.01258601824831295,
      "sigma_sky_mean_k": Infinity,
      "n_null": 99
     },
     "sky_gsm/offset_free": {
-     "sigma_ground_k": 16.229485007831855,
-     "sigma_offset_k": 15.310928600444242,
-     "corr_ground_offset": -0.9798475796913729,
-     "sigma_sky_mean_k": 14.096415517696213,
+     "sigma_ground_k": 18.63796320204498,
+     "sigma_offset_k": 16.613744741021616,
+     "corr_ground_offset": -0.9804622233363912,
+     "sigma_sky_mean_k": 14.277016975370367,
      "n_null": 0
     },
     "sky_gsm/offset_known": {
-     "sigma_ground_k": 3.403431378756598,
-     "sigma_offset_k": 0.9978739170625299,
-     "corr_ground_offset": -0.3045232137123331,
-     "sigma_sky_mean_k": 7.458533929715714,
+     "sigma_ground_k": 3.8270978300959095,
+     "sigma_offset_k": 0.998193421595856,
+     "corr_ground_offset": -0.28688439199370935,
+     "sigma_sky_mean_k": 8.799394674732637,
      "n_null": 0
     }
    },
    "recovery": {
     "truth_hfss": {
-     "t_ground_k": 294.2497796565294,
-     "bias_k": 4.249779656529427,
-     "sigma_k": 3.403431378756598,
-     "offset_k": 0.0013072788715362549,
-     "chi2_per_row": 5.715165871251749
+     "t_ground_k": 298.6100083589554,
+     "bias_k": 8.610008358955383,
+     "sigma_k": 3.8270978300959095,
+     "offset_k": -0.05713899992406368,
+     "chi2_per_row": 5.963011326674274
     }
    }
   },
@@ -609,51 +610,51 @@
    "freq_mhz": 78.125,
    "n_rows": 796,
    "n_sky_observed": 669,
-   "median_noise_k": 0.15483202168986254,
+   "median_noise_k": 0.1561019905395197,
    "fisher": {
     "sky_free/offset_free": {
      "sigma_ground_k": Infinity,
      "sigma_offset_k": Infinity,
-     "corr_ground_offset": 0.9999999260650098,
+     "corr_ground_offset": 0.9999998521340175,
      "sigma_sky_mean_k": Infinity,
      "n_null": 100
     },
     "sky_free/offset_known": {
-     "sigma_ground_k": 29.093439381862243,
-     "sigma_offset_k": 0.9999999999897086,
-     "corr_ground_offset": -0.03437201013450453,
+     "sigma_ground_k": 35.68711229167488,
+     "sigma_offset_k": 1.0000000000025513,
+     "corr_ground_offset": -0.02802131988910276,
      "sigma_sky_mean_k": Infinity,
      "n_null": 99
     },
     "sky_gsm/offset_free": {
-     "sigma_ground_k": 7.678934119099942,
-     "sigma_offset_k": 7.219324709871231,
-     "corr_ground_offset": -0.9845957794706155,
-     "sigma_sky_mean_k": 6.5064676808492745,
+     "sigma_ground_k": 8.48121051860834,
+     "sigma_offset_k": 7.615862516329601,
+     "corr_ground_offset": -0.9819737921225559,
+     "sigma_sky_mean_k": 6.591979946028567,
      "n_null": 0
     },
     "sky_gsm/offset_known": {
-     "sigma_ground_k": 1.6967039825698964,
-     "sigma_offset_k": 0.9905423868181381,
-     "corr_ground_offset": -0.6114054711409317,
-     "sigma_sky_mean_k": 3.7045991850982802,
+     "sigma_ground_k": 1.9353278076830278,
+     "sigma_offset_k": 0.9914894042168282,
+     "corr_ground_offset": -0.5602375130831176,
+     "sigma_sky_mean_k": 4.199216032992277,
      "n_null": 0
     }
    },
    "recovery": {
     "truth_hfss": {
-     "t_ground_k": 291.75696167722344,
-     "bias_k": 1.756961677223444,
-     "sigma_k": 1.6967039825698964,
-     "offset_k": 0.01432488951832056,
-     "chi2_per_row": 5.18597365377184
+     "t_ground_k": 295.4936575219035,
+     "bias_k": 5.493657521903515,
+     "sigma_k": 1.9353278076830278,
+     "offset_k": -0.17218852322548628,
+     "chi2_per_row": 5.578154411674782
     },
     "truth_empirical": {
-     "t_ground_k": 273.9872710481286,
-     "bias_k": -16.012728951871395,
-     "sigma_k": 1.6967039825698964,
-     "offset_k": 1.99851662106812,
-     "chi2_per_row": 6.754112238041074
+     "t_ground_k": 286.3197383880615,
+     "bias_k": -3.6802616119384766,
+     "sigma_k": 1.9353278076830278,
+     "offset_k": -0.12132910918444395,
+     "chi2_per_row": 6.1599766876033275
     }
    }
   },
@@ -662,51 +663,51 @@
    "freq_mhz": 101.5625,
    "n_rows": 796,
    "n_sky_observed": 669,
-   "median_noise_k": 0.0949032803822597,
+   "median_noise_k": 0.09538719907314734,
    "fisher": {
     "sky_free/offset_free": {
      "sigma_ground_k": Infinity,
      "sigma_offset_k": Infinity,
-     "corr_ground_offset": 0.9999998716049285,
+     "corr_ground_offset": 0.9999995495998475,
      "sigma_sky_mean_k": Infinity,
      "n_null": 100
     },
     "sky_free/offset_known": {
-     "sigma_ground_k": 14.163316082651646,
-     "sigma_offset_k": 0.9999999999402596,
-     "corr_ground_offset": -0.07060493496930535,
+     "sigma_ground_k": 17.308712077665003,
+     "sigma_offset_k": 1.0000000000050129,
+     "corr_ground_offset": -0.057774374091811964,
      "sigma_sky_mean_k": Infinity,
      "n_null": 99
     },
     "sky_gsm/offset_free": {
-     "sigma_ground_k": 3.935619584481867,
-     "sigma_offset_k": 3.717146385571135,
-     "corr_ground_offset": -0.9902578887592199,
-     "sigma_sky_mean_k": 3.2899131407320343,
+     "sigma_ground_k": 4.099014047601267,
+     "sigma_offset_k": 3.775397697511427,
+     "corr_ground_offset": -0.9854369565510734,
+     "sigma_sky_mean_k": 3.3561985922723054,
      "n_null": 0
     },
     "sky_gsm/offset_known": {
-     "sigma_ground_k": 1.151261104902561,
-     "sigma_offset_k": 0.9656659682142267,
-     "corr_ground_offset": -0.8794372429190834,
-     "sigma_sky_mean_k": 2.0575045946531905,
+     "sigma_ground_k": 1.2471827378914833,
+     "sigma_offset_k": 0.9666653117464399,
+     "corr_ground_offset": -0.8292616638989881,
+     "sigma_sky_mean_k": 2.26988236581343,
      "n_null": 0
     }
    },
    "recovery": {
     "truth_hfss": {
-     "t_ground_k": 289.74510374851525,
-     "bias_k": -0.2548962514847517,
-     "sigma_k": 1.151261104902561,
-     "offset_k": 0.15571323409676552,
-     "chi2_per_row": 4.222939933941478
+     "t_ground_k": 292.86104378523305,
+     "bias_k": 2.8610437852330506,
+     "sigma_k": 1.2471827378914833,
+     "offset_k": -0.3042272999882698,
+     "chi2_per_row": 4.569154357751513
     },
     "truth_empirical": {
-     "t_ground_k": 295.915344950743,
-     "bias_k": 5.91534495074302,
-     "sigma_k": 1.151261104902561,
-     "offset_k": -0.3586200065910816,
-     "chi2_per_row": 4.806366151724947
+     "t_ground_k": 299.14487740956247,
+     "bias_k": 9.144877409562469,
+     "sigma_k": 1.2471827378914833,
+     "offset_k": -0.492649931460619,
+     "chi2_per_row": 5.014353798614965
     }
    }
   },
@@ -715,51 +716,51 @@
    "freq_mhz": 148.4375,
    "n_rows": 796,
    "n_sky_observed": 669,
-   "median_noise_k": 0.059937314376993414,
+   "median_noise_k": 0.06029168154689164,
    "fisher": {
     "sky_free/offset_free": {
      "sigma_ground_k": Infinity,
      "sigma_offset_k": Infinity,
-     "corr_ground_offset": 0.9999997705023912,
+     "corr_ground_offset": 0.9999956886214492,
      "sigma_sky_mean_k": Infinity,
      "n_null": 100
     },
     "sky_free/offset_known": {
-     "sigma_ground_k": 26.86603878976711,
-     "sigma_offset_k": 0.9999999999331489,
-     "corr_ground_offset": -0.037221713097438915,
+     "sigma_ground_k": 12.720439810331122,
+     "sigma_offset_k": 0.99999999995919,
+     "corr_ground_offset": -0.07861363399668586,
      "sigma_sky_mean_k": Infinity,
      "n_null": 99
     },
     "sky_gsm/offset_free": {
-     "sigma_ground_k": 1.562281480849793,
-     "sigma_offset_k": 1.3825177916684241,
-     "corr_ground_offset": -0.9713070770577049,
-     "sigma_sky_mean_k": 1.2371226350889406,
+     "sigma_ground_k": 1.7847400556872148,
+     "sigma_offset_k": 1.5057666507617775,
+     "corr_ground_offset": -0.9746213908826369,
+     "sigma_sky_mean_k": 1.302961699625549,
      "n_null": 0
     },
     "sky_gsm/offset_known": {
-     "sigma_ground_k": 0.9638364220295363,
-     "sigma_offset_k": 0.8102576001135872,
-     "corr_ground_offset": -0.9227092800523603,
-     "sigma_sky_mean_k": 0.947859516771949,
+     "sigma_ground_k": 1.0419512303039669,
+     "sigma_offset_k": 0.833030611887301,
+     "corr_ground_offset": -0.9235635931345232,
+     "sigma_sky_mean_k": 1.084958408757518,
      "n_null": 0
     }
    },
    "recovery": {
     "truth_hfss": {
-     "t_ground_k": 290.64060055091977,
-     "bias_k": 0.6406005509197712,
-     "sigma_k": 0.9638364220295363,
-     "offset_k": -0.032884322106838226,
-     "chi2_per_row": 3.8318211471313997
+     "t_ground_k": 291.7367783598602,
+     "bias_k": 1.7367783598601818,
+     "sigma_k": 1.0419512303039669,
+     "offset_k": -0.4143090099096298,
+     "chi2_per_row": 4.251615678743239
     },
     "truth_empirical": {
-     "t_ground_k": 288.418172005564,
-     "bias_k": -1.5818279944360256,
-     "sigma_k": 0.9638364220295363,
-     "offset_k": 1.188775435090065,
-     "chi2_per_row": 3.891462601252053
+     "t_ground_k": 289.00126655958593,
+     "bias_k": -0.9987334404140711,
+     "sigma_k": 1.0419512303039669,
+     "offset_k": 0.42263301089406013,
+     "chi2_per_row": 4.2607136365272
     }
    }
   },
@@ -768,51 +769,51 @@
    "freq_mhz": 199.21875,
    "n_rows": 796,
    "n_sky_observed": 669,
-   "median_noise_k": 0.045087984298735534,
+   "median_noise_k": 0.045306700075519915,
    "fisher": {
     "sky_free/offset_free": {
      "sigma_ground_k": Infinity,
      "sigma_offset_k": Infinity,
-     "corr_ground_offset": 0.9999862643750572,
+     "corr_ground_offset": 0.9999938457545773,
      "sigma_sky_mean_k": Infinity,
      "n_null": 100
     },
     "sky_free/offset_known": {
-     "sigma_ground_k": 7.133237764732353,
-     "sigma_offset_k": 0.9999999999538544,
-     "corr_ground_offset": -0.14018879369473267,
+     "sigma_ground_k": 8.266755804551831,
+     "sigma_offset_k": 1.0000000000084301,
+     "corr_ground_offset": -0.12096643753048959,
      "sigma_sky_mean_k": Infinity,
      "n_null": 99
     },
     "sky_gsm/offset_free": {
-     "sigma_ground_k": 0.7052632003584242,
-     "sigma_offset_k": 0.6689599627420711,
-     "corr_ground_offset": -0.9837369401912692,
-     "sigma_sky_mean_k": 0.6185589787239728,
+     "sigma_ground_k": 0.6876314540393826,
+     "sigma_offset_k": 0.6479601128146623,
+     "corr_ground_offset": -0.9793649607962276,
+     "sigma_sky_mean_k": 0.5966970610712395,
      "n_null": 0
     },
     "sky_gsm/offset_known": {
-     "sigma_ground_k": 0.5904096287078342,
-     "sigma_offset_k": 0.5560191185823475,
-     "corr_ground_offset": -0.9767116563797754,
-     "sigma_sky_mean_k": 0.5559429206220197,
+     "sigma_ground_k": 0.5820045008526326,
+     "sigma_offset_k": 0.5437843274548251,
+     "corr_ground_offset": -0.9710740914469667,
+     "sigma_sky_mean_k": 0.5401252509249287,
      "n_null": 0
     }
    },
    "recovery": {
     "truth_hfss": {
-     "t_ground_k": 290.1783508118242,
-     "bias_k": 0.17835081182420254,
-     "sigma_k": 0.5904096287078342,
-     "offset_k": -0.14199528843164444,
-     "chi2_per_row": 2.4972398476985855
+     "t_ground_k": 290.7873338162899,
+     "bias_k": 0.7873338162899017,
+     "sigma_k": 0.5820045008526326,
+     "offset_k": -0.5335902888327837,
+     "chi2_per_row": 2.7161697268244303
     },
     "truth_empirical": {
-     "t_ground_k": 283.8409142680466,
-     "bias_k": -6.1590857319533825,
-     "sigma_k": 0.5904096287078342,
-     "offset_k": 3.4028243087232113,
-     "chi2_per_row": 2.4338186226513816
+     "t_ground_k": 284.8154580462724,
+     "bias_k": -5.184541953727603,
+     "sigma_k": 0.5820045008526326,
+     "offset_k": 2.5691898986697197,
+     "chi2_per_row": 2.6290205834683578
     }
    }
   },
@@ -821,44 +822,44 @@
    "freq_mhz": 58.59375,
    "n_rows": 332,
    "n_sky_observed": 633,
-   "median_noise_k": 0.3646590355547664,
+   "median_noise_k": 0.3667695940732703,
    "fisher": {
     "sky_free/offset_free": {
      "sigma_ground_k": Infinity,
      "sigma_offset_k": Infinity,
-     "corr_ground_offset": 0.9835822003852509,
+     "corr_ground_offset": 0.9711022437919905,
      "sigma_sky_mean_k": Infinity,
      "n_null": 438
     },
     "sky_free/offset_known": {
      "sigma_ground_k": Infinity,
-     "sigma_offset_k": 0.9999999999998577,
-     "corr_ground_offset": -0.2617823237634771,
+     "sigma_offset_k": 0.9999999999996738,
+     "corr_ground_offset": -0.4227395280399818,
      "sigma_sky_mean_k": Infinity,
      "n_null": 437
     },
     "sky_gsm/offset_free": {
-     "sigma_ground_k": 65.98913166635091,
-     "sigma_offset_k": 44.84145485150013,
-     "corr_ground_offset": -0.9921117146568365,
-     "sigma_sky_mean_k": 15.190376141612166,
+     "sigma_ground_k": 71.52941433031128,
+     "sigma_offset_k": 46.305352340498786,
+     "corr_ground_offset": -0.9905928112147874,
+     "sigma_sky_mean_k": 15.40390177228033,
      "n_null": 0
     },
     "sky_gsm/offset_known": {
-     "sigma_ground_k": 8.399981673039122,
-     "sigma_offset_k": 0.9997514300297503,
-     "corr_ground_offset": -0.17376687556838913,
-     "sigma_sky_mean_k": 13.867444525589413,
+     "sigma_ground_k": 9.907098437405843,
+     "sigma_offset_k": 0.9997668927709565,
+     "corr_ground_offset": -0.1544190658202585,
+     "sigma_sky_mean_k": 15.305031721188314,
      "n_null": 0
     }
    },
    "recovery": {
     "truth_hfss": {
-     "t_ground_k": 286.5455334186554,
-     "bias_k": -3.4544665813446045,
-     "sigma_k": 8.399981673039122,
-     "offset_k": 0.03734503535088152,
-     "chi2_per_row": 5.76015903979902
+     "t_ground_k": 304.000106215477,
+     "bias_k": 14.00010621547699,
+     "sigma_k": 9.907098437405843,
+     "offset_k": -0.02868038640008308,
+     "chi2_per_row": 5.940444520680214
     }
    }
   },
@@ -867,51 +868,51 @@
    "freq_mhz": 78.125,
    "n_rows": 332,
    "n_sky_observed": 633,
-   "median_noise_k": 0.18342111527174604,
+   "median_noise_k": 0.18431281165924662,
    "fisher": {
     "sky_free/offset_free": {
      "sigma_ground_k": Infinity,
      "sigma_offset_k": Infinity,
-     "corr_ground_offset": 0.9939163473649522,
+     "corr_ground_offset": 0.9799409220010371,
      "sigma_sky_mean_k": Infinity,
      "n_null": 438
     },
     "sky_free/offset_known": {
      "sigma_ground_k": Infinity,
-     "sigma_offset_k": 0.9999999999995549,
-     "corr_ground_offset": -0.30645523379161044,
+     "sigma_offset_k": 1.0000000000010496,
+     "corr_ground_offset": -0.5014157447171855,
      "sigma_sky_mean_k": Infinity,
      "n_null": 437
     },
     "sky_gsm/offset_free": {
-     "sigma_ground_k": 18.728452635590724,
-     "sigma_offset_k": 13.861846700401411,
-     "corr_ground_offset": -0.9862715321144386,
-     "sigma_sky_mean_k": 7.014337227517688,
+     "sigma_ground_k": 18.596140109535888,
+     "sigma_offset_k": 13.018324401034295,
+     "corr_ground_offset": -0.9770551629343873,
+     "sigma_sky_mean_k": 7.1376738553415215,
      "n_null": 0
     },
     "sky_gsm/offset_known": {
-     "sigma_ground_k": 3.3661542496900356,
-     "sigma_offset_k": 0.9974079897149429,
-     "corr_ground_offset": -0.39483544480979016,
-     "sigma_sky_mean_k": 5.927954033216978,
+     "sigma_ground_k": 4.198076644214028,
+     "sigma_offset_k": 0.9970627353177647,
+     "corr_ground_offset": -0.3314812180170509,
+     "sigma_sky_mean_k": 6.773259801019635,
      "n_null": 0
     }
    },
    "recovery": {
     "truth_hfss": {
-     "t_ground_k": 288.90870993584394,
-     "bias_k": -1.0912900641560555,
-     "sigma_k": 3.3661542496900356,
-     "offset_k": 0.058294454822316766,
-     "chi2_per_row": 4.9259036496241695
+     "t_ground_k": 294.92488673329353,
+     "bias_k": 4.924886733293533,
+     "sigma_k": 4.198076644214028,
+     "offset_k": -0.043162703746929765,
+     "chi2_per_row": 5.125890383434497
     },
     "truth_empirical": {
-     "t_ground_k": 318.4424888640642,
-     "bias_k": 28.442488864064217,
-     "sigma_k": 3.3661542496900356,
-     "offset_k": -0.6249698717147112,
-     "chi2_per_row": 5.194757260670116
+     "t_ground_k": 311.13451504707336,
+     "bias_k": 21.134515047073364,
+     "sigma_k": 4.198076644214028,
+     "offset_k": -0.5503914621658623,
+     "chi2_per_row": 5.451821366972107
     }
    }
   },
@@ -920,51 +921,51 @@
    "freq_mhz": 101.5625,
    "n_rows": 332,
    "n_sky_observed": 633,
-   "median_noise_k": 0.10810042022852952,
+   "median_noise_k": 0.10818828745909334,
    "fisher": {
     "sky_free/offset_free": {
      "sigma_ground_k": Infinity,
      "sigma_offset_k": Infinity,
-     "corr_ground_offset": 0.9968590809539242,
+     "corr_ground_offset": 0.9875655748675852,
      "sigma_sky_mean_k": Infinity,
      "n_null": 438
     },
     "sky_free/offset_known": {
      "sigma_ground_k": Infinity,
-     "sigma_offset_k": 1.0000000000022435,
-     "corr_ground_offset": -0.3576962308147536,
+     "sigma_offset_k": 0.9999999999991896,
+     "corr_ground_offset": -0.5342989097914294,
      "sigma_sky_mean_k": Infinity,
      "n_null": 437
     },
     "sky_gsm/offset_free": {
-     "sigma_ground_k": 6.7727819041093476,
-     "sigma_offset_k": 5.529609098351176,
-     "corr_ground_offset": -0.9853372009230585,
-     "sigma_sky_mean_k": 3.5828864266068385,
+     "sigma_ground_k": 5.972997594428782,
+     "sigma_offset_k": 4.83471347808423,
+     "corr_ground_offset": -0.9697452734284174,
+     "sigma_sky_mean_k": 3.6539575564287636,
      "n_null": 0
     },
     "sky_gsm/offset_known": {
-     "sigma_ground_k": 1.65701807993933,
-     "sigma_offset_k": 0.9840380866473345,
-     "corr_ground_offset": -0.7167079142297832,
-     "sigma_sky_mean_k": 2.7912840207558793,
+     "sigma_ground_k": 1.8715196604704323,
+     "sigma_offset_k": 0.9792718931302652,
+     "corr_ground_offset": -0.6268854151453174,
+     "sigma_sky_mean_k": 3.1362188353105203,
      "n_null": 0
     }
    },
    "recovery": {
     "truth_hfss": {
-     "t_ground_k": 289.17982379347086,
-     "bias_k": -0.8201762065291405,
-     "sigma_k": 1.65701807993933,
-     "offset_k": 0.143620400223881,
-     "chi2_per_row": 4.396303136037661
+     "t_ground_k": 291.43509206548333,
+     "bias_k": 1.4350920654833317,
+     "sigma_k": 1.8715196604704323,
+     "offset_k": 0.06163639668375254,
+     "chi2_per_row": 4.580382430535629
     },
     "truth_empirical": {
-     "t_ground_k": 293.99738055840135,
-     "bias_k": 3.997380558401346,
-     "sigma_k": 1.65701807993933,
-     "offset_k": -0.47034687688574195,
-     "chi2_per_row": 5.0751680408385145
+     "t_ground_k": 282.310783598572,
+     "bias_k": -7.689216401427984,
+     "sigma_k": 1.8715196604704323,
+     "offset_k": 0.729783084243536,
+     "chi2_per_row": 4.797203410565249
     }
    }
   },
@@ -973,51 +974,51 @@
    "freq_mhz": 148.4375,
    "n_rows": 332,
    "n_sky_observed": 633,
-   "median_noise_k": 0.06468916516701521,
+   "median_noise_k": 0.06476502335879336,
    "fisher": {
     "sky_free/offset_free": {
      "sigma_ground_k": Infinity,
      "sigma_offset_k": Infinity,
-     "corr_ground_offset": 0.9867520273540117,
+     "corr_ground_offset": 0.9903870777372641,
      "sigma_sky_mean_k": Infinity,
      "n_null": 438
     },
     "sky_free/offset_known": {
      "sigma_ground_k": Infinity,
-     "sigma_offset_k": 1.0000000000042706,
-     "corr_ground_offset": -0.712003008251887,
+     "sigma_offset_k": 1.0000000000046678,
+     "corr_ground_offset": -0.7224671914630296,
      "sigma_sky_mean_k": Infinity,
      "n_null": 437
     },
     "sky_gsm/offset_free": {
-     "sigma_ground_k": 5.987503069184105,
-     "sigma_offset_k": 3.707741641441132,
-     "corr_ground_offset": -0.9870419456651064,
-     "sigma_sky_mean_k": 1.4454761840337522,
+     "sigma_ground_k": 5.372086857135997,
+     "sigma_offset_k": 3.3319751204915327,
+     "corr_ground_offset": -0.9830511450767825,
+     "sigma_sky_mean_k": 1.4318073720004132,
      "n_null": 0
     },
     "sky_gsm/offset_known": {
-     "sigma_ground_k": 1.8142336320780703,
-     "sigma_offset_k": 0.9655004911772412,
-     "corr_ground_offset": -0.8482642790586609,
-     "sigma_sky_mean_k": 1.3087988184091317,
+     "sigma_ground_k": 1.8095543330102049,
+     "sigma_offset_k": 0.9577940422560343,
+     "corr_ground_offset": -0.8389148710407484,
+     "sigma_sky_mean_k": 1.31513357505148,
      "n_null": 0
     }
    },
    "recovery": {
     "truth_hfss": {
-     "t_ground_k": 290.172951631248,
-     "bias_k": 0.17295163124799728,
-     "sigma_k": 1.8142336320780703,
-     "offset_k": 0.02554989978671074,
-     "chi2_per_row": 4.085499546305379
+     "t_ground_k": 290.3646702542901,
+     "bias_k": 0.3646702542901039,
+     "sigma_k": 1.8095543330102049,
+     "offset_k": 0.0783759756013751,
+     "chi2_per_row": 4.523776368950351
     },
     "truth_empirical": {
-     "t_ground_k": 289.5364302806556,
-     "bias_k": -0.4635697193443775,
-     "sigma_k": 1.8142336320780703,
-     "offset_k": -0.14918533340096474,
-     "chi2_per_row": 4.268265280127836
+     "t_ground_k": 289.85382448136806,
+     "bias_k": -0.14617551863193512,
+     "sigma_k": 1.8095543330102049,
+     "offset_k": 0.04320996627211571,
+     "chi2_per_row": 4.656534446418201
     }
    }
   },
@@ -1026,51 +1027,51 @@
    "freq_mhz": 199.21875,
    "n_rows": 332,
    "n_sky_observed": 633,
-   "median_noise_k": 0.04699096851806331,
+   "median_noise_k": 0.047078924207656275,
    "fisher": {
     "sky_free/offset_free": {
      "sigma_ground_k": Infinity,
      "sigma_offset_k": Infinity,
-     "corr_ground_offset": 0.9722067091479688,
+     "corr_ground_offset": 0.9672476019243754,
      "sigma_sky_mean_k": Infinity,
      "n_null": 438
     },
     "sky_free/offset_known": {
      "sigma_ground_k": Infinity,
-     "sigma_offset_k": 0.9999999999770429,
-     "corr_ground_offset": -0.8074666411805368,
+     "sigma_offset_k": 1.0000000000119382,
+     "corr_ground_offset": -0.8359327289251846,
      "sigma_sky_mean_k": Infinity,
      "n_null": 437
     },
     "sky_gsm/offset_free": {
-     "sigma_ground_k": 0.8810916700638022,
-     "sigma_offset_k": 0.7884992082682363,
-     "corr_ground_offset": -0.9731835691250736,
-     "sigma_sky_mean_k": 0.6626084820176439,
+     "sigma_ground_k": 0.8699792321158747,
+     "sigma_offset_k": 0.7711236890949663,
+     "corr_ground_offset": -0.9670729892773905,
+     "sigma_sky_mean_k": 0.655583298192105,
      "n_null": 0
     },
     "sky_gsm/offset_known": {
-     "sigma_ground_k": 0.7031701525592515,
-     "sigma_offset_k": 0.6191727749520269,
-     "corr_ground_offset": -0.9575600656418837,
-     "sigma_sky_mean_k": 0.5877565918200272,
+     "sigma_ground_k": 0.7020772527734195,
+     "sigma_offset_k": 0.6106520822753703,
+     "corr_ground_offset": -0.9489712036946606,
+     "sigma_sky_mean_k": 0.5865012570536431,
      "n_null": 0
     }
    },
    "recovery": {
     "truth_hfss": {
-     "t_ground_k": 289.87823509052396,
-     "bias_k": -0.1217649094760418,
-     "sigma_k": 0.7031701525592515,
-     "offset_k": 0.17987455986440182,
-     "chi2_per_row": 2.704503115049282
+     "t_ground_k": 290.30443786270916,
+     "bias_k": 0.3044378627091646,
+     "sigma_k": 0.7020772527734195,
+     "offset_k": -0.04463386908173561,
+     "chi2_per_row": 2.8917337725067593
     },
     "truth_empirical": {
-     "t_ground_k": 282.81057569012046,
-     "bias_k": -7.189424309879541,
-     "sigma_k": 0.7031701525592515,
-     "offset_k": 3.885206652805209,
-     "chi2_per_row": 2.6988586642436054
+     "t_ground_k": 281.43515090085566,
+     "bias_k": -8.56484909914434,
+     "sigma_k": 0.7020772527734195,
+     "offset_k": 4.413119403645396,
+     "chi2_per_row": 2.950999563409469
     }
    }
   }
