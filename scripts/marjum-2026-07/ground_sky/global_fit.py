@@ -842,7 +842,12 @@ def main():
                     help="als: alternate the shared gain and the per-frequency fits; gn: Levenberg-Marquardt on all "
                          "of them at once (Schur complement on the shared block)")
     ap.add_argument("--fast-drop-collapsed", action="store_true",
-                    help="gn: drop a training frequency whose a_tcal falls below 0.5 or that diverges, and refit")
+                    help="gn: drop a training frequency whose a_tcal collapses (see --fast-collapse-frac) or that "
+                         "diverges, and refit")
+    ap.add_argument("--fast-collapse-frac", type=float, default=None,
+                    help="with --fast-drop-collapsed: a training frequency has collapsed when its a_tcal falls below "
+                         "this fraction of its own per-frequency (--knot-s) fit's a_tcal, or that fit diverged; "
+                         "without it, when a_tcal falls below 0.5 (tcal kelvin, so the cut moves with tcal's scale)")
     ap.add_argument("--fast-tol", type=float, default=1e-4,
                     help="stop the shared-gain alternation when its largest step in log gain falls below this")
     ap.add_argument("--fast-freq-basis", choices=["linear", "quad", "split"], default="linear",
@@ -1307,13 +1312,23 @@ def main():
         print(f"  fast gain: {F.shape[1]} knots in {len(set(run[run >= 0]))} fixed-pointing runs "
               f"({(run >= 0).sum()} bins); training frequencies {np.round(freqs[ftrain], 1).tolist()}", flush=True)
         step_args = (groups, len(gnames), H, knot_seg, args.gain_step_sigma)
+        # each frequency's GSM amplitude in its own per-frequency fit: the reference for --fast-collapse-frac
+        a_base = [None if r_["all"]["diverged"] or not r_["all"].get("a_tcal") else r_["all"]["a_tcal"]["mean"]
+                  for r_ in results]
+
+        def fast_collapsed(a_t, ref):
+            if a_t is None:
+                return False
+            if args.fast_collapse_frac is None:
+                return a_t < 0.5
+            return ref is None or a_t < args.fast_collapse_frac * ref
         if args.fast_solver == "gn":
             dropped = []
             while True:
                 bco, hist = joint_fast_gn(pf, F, Bf, ftrain, args.fast_sigma, step_args, args.fast_iter, args.fast_tol,
                                           b0=None if not dropped else bco)
                 st = hist[-1]["training_status"]
-                bad = [i for i, v in st.items() if v["diverged"] or (v["a_tcal"] is not None and v["a_tcal"] < 0.5)]
+                bad = [i for i, v in st.items() if v["diverged"] or fast_collapsed(v["a_tcal"], a_base[i])]
                 if not args.fast_drop_collapsed or not bad:
                     break
                 for i in bad:
@@ -1321,6 +1336,8 @@ def main():
                     dropped.append(float(freqs[i]))
                 print(f"  dropped collapsed training frequencies {[round(float(freqs[i]), 1) for i in bad]}; refitting",
                       flush=True)
+                if not ftrain.any():
+                    sys.exit("every training frequency collapsed: no shared gain to fit")
         else:
             bco, hist = joint_fast(pf, F, Bf, ftrain, args.fast_sigma, args.fast_iter, step_args, args.fast_tol)
         resid_fast = np.full(Y.shape, np.nan)
@@ -1347,7 +1364,7 @@ def main():
             rt = (P["y0"] - Mt.predict(st.x)) / np.where(fin, P["y0"], 1)
             te = fin & ~trn
             res = {"role": "train" if ftrain[i] else ("test" if i in conv else "outside"),
-                   "a_tcal": a_t, "test_rms_frac": float(np.sqrt(np.mean(rt[te] ** 2))),
+                   "a_tcal": a_t, "a_tcal_base": a_base[i], "test_rms_frac": float(np.sqrt(np.mean(rt[te] ** 2))),
                    "offsets": dict(zip(gnames, o.tolist())),
                    "status": int(sol.status), "T_gnd": float(th[0]),
                    "diverged": bool(np.any(np.exp(a) < 0.01 * np.median(np.exp(a)))
