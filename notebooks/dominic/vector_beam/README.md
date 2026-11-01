@@ -6,6 +6,12 @@ pixels the raster sampled, and checks it against HFSS and against held-out
 data. The method is `eigsep_data.beam_mapping.vector_beam`; this
 directory holds the campaign inputs and the checks.
 
+**Current method: `memo_efield/`** (2026-11-01), the scripts behind the
+E-field memo (EIGSEP.github.io `memos/marjum_efield_beam/`): left-handed
+azimuth, memo 002's v0005 positions, axle tilt +4.7 deg, no per-dwell phase
+calibration. The sections below are the history that led there; where they
+disagree, `memo_efield/README.md` is current.
+
 ## Setup
 
 Three antennas: the rotating sky bowtie (the unknown `u`), a stationary
@@ -24,6 +30,8 @@ prior.
 | File | Role |
 |---|---|
 | `pipeline.py` | Campaign inputs: data window, cached geometry, the sky/ground RFI recipe, the cross reduction constants (`SHIFT`, `TAU_NS`, trust mask). `load()` returns the geometry and the 30 `freq_map` channels. |
+| `run_phase2.py` | Phase 2: pointing table v3 and the v0013 geometry (`geometry_v0013.py`), right-handed. |
+| `memo_efield/` | The E-field memo: mounts R / L0 / L, scores, maps, dwell repeatability, figures. |
 | `regression_check.py` | Re-runs closure `g`, the HFSS comparison and the leave-one-out check on every channel and compares with `reference/`. |
 | `reference/` | The September 2026 results this must reproduce: `all_channels_xyz_validation.json`, `loo_forward_check_results.json`. |
 
@@ -76,7 +84,15 @@ are NaN and must be dropped. Removing it: stripe-held-out solver error
 0.151 -> 0.090 (HFSS 0.083), the same when the phase is estimated from the
 other half of the channels only. The cause of the jumps is unknown.
 
+Not used for the memo's beams (2026-10-30): dropping the unconstrained
+integrations loses ~45% of the pixels. The jumps track the box rocking
+about the axle (memo, "The cause of the phase jumps"; `memo_efield/supporting/`).
+
 ## Recent changes
+
+- 2026-11-01: `memo_efield/`; left-handed mounts and the axle tilt come
+  from eigsep_data (`AZ_SENSE`, `TxGeometryModel.axle_tilt_deg`), identical
+  to the memo's local geometry to 3e-16.
 
 - 2026-10-21: `selfcal_phase.py`; `run_phase2.phase2_geometry`;
   `pipeline.load` channels carry the measured masks.
