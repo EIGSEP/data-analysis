@@ -1,0 +1,35 @@
+{
+ "62": {
+  "freq": 175.78125,
+  "auto_measured_arm_samples": 36,
+  "auto_measured_arm_pix": 36,
+  "auto_total_gain_samples": 47,
+  "auto_total_gain_pix": 46,
+  "cross_samples": 4437,
+  "cross_input_pix": 3891,
+  "efield_pix": 3833,
+  "pointing_selected_pix": 5343
+ },
+ "74": {
+  "freq": 199.21875,
+  "auto_measured_arm_samples": 4362,
+  "auto_measured_arm_pix": 3661,
+  "auto_total_gain_samples": 4314,
+  "auto_total_gain_pix": 3645,
+  "cross_samples": 3764,
+  "cross_input_pix": 3317,
+  "efield_pix": 3284,
+  "pointing_selected_pix": 5343
+ },
+ "86": {
+  "freq": 222.65625,
+  "auto_measured_arm_samples": 6583,
+  "auto_measured_arm_pix": 5328,
+  "auto_total_gain_samples": 6429,
+  "auto_total_gain_pix": 5290,
+  "cross_samples": 3916,
+  "cross_input_pix": 3518,
+  "efield_pix": 3460,
+  "pointing_selected_pix": 5343
+ }
+}
