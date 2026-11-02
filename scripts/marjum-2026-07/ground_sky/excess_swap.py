@@ -16,9 +16,10 @@ All 16 combinations are fitted with ``raster_sky.py``'s base model (GSM through
 the beam, one ground column, a constant, the transmitter's leakage, the Sun and
 a drift; no Y_lm, no reflection), on the same rows, flags and frequencies, so
 only the four choices differ. T_gnd is the ground coefficient over the GSM
-coefficient, in GSM kelvin, with a jackknife over ``--block-s`` blocks. Rows are
-those with finite pointing in both tables, so the two handedness choices use
-the same integrations.
+coefficient, in GSM kelvin, with a jackknife over ``--block-s`` blocks. The
+pointing table is one file, now v5; v4's azimuth is v5's negated, and every
+other column is the same (``curation/README.md``, 2026-10-28), so v4 is
+rebuilt here as ``-az_deg`` on the same rows.
 
 Run::
 
@@ -86,27 +87,21 @@ def main():
     if (out_dir / "excess_swap.json").exists():
         sys.exit("exists; versions are immutable")
     a, b = pd.Timestamp(args.start).timestamp(), pd.Timestamp(args.stop).timestamp()
-    sel = MetadataIndex(campaign / "data").select(time=(a, b))
-    bundles = {v: sel.load_bundle(antenna="box-air", products=["flags@v3", f"pointing@{v}"]) for v in ("v4", "v5")}
-    B = bundles["v5"]
-    assert np.array_equal(B.t, bundles["v4"].t)
+    B = MetadataIndex(campaign / "data").select(time=(a, b)).load_bundle(
+        antenna="box-air", products=["flags@v3", "pointing@v5"])
     f = B.freqs_mhz
     ch = np.rint(f / CHANNEL_MHZ).astype(int)
     D = B.data.astype(float)
     D[((B.flags.astype(np.uint16) & ~np.uint16((1 << 9) | (1 << 10))) != 0) | (D <= 0)] = np.nan
-    ok = (B.meta.rfswitch == "RFANT").to_numpy()
-    for bb in bundles.values():
-        p = bb.pointing
-        ok &= (p.quality.isin(["ok", "suspect"]).to_numpy()
-               & np.isfinite(p.az_deg.to_numpy()) & np.isfinite(p.el_deg.to_numpy()))
+    p = B.pointing
+    ok = ((B.meta.rfswitch == "RFANT").to_numpy() & p.quality.isin(["ok", "suspect"]).to_numpy()
+          & np.isfinite(p.az_deg.to_numpy()) & np.isfinite(p.el_deg.to_numpy()))
     at_height, era_counts = rows_at_height(B.meta.file.to_numpy(), args.era, campaign)
     ok &= at_height
     t = B.t[ok]
-    pt = {v: (bb.pointing.az_deg.to_numpy()[ok], bb.pointing.el_deg.to_numpy()[ok]) for v, bb in bundles.items()}
-    d_el = pt["v4"][1] - pt["v5"][1]
-    s_az = np.mod(pt["v4"][0] + pt["v5"][0] + 180, 360) - 180
-    print(f"{len(t)} rows; el v4-v5 {np.nanmin(d_el):.3f}..{np.nanmax(d_el):.3f}; "
-          f"az v4+v5 {np.nanmin(s_az):.2f}..{np.nanmax(s_az):.2f} deg", flush=True)
+    az5, el = p.az_deg.to_numpy()[ok], p.el_deg.to_numpy()[ok]
+    pt = {"v5": (az5, el), "v4": (-az5, el)}
+    print(f"{len(t)} rows at {args.era}", flush=True)
 
     beams = {k: HealpixBeam.from_npz(campaign / k / "dpss/empirical_beam.npz") for k in (OLD, NEW)}
     geoms = {k: geometry(k, campaign) for k in (OLD, NEW)}
