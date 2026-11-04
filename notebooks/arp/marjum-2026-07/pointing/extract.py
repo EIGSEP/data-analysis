@@ -234,6 +234,44 @@ def load_window(data_dir, t_start, t_stop, pattern="corr_*.h5", verbose=False,
     return data
 
 
+def imu_el_calibration(paths):
+    """The imu_el mount calibration the files carry in header/imu_calibration.
+
+    Marjum has one calibration (2026-07-09T19:41Z, 12 stops), which the
+    firmware applied for the whole campaign; 1514 of the 5120 files carry an
+    empty ``{}`` header instead (the header is a snapshot, not the state the
+    firmware ran with), so the single calibration found is used for every
+    file. More than one distinct imu_el section is an error.
+
+    Returns ``(section, info)``: the section (``accel_bias``, ``M``, ...) and
+    ``{"sha256", "metadata", "n_files_with", "n_files_without"}``, the hash
+    being of the section's sorted-key JSON.
+    """
+    import hashlib
+
+    found, meta, n_with, n_without = {}, {}, 0, 0
+    for path in paths:
+        with h5py.File(path, "r") as f:
+            raw = f["header/imu_calibration"][()] \
+                if "header/imu_calibration" in f else b"{}"
+        cal = _decode(raw) or {}
+        if "imu_el" not in cal:
+            n_without += 1
+            continue
+        n_with += 1
+        key = json.dumps(cal["imu_el"], sort_keys=True)
+        found.setdefault(key, cal["imu_el"])
+        meta.setdefault(key, cal.get("metadata"))
+    if len(found) != 1:
+        raise ValueError(f"{len(found)} distinct imu_el calibrations in "
+                         f"{n_with} files; expected exactly one")
+    key = next(iter(found))
+    return found[key], {
+        "sha256": hashlib.sha256(key.encode()).hexdigest(),
+        "metadata": meta[key], "n_files_with": n_with,
+        "n_files_without": n_without}
+
+
 def utc(ts):
     """Format a UTC epoch second as an ISO-ish string (for printing)."""
     return dt.datetime.fromtimestamp(float(ts), dt.timezone.utc).strftime(
