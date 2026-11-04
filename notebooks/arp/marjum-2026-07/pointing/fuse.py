@@ -187,11 +187,14 @@ EXTRAPOLATION_POLICY = "none: unsupported samples are NaN + NO_ESTIMATE"
 # The same reading carries the component the firmware discards: along the
 # axle, u . n = sin(tau), the axle's tilt from horizontal. n is the normal of
 # the plane the 07-17 raster's readings trace as the box turns about the
-# axle (picohost.imu_geometry.fit_plane_normal; sensor frame, n_x > 0). The
-# firmware calibration's axle, -M[0], is 0.49 deg from it, which moves a
-# parked era's tilt by up to ~0.5 deg (private notebook 035, addendum);
-# tilt_sigma_deg carries that axis difference, IMU_TILT_AXIS_SIGMA, in
-# quadrature with the accelerometer noise.
+# axle (picohost.imu_geometry.fit_plane_normal; sensor frame, n_x > 0).
+# tilt_sigma_deg carries the axis's uncertainty, IMU_TILT_AXIS_SIGMA, in
+# quadrature with the accelerometer noise: the 07-17 raster and 07-18
+# re-raise plane normals agree to 0.06 deg; 0.15 deg allows for the raster's
+# 20:54-21:01 dip and a common-method bias. The firmware's 07-09 lab
+# calibration axis, -M[0], is 0.46 deg away (a different hang, fitted to the
+# motor angles assuming zero tilt); it is not a field uncertainty (private
+# notebook 035; CHB, 2026-11-04).
 #
 # The sign: TILT_SIGN = +1 makes tilt_deg the tau of
 # eigsep_data.beam_mapping.TxGeometryModel (Rz(psi) Ry(tau) Rx(el) Rz(az)).
@@ -201,7 +204,7 @@ EXTRAPOLATION_POLICY = "none: unsupported samples are NaN + NO_ESTIMATE"
 # tau = +4.74 deg, and +1 gives the raster +5.9 deg from the IMU, -1 gives
 # -5.9 deg. If the BNO08x RVC convention is confirmed, record it here.
 TILT_SIGN = +1
-IMU_TILT_AXIS_SIGMA = 0.46
+IMU_TILT_AXIS_SIGMA = 0.15
 # Quasi-static: the reading is gravity alone to 2 % (|a| against standard
 # gravity). Beyond it the box accelerates (a swing or a slew inside the
 # integration), and neither tilt_deg nor el_deg is a static angle: those

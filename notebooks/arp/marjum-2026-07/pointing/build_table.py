@@ -98,9 +98,11 @@ v6  adds ``tilt_deg``, the axle's tilt from horizontal per sample (the tau
     ~91m raster, ~+0.4 deg at ~87.5m, ~+2.1 deg after the re-raise), where
     every fit so far used one constant. The sign is fixed by the radio data
     (the IMU-free raster beam fit prefers +4.74 deg); ``tilt_sigma_deg`` is
-    the accelerometer noise plus 0.46 deg for the axle's direction (the
-    firmware calibration's axle against the raster plane normal), in
-    quadrature. **``el_deg`` changes on wrap rows**: it is recomputed from the
+    the accelerometer noise plus 0.15 deg for the axle's direction, in
+    quadrature (the 07-17 raster and 07-18 re-raise plane normals agree to
+    0.06 deg; 0.15 deg allows for the raster's 20:54-21:01 dip and a
+    common-method bias; the firmware's 07-09 lab calibration axis is 0.46 deg
+    away). **``el_deg`` changes on wrap rows**: it is recomputed from the
     same averaged accelerations through the firmware calibration
     (``atan2(g_y, g_z)``, ``g = M u``, as the firmware computes each sample),
     because the recorder's linear mean of ``imu_el.el_deg`` over an
@@ -675,9 +677,12 @@ def main():
             "asin(u . n) with u the preconditioned imu_el reading and n the "
             "07-17 raster's plane normal, TxGeometryModel's tau. Its sign is "
             "set by the radio data (the IMU-free raster beam fit's +4.74 deg), "
-            "not by the calibration; tilt_sigma_deg includes 0.46 deg for the "
+            "not by the calibration; tilt_sigma_deg includes 0.15 deg for the "
             "axle direction, which is carried from the raster to every era "
-            "(parked eras cannot refit it). el_deg is recomputed from the "
+            "(parked eras cannot refit it): the 07-17 raster and 07-18 "
+            "re-raise plane normals agree to 0.06 deg; 0.15 deg allows for "
+            "the raster's 20:54-21:01 dip and a common-method bias; the "
+            "firmware's 07-09 lab calibration axis is 0.46 deg away. el_deg is recomputed from the "
             "averaged accelerations through the firmware calibration, which "
             "removes the recorder's linear-mean wrap glitch near +/-180 deg "
             "(EL_WRAP_CORRECTED); imu_el_deg keeps the firmware mean, and "
