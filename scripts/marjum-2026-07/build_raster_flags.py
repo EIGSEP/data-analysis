@@ -26,9 +26,9 @@ model's own jump, and |data - model| > 6 MAD for that tooth.
 The opening slew is never flagged here; it stays excluded by its own rule.
 
 --reference picks another reference diagnostics (default v0006's PCA, which made
-v0001), --version names the product, and --exclude-fit-channels drops teeth from
-the fitting set when the reference fitted all of them (v0006 excluded 720, 816,
-912 and 960). v0002 is built on a PCA fit to the pointing v6 raster without raster
+v0001), --version names the product, --channels keeps a subset of its teeth, and
+--exclude-fit-channels drops teeth from the fitting set when the reference fitted
+all of them (v0006 excluded 720, 816, 912 and 960). v0002 is built on a PCA fit to the pointing v6 raster without raster
 flags (fit_beam.py --flags none), so the flags cover the rows v6 adds.
 """
 from pathlib import Path
@@ -76,10 +76,14 @@ def relative(path):
         return f'{(Path(top) / common).resolve().parent.name}/{path.relative_to(top)}'
 
 
-def main(output, exclude_fit_channels=()):
+def main(output, exclude_fit_channels=(), channels=None):
     z = np.load(REFERENCE)
-    D, G, T, M = z['data'], z['good'].astype(bool), z['t'], z['empirical_exported']
-    fit = z['fit_channels'].astype(bool) & ~np.isin(z['channels'], exclude_fit_channels)
+    # --channels keeps those teeth of the reference (v0002: v0001's 46 of the 74 fitted).
+    sel = np.ones(len(z['channels']), bool) if channels is None else np.isin(z['channels'], channels)
+    assert channels is None or sel.sum() == len(set(channels)), 'channels missing from the reference'
+    chans, freqs = z['channels'][sel], z['freqs'][sel]
+    D, G, T, M = z['data'][sel], z['good'][sel].astype(bool), z['t'], z['empirical_exported'][sel]
+    fit = z['fit_channels'][sel].astype(bool) & ~np.isin(chans, exclude_fit_channels)
     slew = z['el0_slew'].astype(bool)
     nf, n = D.shape
 
@@ -131,7 +135,7 @@ def main(output, exclude_fit_channels=()):
         reference_sha256=hashlib.sha256(REFERENCE.read_bytes()).hexdigest(),
         keys='t: correlator time_best (s since 1970 UTC), as in the beam diagnostics; channels: correlator '
              'channel numbers (freq = channel*250/1024 MHz)',
-        fit_channels=[int(c) for c in z['channels'][fit]],
+        fit_channels=[int(c) for c in chans[fit]],
         excluded_fit_channels=[int(c) for c in exclude_fit_channels],
         bits=BITS, parameters=dict(min_teeth=MIN_TEETH, level_abs_ln=LEVEL, pad_abs_ln=PAD_LEVEL,
                                    contiguous_s=CONTIGUOUS_S, spike_jump=SPIKE_JUMP, spike_mad=SPIKE_MAD,
@@ -148,7 +152,7 @@ def main(output, exclude_fit_channels=()):
                  'jump with the model jump for that reason.',
                  'Defined on the 07-17 raster samples of the reference diagnostics (%d samples, %d teeth).'
                  % (n, nf)])
-    np.savez_compressed(output, t=T, channels=z['channels'], freqs=z['freqs'],
+    np.savez_compressed(output, t=T, channels=chans, freqs=freqs,
                         sample_flag=sample_flag, sample_bits=sample_bits, tooth_flag=spike, tooth_bits=tooth_bits,
                         level_k=k, usable_teeth=teeth, provenance=np.array(json.dumps(provenance, indent=1)))
     print(json.dumps(provenance['summary'], indent=1))
@@ -164,6 +168,9 @@ if __name__ == '__main__':
     parser.add_argument('--version', default=VERSION)
     parser.add_argument('--exclude-fit-channels', type=int, nargs='*', default=[],
                         help='channels left out of the fitting teeth (v0006 excluded 720 816 912 960)')
+    parser.add_argument('--channels', type=int, nargs='*', default=None,
+                        help="the reference's teeth to flag (default all; v0002: v0001's 46, 600-960 step 8)")
     args = parser.parse_args()
     REFERENCE, VERSION = args.reference, args.version
-    main(args.output or CAMPAIGN / f'derived/beam/raster_flags_{VERSION}.npz', tuple(args.exclude_fit_channels))
+    main(args.output or CAMPAIGN / f'derived/beam/raster_flags_{VERSION}.npz', tuple(args.exclude_fit_channels),
+         args.channels)
