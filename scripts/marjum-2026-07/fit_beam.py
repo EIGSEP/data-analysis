@@ -259,7 +259,12 @@ def main(output, teeth_path, flags, bases, maxiter, concentration_min):
     output.mkdir(parents=True, exist_ok=True)
     selection = json.loads(Path(teeth_path).read_text())
     raw = load_data(selection['channels'], concentration_min)
-    sample_flag, tooth_flag, flag_prov = apply_flags(raw, flags)
+    if flags == 'none':
+        # No raster flags: the fit a raster flags product is built on (build_raster_flags.py --reference).
+        sample_flag, tooth_flag = np.zeros(len(raw['t']), bool), np.zeros_like(raw['good'])
+        flag_prov = dict(version='none', n_samples_not_covered=0)
+    else:
+        sample_flag, tooth_flag, flag_prov = apply_flags(raw, flags)
     good = raw['good'] & ~sample_flag[None, :] & ~tooth_flag
     freqs = raw['channels'] * DF
     data = bm.ToothData(t=raw['t'], az_deg=raw['az'], el_deg=raw['el'], data=raw['data'], good=good,
@@ -411,7 +416,8 @@ def main(output, teeth_path, flags, bases, maxiter, concentration_min):
     import eigsep_base
     import eigsep_data
     inputs = [SOURCE, POINT_TABLE, DEFAULT_BEAM_PATH, RELEASE, CAMPAIGN / 'curation/mode_table.jsonl', Path(teeth_path),
-              Path(flags), CAMPAIGN / 'curation/antenna_resolution.json']
+              CAMPAIGN / 'curation/antenna_resolution.json']
+    inputs += [] if flags == 'none' else [Path(flags)]
     inputs += [MEMO002] if POSITIONS == 'posterior-mean' else []
     inputs += [CAMPAIGN / 'data' / Path(f).name for f in raw['files']]
     artifacts = {str(p.relative_to(output)): digest(p) for p in output.rglob('*')
@@ -442,7 +448,7 @@ def main(output, teeth_path, flags, bases, maxiter, concentration_min):
                         else 'legacy floor(2NW)+1 modes (v0009-v0011)'),
         tooth_selection=dict(path=workspace_path(teeth_path), version=selection['version'],
                              channels=len(selection['channels'])),
-        flags=dict(path=workspace_path(flags), version=flag_prov['version'],
+        flags=dict(path=None if flags == 'none' else workspace_path(flags), version=flag_prov['version'],
                    samples=int(sample_flag.sum()), tooth_spikes=int(tooth_flag.sum()),
                    samples_not_covered=flag_prov['n_samples_not_covered']),
         spectral_bases=descriptions, lmax=lmax, band_mhz=list(band), raster_utc=list(RASTER),
@@ -480,7 +486,8 @@ if __name__ == '__main__':
     parser.add_argument('--tilt', choices=['fit', 'fixed-imu'], default='fit',
                         help="axle tilt: fitted with the geometry candidates, or held at the IMU's (v6 tilt_deg)")
     parser.add_argument('--teeth', default=str(CAMPAIGN / 'derived/beam/tooth_selection_v0002.json'))
-    parser.add_argument('--flags', default=str(CAMPAIGN / 'derived/beam/raster_flags_v0001.npz'))
+    parser.add_argument('--flags', default=str(CAMPAIGN / 'derived/beam/raster_flags_v0001.npz'),
+                        help="raster flags npz, or 'none' (the fit a flags product is built on)")
     parser.add_argument('--bases', nargs='+', choices=['dpss', 'pca'], default=['dpss', 'pca'])
     parser.add_argument('--maxiter', type=int, default=3000)
     parser.add_argument('--concentration-min', default='1e-6',
