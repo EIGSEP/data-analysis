@@ -27,7 +27,11 @@ derived/beam/empirical_raster_v0008-v0011:
    (v6), the IMU's tilt tau_IMU (weighted mean over the kept rows) and the lean
    tau_fit - tau_IMU are reported, with the fitted tilt's error from a delete-one-stripe
    jackknife of the selected candidate over the training stripes. --tilt fixed-imu
-   holds the tilt at tau_IMU and fits the other corrections (variant F of v0018).
+   holds the tilt at tau_IMU and fits the other corrections. From v0018 (CHB,
+   2026-11-04) that is the default: the fitted tilt predicts the held-out stripes no
+   better, so the lean is not resolved and not fitted. The fitted-tilt variant
+   (--tilt fit) goes in <output>/variant_fitted_tilt; v0017 and earlier, on tables
+   without tilt_deg, need --tilt fit.
 4. Beams: ell_max and a spectral basis (PCA or DPSS) from the normalized HFSS
    fields; JointBeamFit at prior weights 1e-2, 1e-3, 1e-4, chosen on the
    validation stripes, then refitted on all samples and exported. --penalty
@@ -69,7 +73,8 @@ RELEASE = CAMPAIGN / 'imgs/fits/v0005_marjum_geometry/shared.json'   # --release
 POSITIONS = 'posterior-mean'      # --positions: 'posterior-mean' (memo 002's adopted values) or 'release'
 MEMO002 = CAMPAIGN.parent / 'memos/memo-002-marjum-2026-07-geometry/tables/summary.json'
 GEOMETRY = 'tilt'                 # --geometry: 'tilt' (tx_fit.TILT_CANDIDATES) or 'legacy' (GEOMETRY_CANDIDATES)
-TILT = 'fit'                      # --tilt: 'fit' (the candidates' tilt) or 'fixed-imu' (held at the IMU's, v6)
+TILT = 'fixed-imu'                # --tilt: 'fixed-imu' (held at the IMU's, v6; v0018) or 'fit' (the candidates' tilt)
+TILT_VARIANT = 'variant_fitted_tilt'   # where the fitted-tilt variant of a fixed-IMU-tilt product goes
 HEIGHT_ERA = '~91m'                # the raster's era; rows of any other era are dropped
 RASTER = ('2026-07-17 20:26:00', '2026-07-17 21:28:40')
 PSI_DEG = 142.164                 # highline direction, deg ccw from East (known_quantities v0001)
@@ -308,6 +313,15 @@ def main(output, teeth_path, flags, bases, maxiter, concentration_min):
         model = dataclasses.replace(model, axle_tilt_deg=0.0)
     pd.DataFrame(geometry_table).to_csv(output / 'geometry_comparison.csv', index=False)
     tilt = dict(mode=TILT, geometry_model=best_geometry, tau_deg=float(params[5]), imu=tau_imu)
+    if TILT == 'fixed-imu':
+        variant = Path(os.path.abspath(output / TILT_VARIANT))
+        try:
+            variant = variant.relative_to(os.path.abspath(ROOT))
+        except ValueError:
+            pass
+        tilt['configuration'] = 'tilt fixed at tau_IMU (pointing v6); the fitted-tilt variant is %s' % variant
+    else:
+        tilt['configuration'] = 'tilt fitted with the geometry candidates (--tilt fit)'
     free = dict(candidates)[best_geometry]
     if TILT == 'fit' and 5 in free:
         sigma, jackknife = tilt_jackknife(data, fields_teeth, model, best_geometry, free)
@@ -483,10 +497,11 @@ if __name__ == '__main__':
                         help='geometry candidates: axle tilt with the transmitter fixed, or the v0012-v0014 set')
     parser.add_argument('--pointing', default='curation/pointing_table.parquet',
                         help='pointing table (v5 or v6): a path, or relative to the campaign')
-    parser.add_argument('--tilt', choices=['fit', 'fixed-imu'], default='fit',
-                        help="axle tilt: fitted with the geometry candidates, or held at the IMU's (v6 tilt_deg)")
+    parser.add_argument('--tilt', choices=['fixed-imu', 'fit'], default='fixed-imu',
+                        help="axle tilt: held at the IMU's (v6 tilt_deg; the v0018 configuration), or fitted with "
+                             "the geometry candidates (the variant; needed on v5)")
     parser.add_argument('--teeth', default=str(CAMPAIGN / 'derived/beam/tooth_selection_v0002.json'))
-    parser.add_argument('--flags', default=str(CAMPAIGN / 'derived/beam/raster_flags_v0001.npz'),
+    parser.add_argument('--flags', default=str(CAMPAIGN / 'derived/beam/raster_flags_v0002.npz'),
                         help="raster flags npz, or 'none' (the fit a flags product is built on)")
     parser.add_argument('--bases', nargs='+', choices=['dpss', 'pca'], default=['dpss', 'pca'])
     parser.add_argument('--maxiter', type=int, default=3000)
