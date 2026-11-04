@@ -237,6 +237,10 @@ def table(tmp_path_factory, calibration):
     # a park at el 30 deg (static rows, one not quasi-static)
     add("~87.5m", "2026-07-17 09:00:00", np.full(200, 30.0), 0.4,
         scale=(10, 1.05))
+    # handling: gravity near the axle (EL_UNDEFINED_TILT), and a large tilt
+    # inside the limit
+    add("~87.5m", "2026-07-17 10:00:00", np.linspace(-30, 30, 60), 70.0)
+    add("~87.5m", "2026-07-17 10:30:00", np.linspace(-30, 30, 60), -55.0)
     # a park through +-180 deg: rows are means of three firmware samples
     centre = 179.2 + 0.008 * np.arange(200)
     el3 = centre[:, None] + np.array([-0.3, 0.0, 0.3])[None, :]
@@ -334,3 +338,11 @@ def test_table_quasi_static_flag(table):
     assert np.flatnonzero(bit).tolist() == [10]
     assert not np.any(tab["flags"][~_rows(tab, name)]
                       & fuse.FLAG_IMU_NOT_QUASI_STATIC)
+
+
+def test_table_undefined_tilt_flag(table):
+    tab, info, truth = table
+    name = [n for n, t in truth.items() if t["tau"] == 70.0][0]
+    bit = (tab["flags"] & fuse.FLAG_EL_UNDEFINED_TILT) != 0
+    assert np.array_equal(bit, _rows(tab, name))
+    assert info["n_el_undefined_tilt"] == _rows(tab, name).sum() == 60

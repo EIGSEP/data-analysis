@@ -88,6 +88,7 @@ FLAG_AZ_SLEW = 1 << 12          # inside a large az slew; platform may lag or sl
 FLAG_AZ_FUSED_FALLBACK = 1 << 13  # no commanded az (no motor / no anchor); v1 fused az used
 FLAG_IMU_NOT_QUASI_STATIC = 1 << 14  # | |a|/g - 1 | > QUASI_STATIC_TOL: tilt and el not static
 FLAG_EL_WRAP_CORRECTED = 1 << 15  # v6 el_deg differs from the firmware mean by > EL_WRAP_FIX_DEG
+FLAG_EL_UNDEFINED_TILT = 1 << 16  # |tilt_deg| > EL_UNDEFINED_TILT_DEG: gravity near the axle
 
 FLAG_NAMES = {
     FLAG_NO_METADATA: "NO_METADATA",
@@ -106,6 +107,7 @@ FLAG_NAMES = {
     FLAG_AZ_FUSED_FALLBACK: "AZ_FUSED_FALLBACK",
     FLAG_IMU_NOT_QUASI_STATIC: "IMU_NOT_QUASI_STATIC",
     FLAG_EL_WRAP_CORRECTED: "EL_WRAP_CORRECTED",
+    FLAG_EL_UNDEFINED_TILT: "EL_UNDEFINED_TILT",
 }
 
 # Commanded azimuth (v2). The az and el drives never run together and are
@@ -202,12 +204,21 @@ TILT_SIGN = +1
 IMU_TILT_AXIS_SIGMA = 0.46
 # Quasi-static: the reading is gravity alone to 2 % (|a| against standard
 # gravity). Beyond it the box accelerates (a swing or a slew inside the
-# integration), and neither tilt_deg nor el_deg is a static angle.
+# integration), and neither tilt_deg nor el_deg is a static angle: those
+# rows are quality 'suspect' (hauling, handling, the 07-18 fall). The test
+# sees vertical acceleration only; horizontal acceleration enters |a| at
+# second order.
 QUASI_STATIC_TOL = 0.02
 # A v6 el_deg that differs from the firmware mean (the v5 value) by more than
 # this is a wrap correction (FLAG_EL_WRAP_CORRECTED). Elsewhere the two agree
 # to ~0.01 deg on static rows.
 EL_WRAP_FIX_DEG = 1.0
+# el = atan2(g_y, g_z) is the angle of gravity's projection on the plane
+# normal to the axle, whose length is cos(tilt). Beyond this tilt gravity
+# lies within 30 deg of the axle, the projection is under half of g, and
+# the angle is ill-conditioned (07-13 18:37-18:45 at 2 m: tilt 11 -> 88 deg
+# during handling on the ground): FLAG_EL_UNDEFINED_TILT, quality 'suspect'.
+EL_UNDEFINED_TILT_DEG = 60.0
 # The axle fit: the 07-17 raster, the window of the reference beam fit
 # empirical_raster_v0017 (its provenance raster_utc), height era ~91m, the
 # only era whose elevation covers the full circle with the axle unchanged.
@@ -683,8 +694,16 @@ def detect_uncommanded(imu_el_deg, motor_el_steps, window=200,
     return out
 
 
-def fuse_elevation(imu_el_deg, motor_el_steps):
-    """Elevation from the IMU, with a flagged motor-only fallback."""
+def fuse_elevation(imu_el_deg, motor_el_steps, uncommanded_el_deg=None):
+    """Elevation from the IMU, with a flagged motor-only fallback.
+
+    ``uncommanded_el_deg`` (v6) is the elevation ``detect_uncommanded``
+    runs on: the table passes the accelerometer el where the firmware el
+    exists (NaN elsewhere, never the motor fallback). Unwrapping the
+    firmware mean's wrap glitches near +/-180 deg spans 360-1800 deg in a
+    window and set UNCOMMANDED_MOTION on parks and commanded slews. The
+    default (None) runs it on ``imu_el_deg``, as v5 did.
+    """
     imu = np.asarray(imu_el_deg, float)
     motor_deg = wrap180(MOTOR_DEG_PER_STEP * np.asarray(motor_el_steps, float))
     n = imu.size
@@ -696,7 +715,8 @@ def fuse_elevation(imu_el_deg, motor_el_steps):
 
     stuck = detect_el_stuck(imu, motor_el_steps)
     flags[stuck] |= FLAG_EL_STUCK
-    flags[detect_uncommanded(imu, motor_el_steps)] |= FLAG_UNCOMMANDED
+    el_unc = imu if uncommanded_el_deg is None else uncommanded_el_deg
+    flags[detect_uncommanded(el_unc, motor_el_steps)] |= FLAG_UNCOMMANDED
 
     # Once the EL drive has demonstrably failed, every later sample is
     # parked-or-suspect: mark the whole tail so no consumer fits through it.

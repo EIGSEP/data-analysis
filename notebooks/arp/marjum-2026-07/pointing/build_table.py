@@ -107,11 +107,21 @@ v6  adds ``tilt_deg``, the axle's tilt from horizontal per sample (the tau
     integration turns samples near +/-180 deg into ~0 or ~+/-60 deg (the
     v1.2 ``EL_SOLUTION_GLITCH`` population of the post-failure park). Static
     rows keep their v5 value to 0.02 deg; rows that move by more than 1 deg
-    carry the new flag bit 15 ``EL_WRAP_CORRECTED``. New flag bit 14
-    ``IMU_NOT_QUASI_STATIC``: | |a|/g - 1 | > 2 %, where neither angle is
-    static. ``imu_el_deg`` keeps the firmware value, ``EL_SOLUTION_GLITCH``
-    and ``quality`` keep their v5 criteria (on that raw value), and every
-    other column is unchanged.
+    carry the new flag bit 15 ``EL_WRAP_CORRECTED``. ``imu_el_deg`` keeps
+    the firmware value, and ``EL_SOLUTION_GLITCH``, ``EL_STUCK`` and
+    ``EL_POST_FAILURE`` keep their v5 criteria on it. **``quality``
+    changes** (``quality_from_flags``): (a) new flag bit 14
+    ``IMU_NOT_QUASI_STATIC``, | |a|/g - 1 | > 2 % (hauling, handling, the
+    07-18 fall), where neither angle is static, sets 'suspect'; (b) new flag
+    bit 16 ``EL_UNDEFINED_TILT``, |tilt_deg| > 60 deg, where gravity lies
+    near the axle and el = atan2(g_y, g_z) is ill-conditioned, sets
+    'suspect'; (c) on ``EL_WRAP_CORRECTED`` rows ``EL_SOLUTION_GLITCH`` no
+    longer sets 'suspect' (the glitch is in ``imu_el_deg``, which ``el_deg``
+    no longer uses; the bit stays set), so the other criteria decide; (d)
+    ``UNCOMMANDED_MOTION`` (bit 5) runs on the accelerometer el where the
+    firmware el exists, not on the firmware mean, whose wrap glitches
+    unwrapped to window spans of 360-1800 deg and set it on parks and
+    commanded slews (07-17 19:55-20:14). Every other column is unchanged.
 
 Run::
 
@@ -196,6 +206,41 @@ def _load(name, filename):
 
 extract = _load("extract", "extract.py")
 fuse = _load("fuse", "fuse.py")
+
+# Flag bits that make a row's az/el value 'suspect' on their own. v6 adds
+# IMU_NOT_QUASI_STATIC (the box accelerates: no static angle) and
+# EL_UNDEFINED_TILT (gravity near the axle: el ill-conditioned).
+# EL_SOLUTION_GLITCH is tested on the firmware el (imu_el_deg), so it
+# counts only where el_deg was not recomputed past it (EL_WRAP_CORRECTED);
+# see quality_from_flags.
+SUSPECT_FLAGS = (fuse.FLAG_EL_NO_IMU             # el from motor alone
+                 | fuse.FLAG_AZ_SLEW             # platform may lag/slip
+                 | fuse.FLAG_UNCOMMANDED         # swinging within a sample
+                 | fuse.FLAG_IMU_NOT_QUASI_STATIC  # accelerating (v6)
+                 | fuse.FLAG_EL_UNDEFINED_TILT)    # gravity near axle (v6)
+
+
+def quality_from_flags(flags, hdr_bad):
+    """Per-row ``quality`` from the flag bits and the header-clock state.
+
+    'gap' where NO_ESTIMATE; otherwise 'suspect' where the header clock is
+    bad (t_utc only ~+/-10 min), the az has no absolute reference (fused
+    fallback with no pot), any SUSPECT_FLAGS bit is set, or
+    EL_SOLUTION_GLITCH is set on a row whose el_deg was not wrap-corrected
+    (v6: on an EL_WRAP_CORRECTED row the glitch is in imu_el_deg, which
+    el_deg no longer uses; the bit stays set); 'ok' elsewhere.
+    """
+    flags = np.asarray(flags)
+    quality = np.full(flags.size, QUALITY_OK, dtype=object)
+    fallback_no_pot = (((flags & fuse.FLAG_AZ_FUSED_FALLBACK) != 0)
+                       & ((flags & fuse.FLAG_AZ_NO_POT) != 0))
+    glitch = (((flags & fuse.FLAG_EL_SOLUTION_GLITCH) != 0)
+              & ((flags & fuse.FLAG_EL_WRAP_CORRECTED) == 0))
+    value_suspect = (np.asarray(hdr_bad, bool) | fallback_no_pot | glitch
+                     | ((flags & SUSPECT_FLAGS) != 0))
+    quality[value_suspect] = QUALITY_SUSPECT
+    quality[(flags & fuse.FLAG_NO_ESTIMATE) != 0] = QUALITY_GAP
+    return quality
 
 
 def git_describe(repo, scope=None):
@@ -351,8 +396,20 @@ def build(data_dir, t_start, t_stop, campaign_dir, index=None):
         d["motor_az_pos"], d["potmon_pot_az_angle"], d["time"], az_fused)
     commanded = (flags_cmd & fuse.FLAG_AZ_FUSED_FALLBACK) == 0
     sigma_az = np.where(commanded & np.isfinite(az), sigma_cmd, sigma_fused)
+
+    # v6: el and the axle's tilt from the averaged imu_el accelerations,
+    # through the campaign's one firmware calibration (fuse, v6 block).
+    cal, cal_info = extract.imu_el_calibration([r["path"] for r in index])
+    acc = _accel(d)
+    u = fuse.imu_unit(acc, cal["accel_bias"])
+    el_acc = fuse.el_from_unit(u, cal["M"])
+    from_imu = np.isfinite(d["imu_el_el_deg"]) & np.isfinite(el_acc)
+    # UNCOMMANDED_MOTION runs on the accelerometer el where the firmware el
+    # exists: the firmware mean's wrap glitches unwrap to spans of 360-1800
+    # deg, and el_deg's motor fallback would add false 180 deg jumps.
+    el_imu6 = np.where(from_imu, el_acc, np.nan)
     el, sigma_el, flags_el = fuse.fuse_elevation(
-        d["imu_el_el_deg"], d["motor_el_pos"])
+        d["imu_el_el_deg"], d["motor_el_pos"], uncommanded_el_deg=el_imu6)
 
     flags = flags_az | flags_el | flags_cmd
     flags[d["motor_status"] == "absent"] |= fuse.FLAG_NO_METADATA
@@ -378,15 +435,10 @@ def build(data_dir, t_start, t_stop, campaign_dir, index=None):
     eras = load_eras(campaign_dir)
     era, phase = label_eras(d["file_name"], data_dir, eras)
 
-    # v6: el and the axle's tilt from the averaged imu_el accelerations,
-    # through the campaign's one firmware calibration (fuse, v6 block). The
-    # flags and quality above keep their v5 criteria on the firmware el.
-    cal, cal_info = extract.imu_el_calibration([r["path"] for r in index])
+    # v6 (cont.): the elevation itself and the tilt. EL_STUCK,
+    # EL_POST_FAILURE and EL_SOLUTION_GLITCH above keep their v5 criteria on
+    # the firmware el.
     axle, axle_info = raster_axle(data_dir, index, eras, cal)
-    acc = _accel(d)
-    u = fuse.imu_unit(acc, cal["accel_bias"])
-    el_acc = fuse.el_from_unit(u, cal["M"])
-    from_imu = np.isfinite(d["imu_el_el_deg"]) & np.isfinite(el_acc)
     el_v5 = el
     el = np.where(from_imu, el_acc, el_v5)
     flags[from_imu & (np.abs(fuse.wrap180(el - el_v5))
@@ -394,6 +446,9 @@ def build(data_dir, t_start, t_stop, campaign_dir, index=None):
     have_acc = np.isfinite(acc).all(axis=1)
     flags[have_acc & ~fuse.quasi_static(acc)] |= fuse.FLAG_IMU_NOT_QUASI_STATIC
     tilt = fuse.axle_tilt(u, axle)
+    undefined = np.isfinite(tilt) & (np.abs(tilt)
+                                     > fuse.EL_UNDEFINED_TILT_DEG)
+    flags[undefined] |= fuse.FLAG_EL_UNDEFINED_TILT
     static = (fuse.static_rows(el, d["file_index"]) & fuse.quasi_static(acc)
               & np.isfinite(tilt))
     tilt_noise, n_pairs = fuse.tilt_noise_deg(u, axle, static, d["file_index"])
@@ -418,6 +473,9 @@ def build(data_dir, t_start, t_stop, campaign_dir, index=None):
         "n_imu_not_quasi_static": int(((flags
                                         & fuse.FLAG_IMU_NOT_QUASI_STATIC)
                                        != 0).sum()),
+        "el_undefined_tilt_deg": fuse.EL_UNDEFINED_TILT_DEG,
+        "n_el_undefined_tilt": int(undefined.sum()),
+        "uncommanded_on": "accelerometer el where imu_el_deg is finite",
         "n_tilt": int(np.isfinite(tilt).sum()),
     }
 
@@ -450,18 +508,7 @@ def build(data_dir, t_start, t_stop, campaign_dir, index=None):
     #
     # 'interp' is never emitted -- this product does not interpolate; absent
     # pointing is a gap, not a smoothed value.
-    quality = np.full(n, QUALITY_OK, dtype=object)
-    fallback_no_pot = (((flags & fuse.FLAG_AZ_FUSED_FALLBACK) != 0)
-                       & ((flags & fuse.FLAG_AZ_NO_POT) != 0))
-    value_suspect = (
-        hdr_bad                                        # t_utc only ~+/-10 min
-        | fallback_no_pot                              # az has no absolute ref
-        | ((flags & (fuse.FLAG_EL_NO_IMU               # el from motor alone
-                     | fuse.FLAG_AZ_SLEW               # platform may lag/slip
-                     | fuse.FLAG_UNCOMMANDED           # swinging within a sample
-                     | fuse.FLAG_EL_SOLUTION_GLITCH)) != 0))  # el solver jump
-    quality[value_suspect] = QUALITY_SUSPECT
-    quality[(flags & fuse.FLAG_NO_ESTIMATE) != 0] = QUALITY_GAP
+    quality = quality_from_flags(flags, hdr_bad)
 
     table = {
         "t_utc": (d["time"] * 1e9).astype("int64"),
@@ -634,7 +681,14 @@ def main():
             "averaged accelerations through the firmware calibration, which "
             "removes the recorder's linear-mean wrap glitch near +/-180 deg "
             "(EL_WRAP_CORRECTED); imu_el_deg keeps the firmware mean, and "
-            "EL_SOLUTION_GLITCH and quality keep their v5 criteria on it.",
+            "EL_SOLUTION_GLITCH keeps its v5 criterion on it.",
+            "v6 quality: IMU_NOT_QUASI_STATIC (| |a|/g - 1 | > 2 %) and "
+            "EL_UNDEFINED_TILT (|tilt_deg| > 60 deg) set 'suspect'; "
+            "EL_SOLUTION_GLITCH does not on EL_WRAP_CORRECTED rows; "
+            "UNCOMMANDED_MOTION runs on the accelerometer el. The 2 % test "
+            "sees vertical acceleration only (horizontal acceleration "
+            "enters |a| at second order), and slow rotations of a held box "
+            "stay 'ok'.",
         ],
         "params": {
             "window_start_utc": extract.utc(table["t_utc_s"][0]),
@@ -696,6 +750,12 @@ def main():
                 "even though it was not scanning. Select scanning data via "
                 "flags, not via quality. 'interp' is never emitted: this "
                 "product does not interpolate; absent pointing is a gap."),
+            "quality_rule": (
+                "gap: NO_ESTIMATE. suspect: hdr_time_bad; AZ_FUSED_FALLBACK "
+                "with AZ_NO_POT; any of EL_NO_IMU, AZ_SLEW, "
+                "UNCOMMANDED_MOTION, IMU_NOT_QUASI_STATIC, "
+                "EL_UNDEFINED_TILT; EL_SOLUTION_GLITCH unless "
+                "EL_WRAP_CORRECTED (v6). ok: otherwise."),
             "flag_bits": {int(k): v for k, v in fuse.FLAG_NAMES.items()},
         }, fh, indent=2)
 
