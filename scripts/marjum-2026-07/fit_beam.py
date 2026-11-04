@@ -23,7 +23,11 @@ derived/beam/empirical_raster_v0008-v0011:
    tx_fit.TILT_CANDIDATES (--geometry tilt): the elevation axle may tilt along the
    highline, and the transmitter stays where the site geometry puts it. v0012-v0014
    instead let the transmitter shift (--geometry legacy), and that shift stood in for
-   the tilt, running to its bound along the line.
+   the tilt, running to its bound along the line. On a pointing table with tilt_deg
+   (v6), the IMU's tilt tau_IMU (weighted mean over the kept rows) and the lean
+   tau_fit - tau_IMU are reported, with the fitted tilt's error from a delete-one-stripe
+   jackknife of the selected candidate over the training stripes. --tilt fixed-imu
+   holds the tilt at tau_IMU and fits the other corrections (variant F of v0018).
 4. Beams: ell_max and a spectral basis (PCA or DPSS) from the normalized HFSS
    fields; JointBeamFit at prior weights 1e-2, 1e-3, 1e-4, chosen on the
    validation stripes, then refitted on all samples and exported. --penalty
@@ -37,6 +41,7 @@ generator of v0008-v0011 itself is kept as debug/fit_beam_legacy.py.
 """
 from pathlib import Path
 import argparse
+import dataclasses
 import hashlib
 import json
 import logging
@@ -59,11 +64,12 @@ def _campaign():
 CAMPAIGN = _campaign()
 # Provenance paths are recorded relative to the workspace holding the campaign.
 ROOT = CAMPAIGN.parent
-POINT_TABLE = CAMPAIGN / 'curation/pointing_table.parquet'
+POINT_TABLE = CAMPAIGN / 'curation/pointing_table.parquet'   # --pointing sets it
 RELEASE = CAMPAIGN / 'imgs/fits/v0005_marjum_geometry/shared.json'   # --release sets it
 POSITIONS = 'posterior-mean'      # --positions: 'posterior-mean' (memo 002's adopted values) or 'release'
 MEMO002 = CAMPAIGN.parent / 'memos/memo-002-marjum-2026-07-geometry/tables/summary.json'
 GEOMETRY = 'tilt'                 # --geometry: 'tilt' (tx_fit.TILT_CANDIDATES) or 'legacy' (GEOMETRY_CANDIDATES)
+TILT = 'fit'                      # --tilt: 'fit' (the candidates' tilt) or 'fixed-imu' (held at the IMU's, v6)
 HEIGHT_ERA = '~91m'                # the raster's era; rows of any other era are dropped
 RASTER = ('2026-07-17 20:26:00', '2026-07-17 21:28:40')
 PSI_DEG = 142.164                 # highline direction, deg ccw from East (known_quantities v0001)
@@ -149,9 +155,12 @@ def load_data(teeth, concentration_min):
     # has the same az, el and quality as v3 on every row. v5 makes the azimuth left-handed about
     # the boresight (memos 002/003): az_deg = (-az_deg of v4) mod 360, everything else the same.
     # The mount rotation below is unchanged, so on v5 it is the left-handed model of v4's az.
-    # Fit on the current table only.
-    assert point_prov['version'].startswith('v5'), point_prov['version']
-    pointing = pq.read_table(POINT_TABLE, columns=['t_utc_s', 'az_deg', 'el_deg', 'quality', 'az_fused_deg'],
+    # v6 keeps v5's az_deg, recomputes el_deg on the +/-180 deg wrap rows, and adds the IMU's
+    # axle tilt (tilt_deg, tilt_sigma_deg). Fit on v5 or v6 only.
+    assert point_prov['version'][:2] in ('v5', 'v6'), point_prov['version']
+    columns = ['t_utc_s', 'az_deg', 'el_deg', 'quality', 'az_fused_deg']
+    columns += [c for c in ('tilt_deg', 'tilt_sigma_deg') if c in pq.read_schema(POINT_TABLE).names]
+    pointing = pq.read_table(POINT_TABLE, columns=columns,
                              filters=[('t_utc_s', '>=', t0 - 60), ('t_utc_s', '<=', t1 + 60)]).to_pandas()
     meta = bundle.meta.reset_index(drop=True).assign(t=lambda x: x.time_best.astype(float))
     j = pd.merge_asof(meta.sort_values('t').reset_index(names='bundle_row'), pointing.sort_values('t_utc_s'),
@@ -172,7 +181,10 @@ def load_data(teeth, concentration_min):
     gap = 0.5 * (raw[:, channels - 4] + raw[:, channels + 4]).T
     ratio = gap / np.nanmedian(gap, axis=1)[:, None]
     good = (ratio > 1 / 1.5) & (ratio < 1.5) & np.isfinite(tooth - background)
+    nan = np.full(len(j), np.nan)
     return dict(t=j.t.to_numpy(), az=j.az_deg.to_numpy(), el=j.el_deg.to_numpy(),
+                tilt=j.tilt_deg.to_numpy() if 'tilt_deg' in j else nan,
+                tilt_sigma=j.tilt_sigma_deg.to_numpy() if 'tilt_sigma_deg' in j else nan,
                 az_v1=j.az_fused_deg.to_numpy(), data=tooth - background, good=good, channels=channels,
                 files=sorted(set(j.file.astype(str))), n_glitches=int(glitch.sum()), point_prov=point_prov,
                 n_off_height=n_off_height)
@@ -197,6 +209,44 @@ def apply_flags(raw, flags):
         prov = json.loads(str(f['provenance']))
         prov['n_samples_not_covered'] = int((~covered).sum())
         return sample_flag, tooth_flag, prov
+
+
+def imu_tilt(raw, data):
+    """The IMU's axle tilt over the rows the fit keeps (any good fitted tooth): the
+    1/sigma^2-weighted mean of the table's tilt_deg. Its error is the axis term, common
+    to every row, in quadrature with the accelerometer noise averaged over the rows;
+    the rows' scatter is reported beside it. None without a tilt column (v5)."""
+    kept = (data.good & data.fit_channels[:, None]).any(axis=0)
+    use = kept & np.isfinite(raw['tilt']) & np.isfinite(raw['tilt_sigma'])
+    if not use.any():
+        return None
+    tilt, w = raw['tilt'][use], raw['tilt_sigma'][use] ** -2.0
+    mean = float(np.sum(w * tilt) / np.sum(w))
+    sigmas = raw['point_prov']['sensor_sigmas_deg']
+    noise = float(sigmas['tilt_noise'] * np.sqrt(np.sum(w ** 2)) / np.sum(w))
+    return dict(tau_deg=mean, sigma_deg=float(np.hypot(sigmas['tilt_axis'], noise)),
+                sigma_axis_deg=float(sigmas['tilt_axis']), sigma_noise_of_mean_deg=noise,
+                scatter_deg=float(np.sqrt(np.sum(w * (tilt - mean) ** 2) / np.sum(w))),
+                n_rows=int(use.sum()), n_rows_kept=int(kept.sum()),
+                rows='rows with at least one good fitted tooth; weights tilt_sigma_deg^-2',
+                sigma_rule='hypot(tilt_axis, tilt_noise / sqrt(N_eff)) from the table\'s sensor_sigmas_deg')
+
+
+def tilt_jackknife(data, fields_teeth, model, name, free):
+    """Delete-one-stripe jackknife of a geometry candidate over the training stripes:
+    the candidate refitted with each training stripe left out, as fit_geometry fits it.
+    Returns the tilt's jackknife standard error and the per-stripe fits."""
+    import eigsep_data.beam_mapping as bm
+
+    stripe = np.floor(((data.az_deg + 180) % 360) / 12.0).astype(int)    # tx_fit.stripe_split's stripes
+    rows = []
+    for k in np.unique(stripe[data.split == 0]):
+        drop = dataclasses.replace(data, split=np.where(stripe == k, -1, data.split))
+        p, _, _, _ = bm.fit_geometry(drop, fields_teeth, model, candidates=((name, free),))
+        rows.append(dict(stripe=int(k), **dict(zip(bm.PARAM_NAMES, map(float, p)))))
+    tau = np.array([r['axle_tilt_delta_deg'] for r in rows]) + model.axle_tilt_deg
+    n = len(tau)
+    return float(np.sqrt((n - 1) / n * np.sum((tau - tau.mean()) ** 2))), rows
 
 
 def main(output, teeth_path, flags, bases, maxiter, concentration_min):
@@ -236,8 +286,34 @@ def main(output, teeth_path, flags, bases, maxiter, concentration_min):
     log.info('coarse az offset %+.0f, alpha %.0f (best at offset 0: %.4f)',
              model.az_offset_deg, model.alpha0_deg, at_zero)
     candidates = bm.TILT_CANDIDATES if GEOMETRY == 'tilt' else bm.tx_fit.GEOMETRY_CANDIDATES
+    tau_imu = imu_tilt(raw, data)
+    if TILT == 'fixed-imu':
+        # Variant F: the tilt held at the IMU's, every other correction fitted as in the headline.
+        assert tau_imu is not None, '--tilt fixed-imu needs a pointing table with tilt_deg (v6)'
+        model = dataclasses.replace(model, axle_tilt_deg=tau_imu['tau_deg'])
+        candidates = tuple((name, free) for name, free in candidates if 5 not in free)
     params, best_geometry, geometry_table, _ = bm.fit_geometry(data, fields_teeth, model, candidates=candidates)
+    if TILT == 'fixed-imu':
+        # Carry the held tilt in the corrections, where a fitted tilt is and where consumers
+        # read it (diagnostics.npz params); the rotations are unchanged.
+        params = params.copy()
+        params[5] += model.axle_tilt_deg
+        for row in geometry_table:
+            row['axle_tilt_delta_deg'] += model.axle_tilt_deg
+        model = dataclasses.replace(model, axle_tilt_deg=0.0)
     pd.DataFrame(geometry_table).to_csv(output / 'geometry_comparison.csv', index=False)
+    tilt = dict(mode=TILT, geometry_model=best_geometry, tau_deg=float(params[5]), imu=tau_imu)
+    free = dict(candidates)[best_geometry]
+    if TILT == 'fit' and 5 in free:
+        sigma, jackknife = tilt_jackknife(data, fields_teeth, model, best_geometry, free)
+        pd.DataFrame(jackknife).to_csv(output / 'tilt_jackknife.csv', index=False)
+        tilt.update(tau_sigma_deg=sigma, tau_sigma_rule='delete-one-stripe jackknife of the selected candidate '
+                                                        'over the %d training stripes' % len(jackknife))
+    if tau_imu is not None and 'tau_sigma_deg' in tilt:
+        tilt.update(lean_deg=tilt['tau_deg'] - tau_imu['tau_deg'], lean_sigma_fit_deg=tilt['tau_sigma_deg'],
+                    lean_sigma_deg=float(np.hypot(tilt['tau_sigma_deg'], tau_imu['sigma_deg'])),
+                    lean_rule='tau_fit - tau_IMU; lean_sigma_deg = hypot(jackknife, tau_IMU sigma)')
+    log.info('tilt %s', tilt)
 
     band = (float(freqs.min()) - DF, float(freqs.max()) + DF)
     first = max(0, np.searchsorted(hfreqs, band[0]) - 1)
@@ -329,6 +405,8 @@ def main(output, teeth_path, flags, bases, maxiter, concentration_min):
             native_hfss_freqs=native_f)
         pd.DataFrame(all_metrics).to_csv(output / 'metrics.csv', index=False)
         (output / 'optimization.json').write_text(json.dumps(optimizations, indent=2) + '\n')
+    optimizations.append(dict(stage='geometry_tilt', basis=None, **tilt))
+    (output / 'optimization.json').write_text(json.dumps(optimizations, indent=2) + '\n')
 
     import eigsep_base
     import eigsep_data
@@ -347,6 +425,9 @@ def main(output, teeth_path, flags, bases, maxiter, concentration_min):
         geometry_candidates=GEOMETRY,
         pipeline='eigsep_data.beam_mapping (tx_background, tx_fit, beam_basis, tx_export)',
         pointing=raw['point_prov']['compact'],
+        pointing_table=dict(path=workspace_path(POINT_TABLE), sha256=digest(POINT_TABLE),
+                            version=raw['point_prov']['version']),
+        tilt=tilt,
         pointing_rule='az_deg: commanded azimuth (motor counts plus one pot offset per anchor segment), '
                       'left-handed about the boresight from pointing table v5; el_deg: IMU',
         convention='highline',
@@ -394,6 +475,10 @@ if __name__ == '__main__':
                         help="antenna and transmitter: memo 002's adopted posterior means, or the release file")
     parser.add_argument('--geometry', choices=['tilt', 'legacy'], default='tilt',
                         help='geometry candidates: axle tilt with the transmitter fixed, or the v0012-v0014 set')
+    parser.add_argument('--pointing', default='curation/pointing_table.parquet',
+                        help='pointing table (v5 or v6): a path, or relative to the campaign')
+    parser.add_argument('--tilt', choices=['fit', 'fixed-imu'], default='fit',
+                        help="axle tilt: fitted with the geometry candidates, or held at the IMU's (v6 tilt_deg)")
     parser.add_argument('--teeth', default=str(CAMPAIGN / 'derived/beam/tooth_selection_v0002.json'))
     parser.add_argument('--flags', default=str(CAMPAIGN / 'derived/beam/raster_flags_v0001.npz'))
     parser.add_argument('--bases', nargs='+', choices=['dpss', 'pca'], default=['dpss', 'pca'])
@@ -406,7 +491,8 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(name)s %(message)s')
     cmin = None if args.concentration_min == 'legacy' else float(args.concentration_min)
     RELEASE = CAMPAIGN / f'imgs/fits/{args.release}_marjum_geometry/shared.json'
-    POSITIONS, GEOMETRY = args.positions, args.geometry
+    POSITIONS, GEOMETRY, TILT = args.positions, args.geometry, args.tilt
+    POINT_TABLE = CAMPAIGN / args.pointing
     for item in args.penalty:
         kind, value = item.split('=')
         assert kind in ('dpss', 'pca') and float(value) in PENALTIES, item
