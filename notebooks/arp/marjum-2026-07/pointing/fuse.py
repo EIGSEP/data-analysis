@@ -21,7 +21,11 @@ Sensor roles for this campaign (established empirically, see MEMO):
     Gravity-referenced absolute elevation, sigma ~0.24 deg, validated against
     ``imu_elevation_deg(accel)`` (median diff 0.016 deg) with
     ``|accel|`` = 9.838 +/- 0.091 m/s^2.  The authority on elevation, and the
-    only sensor that reveals the EL drive failure.
+    only sensor that reveals the EL drive failure.  Since v6 the table's
+    elevation is recomputed from the averaged ``imu_el.accel_*`` through the
+    firmware calibration (the recorder's linear mean of ``el_deg`` breaks near
+    +/-180 deg), and the same reading gives the axle's tilt; see the v6 block
+    below ``EXTRAPOLATION_POLICY``.
 
 ``lidar.distance_m``
     Platform-mounted rangefinder, not a continuous altimeter: 77% of finite
@@ -82,6 +86,9 @@ FLAG_EL_SOLUTION_GLITCH = 1 << 10  # elevation slew faster than the drive can mo
 FLAG_AZ_POT_DIVERGES = 1 << 11  # pot disagrees with commanded az by > AZ_DIVERGE_DEG
 FLAG_AZ_SLEW = 1 << 12          # inside a large az slew; platform may lag or slip
 FLAG_AZ_FUSED_FALLBACK = 1 << 13  # no commanded az (no motor / no anchor); v1 fused az used
+FLAG_IMU_NOT_QUASI_STATIC = 1 << 14  # | |a|/g - 1 | > QUASI_STATIC_TOL: tilt and el not static
+FLAG_EL_WRAP_CORRECTED = 1 << 15  # v6 el_deg differs from the firmware mean by > EL_WRAP_FIX_DEG
+FLAG_EL_UNDEFINED_TILT = 1 << 16  # |tilt_deg| > EL_UNDEFINED_TILT_DEG: gravity near the axle
 
 FLAG_NAMES = {
     FLAG_NO_METADATA: "NO_METADATA",
@@ -98,6 +105,9 @@ FLAG_NAMES = {
     FLAG_AZ_POT_DIVERGES: "AZ_POT_DIVERGES",
     FLAG_AZ_SLEW: "AZ_SLEW",
     FLAG_AZ_FUSED_FALLBACK: "AZ_FUSED_FALLBACK",
+    FLAG_IMU_NOT_QUASI_STATIC: "IMU_NOT_QUASI_STATIC",
+    FLAG_EL_WRAP_CORRECTED: "EL_WRAP_CORRECTED",
+    FLAG_EL_UNDEFINED_TILT: "EL_UNDEFINED_TILT",
 }
 
 # Commanded azimuth (v2). The az and el drives never run together and are
@@ -161,6 +171,158 @@ EL_SLEW_DT_MAX_S = 2.0
 # and FLAG_NO_ESTIMATE is set.  A gap flag is preferable to a smooth fit
 # through absent data.
 EXTRAPOLATION_POLICY = "none: unsupported samples are NaN + NO_ESTIMATE"
+
+# v6: elevation and the axle's tilt from the averaged imu_el accelerations.
+#
+# The recorder averages every float metadata field over the samples of one
+# integration with a linear mean (eigsep_observing io._avg_sensor_values).
+# Near el = +/-180 deg the firmware's imu_el.el_deg samples of +179.9 and
+# -179.9 average to ~0 (or ~+/-60 with three samples): those are the
+# EL_SOLUTION_GLITCH rows of the post-failure park. The averaged
+# accelerations are vectors and unaffected, so v6 recomputes el from them
+# with the firmware's own calibration (picohost.imu_geometry: precondition,
+# then el = atan2(g_y, g_z) with g = M u), which is what the firmware
+# computes per sample before the recorder averages it.
+#
+# The same reading carries the component the firmware discards: along the
+# axle, u . n = sin(tau), the axle's tilt from horizontal. n is the normal of
+# the plane the 07-17 raster's readings trace as the box turns about the
+# axle (picohost.imu_geometry.fit_plane_normal; sensor frame, n_x > 0).
+# tilt_sigma_deg carries the axis's uncertainty, IMU_TILT_AXIS_SIGMA, in
+# quadrature with the accelerometer noise: the 07-17 raster and 07-18
+# re-raise plane normals agree to 0.06 deg; 0.15 deg allows for the raster's
+# 20:54-21:01 dip and a common-method bias. The firmware's 07-09 lab
+# calibration axis, -M[0], is 0.46 deg away (a different hang, fitted to the
+# motor angles assuming zero tilt); it is not a field uncertainty (private
+# notebook 035; CHB, 2026-11-04).
+#
+# The sign: TILT_SIGN = +1 makes tilt_deg the tau of
+# eigsep_data.beam_mapping.TxGeometryModel (Rz(psi) Ry(tau) Rx(el) Rz(az)).
+# The calibration cannot fix it, since it depends on the BNO08x's
+# accelerometer convention (specific force or gravity); it is fixed by the
+# radio data: the IMU-free raster beam fit (empirical_raster_v0017) prefers
+# tau = +4.74 deg, and +1 gives the raster +5.9 deg from the IMU, -1 gives
+# -5.9 deg. If the BNO08x RVC convention is confirmed, record it here.
+TILT_SIGN = +1
+IMU_TILT_AXIS_SIGMA = 0.15
+# Quasi-static: the reading is gravity alone to 2 % (|a| against standard
+# gravity). Beyond it the box accelerates (a swing or a slew inside the
+# integration), and neither tilt_deg nor el_deg is a static angle: those
+# rows are quality 'suspect' (hauling, handling, the 07-18 fall). The test
+# sees vertical acceleration only; horizontal acceleration enters |a| at
+# second order.
+QUASI_STATIC_TOL = 0.02
+# A v6 el_deg that differs from the firmware mean (the v5 value) by more than
+# this is a wrap correction (FLAG_EL_WRAP_CORRECTED). Elsewhere the two agree
+# to ~0.01 deg on static rows.
+EL_WRAP_FIX_DEG = 1.0
+# el = atan2(g_y, g_z) is the angle of gravity's projection on the plane
+# normal to the axle, whose length is cos(tilt). Beyond this tilt gravity
+# lies within 30 deg of the axle, the projection is under half of g, and
+# the angle is ill-conditioned (07-13 18:37-18:45 at 2 m: tilt 11 -> 88 deg
+# during handling on the ground): FLAG_EL_UNDEFINED_TILT, quality 'suspect'.
+EL_UNDEFINED_TILT_DEG = 60.0
+# The axle fit: the 07-17 raster, the window of the reference beam fit
+# empirical_raster_v0017 (its provenance raster_utc), height era ~91m, the
+# only era whose elevation covers the full circle with the axle unchanged.
+# Rows enter if quasi-static and their v6 el is within RASTER_EL_CONSIST_DEG
+# of the firmware's (wrap glitches out, as in notebook 035).
+RASTER_UTC = ("2026-07-17 20:26:00", "2026-07-17 21:28:40")
+RASTER_ERA = "~91m"
+RASTER_EL_CONSIST_DEG = 5.0
+RASTER_MIN_ROWS = 1000
+# Accelerometer noise in tilt: from rows whose el moves < STATIC_EL_STEP_DEG
+# against both same-file neighbours (static), the robust scatter of the
+# row-to-row change of u . n, divided by sqrt(2).
+STATIC_EL_STEP_DEG = 0.1
+
+
+def imu_unit(accel, bias):
+    """Preconditioned unit accelerations, (n, 3), NaN where unusable.
+
+    ``picohost.imu_geometry.precondition`` (subtract the calibration bias,
+    normalise) on every row whose three components are finite and whose
+    norm is non-zero (a faulted IMU streams [0, 0, 0]).
+    """
+    from picohost import imu_geometry
+
+    a = np.asarray(accel, float)
+    out = np.full(a.shape, np.nan)
+    ok = np.isfinite(a).all(axis=1)
+    ok[ok] = np.linalg.norm(a[ok] - np.asarray(bias, float), axis=1) > 1e-9
+    if ok.any():
+        out[ok] = imu_geometry.precondition(a[ok], bias)
+    return out
+
+
+def el_from_unit(u, M):
+    """Elevation (deg) per row: ``atan2(g_y, g_z)``, ``g = M u``.
+
+    The vectorised ``picohost.imu_geometry.el_from_imu``, wrapped into
+    [-180, 180) like the rest of the table; NaN where ``u`` is.
+    """
+    g = np.asarray(u, float) @ np.asarray(M, float).T
+    return wrap180(np.degrees(np.arctan2(g[:, 1], g[:, 2])))
+
+
+def axle_normal(u):
+    """The rotation axis of unit readings, sensor frame, with n_x > 0.
+
+    ``picohost.imu_geometry.fit_plane_normal`` (smallest PCA axis).
+    """
+    from picohost import imu_geometry
+
+    u = np.asarray(u, float)
+    u = u[np.isfinite(u).all(axis=1)]
+    n = np.asarray(imu_geometry.fit_plane_normal(u), float)
+    return n * np.sign(n[0])
+
+
+def axle_tilt(u, n, sign=TILT_SIGN):
+    """The axle's tilt from horizontal per row, deg: ``s asin(u . n)``."""
+    n = np.asarray(n, float) / np.linalg.norm(n)
+    return sign * np.degrees(np.arcsin(np.clip(np.asarray(u, float) @ n,
+                                               -1.0, 1.0)))
+
+
+def quasi_static(accel, tol=QUASI_STATIC_TOL, g=9.80665):
+    """True where | |a|/g - 1 | <= tol; False where a is not finite."""
+    a = np.asarray(accel, float)
+    mag = np.linalg.norm(a, axis=1)
+    out = np.zeros(a.shape[0], bool)
+    ok = np.isfinite(mag)
+    out[ok] = np.abs(mag[ok] / g - 1.0) <= tol
+    return out
+
+
+def static_rows(el_deg, file_index, step_deg=STATIC_EL_STEP_DEG):
+    """Rows whose el moves < ``step_deg`` against both same-file neighbours."""
+    el = np.asarray(el_deg, float)
+    fi = np.asarray(file_index)
+    d = np.abs(wrap180(np.diff(el)))
+    ok = (fi[1:] == fi[:-1]) & np.isfinite(d) & (d < step_deg)
+    out = np.zeros(el.size, bool)
+    out[1:-1] = ok[:-1] & ok[1:]
+    return out
+
+
+def tilt_noise_deg(u, n, static, file_index):
+    """Accelerometer noise of one row's tilt, deg (see STATIC_EL_STEP_DEG).
+
+    The robust scatter (1.4826 MAD) of the change of ``u . n`` between
+    consecutive static rows of one file, over sqrt(2). Returns
+    ``(sigma_deg, n_pairs)``; NaN with fewer than 100 pairs.
+    """
+    x = np.asarray(u, float) @ (np.asarray(n, float) / np.linalg.norm(n))
+    fi = np.asarray(file_index)
+    st = np.asarray(static, bool)
+    pair = st[1:] & st[:-1] & (fi[1:] == fi[:-1])
+    d = np.diff(x)[pair]
+    d = d[np.isfinite(d)]
+    if d.size < 100:
+        return float("nan"), int(d.size)
+    mad = 1.4826 * np.median(np.abs(d - np.median(d)))
+    return float(np.degrees(mad / np.sqrt(2.0))), int(d.size)
 
 
 def wrap180(x):
@@ -535,8 +697,16 @@ def detect_uncommanded(imu_el_deg, motor_el_steps, window=200,
     return out
 
 
-def fuse_elevation(imu_el_deg, motor_el_steps):
-    """Elevation from the IMU, with a flagged motor-only fallback."""
+def fuse_elevation(imu_el_deg, motor_el_steps, uncommanded_el_deg=None):
+    """Elevation from the IMU, with a flagged motor-only fallback.
+
+    ``uncommanded_el_deg`` (v6) is the elevation ``detect_uncommanded``
+    runs on: the table passes the accelerometer el where the firmware el
+    exists (NaN elsewhere, never the motor fallback). Unwrapping the
+    firmware mean's wrap glitches near +/-180 deg spans 360-1800 deg in a
+    window and set UNCOMMANDED_MOTION on parks and commanded slews. The
+    default (None) runs it on ``imu_el_deg``, as v5 did.
+    """
     imu = np.asarray(imu_el_deg, float)
     motor_deg = wrap180(MOTOR_DEG_PER_STEP * np.asarray(motor_el_steps, float))
     n = imu.size
@@ -548,7 +718,8 @@ def fuse_elevation(imu_el_deg, motor_el_steps):
 
     stuck = detect_el_stuck(imu, motor_el_steps)
     flags[stuck] |= FLAG_EL_STUCK
-    flags[detect_uncommanded(imu, motor_el_steps)] |= FLAG_UNCOMMANDED
+    el_unc = imu if uncommanded_el_deg is None else uncommanded_el_deg
+    flags[detect_uncommanded(el_unc, motor_el_steps)] |= FLAG_UNCOMMANDED
 
     # Once the EL drive has demonstrably failed, every later sample is
     # parked-or-suspect: mark the whole tail so no consumer fits through it.
