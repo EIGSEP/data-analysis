@@ -167,14 +167,19 @@ def regime_of_files(files, campaign=None):
 TCAL_KEY = "4"
 
 
-def tcal_coefficients(t, version, campaign=None, chunk=1000):
-    """``(scale, offset, freqs_mhz)`` of ``tcal@<version>`` at Unix times ``t``.
+def tcal_coefficients(
+    t, version, campaign=None, chunk=1000, t_load_window=None
+):
+    """``(scale, offset, freqs_mhz)`` of ``tcal@<version>`` at times ``t``.
 
-    The coefficients of T = scale * P + offset at plane P, on every correlator
-    channel, from ``eigsep_data``'s tcal product: the same interpolation between
-    calibration visits and S11 sweeps, and the same nearest load thermistor,
-    that ``Bundle.calibrated`` applies to each row. NaN wherever tcal does not
-    reach."""
+    Coefficients of T = scale * P + offset at plane P on every correlator
+    channel, from ``eigsep_data``'s tcal product. Interpolation between visits
+    and S11 sweeps matches ``Bundle.calibrated``. By default, use the nearest
+    load-thermistor reading. With
+    ``t_load_window=(start, stop)``, broadcast its edges to ``t`` and use the
+    mean of finite readings within the inclusive window. Empty/NaN windows
+    use tcal's nearest-reading fallback. NaN wherever tcal does not reach.
+    """
     from eigsep_data.bundle import Campaign
     from eigsep_data.products.base import get
 
@@ -189,31 +194,56 @@ def tcal_coefficients(t, version, campaign=None, chunk=1000):
     nchan = sols["freqs"].size
     scale = np.full((t.size, nchan), np.nan)
     offset = np.full((t.size, nchan), np.nan)
+    win = None
+    if t_load_window is not None:
+        start, stop = t_load_window
+        win = tuple(
+            np.broadcast_to(np.asarray(w, float), t.shape)
+            for w in (start, stop)
+        )
     for i in range(0, t.size, chunk):
-        out = tc.fetch(camp, version, None, None, TCAL_KEY, None, t[i:i + chunk])
-        scale[i:i + chunk] = out["scale"]
-        offset[i:i + chunk] = out["offset"]
+        kw = (
+            {}
+            if win is None
+            else {
+                "t_load_window": (win[0][i : i + chunk], win[1][i : i + chunk])
+            }
+        )
+        out = tc.fetch(
+            camp, version, None, None, TCAL_KEY, None, t[i : i + chunk], **kw
+        )
+        scale[i : i + chunk] = out["scale"]
+        offset[i : i + chunk] = out["offset"]
     return scale, offset, np.asarray(sols["freqs"], float)
 
 
 def calibrate(z, version, campaign=None):
     """Kelvin at plane P for a ``raw_binned`` product, from ``tcal@<version>``.
 
-    ``z`` is the product's arrays (``t``, ``chans``, ``yc``, ``nc``, ``sem``).
+    ``z`` holds ``t``, row edges ``t0``/``t1``, ``chans``, ``yc``, ``nc``,
+    and ``sem``.
     Each offset channel's bin mean is calibrated with that channel's
     coefficients at the bin's mean time, then the channels are averaged with
     their unmasked sample counts as weights, as the binner averages power.
     The coefficients move over hours (between calibration visits), so one
-    time per bin stands for its rows.
+    time per bin stands for its rows, except the load temperature: use the
+    mean of all finite thermistor readings between ``t0`` and ``t1``,
+    inclusive. A single reading's error otherwise enters the offsets across
+    frequencies. Coefficients are still evaluated at bin times; full native-row
+    calibration is separate work.
 
-    Returns a dict of (nbin, nfreq) arrays: ``T``; ``sigma``, the bin's
-    standard error ``sem`` times ``scale`` (the offset adds no scatter);
+    Returns a dict of (nbin, nfreq) arrays: ``T``; ``sigma``, the inherited
+    ``sem`` times ``scale`` (conditional on calibration and thermistor
+    readings; their remaining uncertainty is excluded, and the inherited
+    SEM is not a newly validated radiometer prediction);
     ``scale`` and ``offset``, the sample-weighted mean coefficients, so that
     ``T`` ~ ``scale * y + offset``. A bin is NaN at a frequency where tcal
-    does not cover any of its unmasked channels."""
-    s, o, _ = tcal_coefficients(z["t"], version, campaign)
+    lacks calibration for any of its unmasked channels."""
+    s, o, _ = tcal_coefficients(
+        z["t"], version, campaign, t_load_window=(z["t0"], z["t1"])
+    )
     cols = np.asarray(z["chans"])[:, None] + RAW_CHANNEL_OFFSETS[None, :]
-    sc, oc = s[:, cols], o[:, cols]                      # (nbin, nfreq, noff)
+    sc, oc = s[:, cols], o[:, cols]  # (nbin, nfreq, noff)
     w = np.asarray(z["nc"], float)
     yc = np.asarray(z["yc"], float)
     use = w > 0
@@ -228,4 +258,9 @@ def calibrate(z, version, campaign=None):
     T, scale, offset = wmean(sc * yc + oc), wmean(sc), wmean(oc)
     for a in (T, scale, offset):
         a[bad | (wsum == 0)] = np.nan
-    return {"T": T, "sigma": scale * np.asarray(z["sem"], float), "scale": scale, "offset": offset}
+    return {
+        "T": T,
+        "sigma": scale * np.asarray(z["sem"], float),
+        "scale": scale,
+        "offset": offset,
+    }
